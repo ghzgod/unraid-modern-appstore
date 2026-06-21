@@ -1,0 +1,109 @@
+Menu="Utilities"
+Title="App Store GitHub Addon"
+Icon="star"
+---
+<?php
+/* App Store GitHub Addon — settings page (Settings -> Utilities -> App Store GitHub Addon). */
+require_once "$docroot/plugins/dynamix/include/Wrappers.php";
+
+$gas_dir  = "/boot/config/plugins/appstore.github.addon";
+$gas_cfg  = "$gas_dir/appstore.github.addon.cfg";
+$gas_cron = "$gas_dir/appstore.github.addon.cron";
+$gas_php  = "/usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php";
+$gas_msg  = "";
+
+if (!is_dir($gas_dir)) @mkdir($gas_dir, 0755, true);
+
+function gas_write_cfg($path, $token, $service, $interval, $datadir) {
+    $token   = str_replace(["\"", "\n", "\r"], "", $token);
+    $datadir = rtrim(str_replace(["\"", "\n", "\r"], "", $datadir), '/');
+    if ($datadir === '') $datadir = '/mnt/user/appdata/appstore_github_addon';
+    $service = ($service === 'enabled') ? 'enabled' : 'disabled';
+    $interval = max(1, (int)$interval);
+    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nINTERVAL_HOURS=\"$interval\"\nDATA_DIR=\"$datadir\"\n";
+    file_put_contents($path, $out);
+    @chmod($path, 0600);
+    @mkdir($datadir, 0755, true);
+}
+
+function gas_write_cron($path, $interval) {
+    $interval = max(1, (int)$interval);
+    $line = "0 */$interval * * * php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php >/dev/null 2>&1\n";
+    file_put_contents($path, $line);
+    @exec("/usr/local/sbin/update_cron 2>/dev/null");
+}
+
+if ($_POST) {
+    if (isset($_POST['SAVE'])) {
+        $token    = $_POST['TOKEN'] ?? '';
+        $service  = $_POST['SERVICE'] ?? 'disabled';
+        $interval = $_POST['INTERVAL_HOURS'] ?? 24;
+        $datadir  = $_POST['DATA_DIR'] ?? '';
+        gas_write_cfg($gas_cfg, $token, $service, $interval, $datadir);
+        gas_write_cron($gas_cron, $interval);
+        $gas_msg = "Settings saved." . (trim($token) === '' ? " WARNING: no token set — star counts are disabled." : "");
+    }
+    if (isset($_POST['REFRESH'])) {
+        @exec("nohup php " . escapeshellarg($gas_php) . " >/dev/null 2>&1 &");
+        $gas_msg = "Refresh started in the background. Reload this page in a few minutes for updated stats.";
+    }
+}
+
+$cfg = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
+$token    = $cfg['TOKEN'] ?? '';
+$service  = $cfg['SERVICE'] ?? 'enabled';
+$interval = $cfg['INTERVAL_HOURS'] ?? '24';
+$datadir  = $cfg['DATA_DIR'] ?? '/mnt/user/appdata/appstore_github_addon';
+
+$status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/appstore.github.addon/status.json"), true) ?: [];
+?>
+
+<div markdown="1">
+<?php if ($gas_msg): ?>
+<span class="<?= (strpos($gas_msg,'WARNING')!==false) ? 'orange-text' : 'green-text' ?>"><?= htmlspecialchars($gas_msg) ?></span>
+<?php endif; ?>
+</div>
+
+<form markdown="1" method="POST" action="/Settings/AppStoreGitHubAddon">
+
+_(Enable App Store GitHub Addon)_:
+: <select name="SERVICE" size="1">
+    <?= mk_option($service, "enabled", "Yes") ?>
+    <?= mk_option($service, "disabled", "No") ?>
+  </select>
+
+_(GitHub Personal Access Token)_:
+: <input type="password" name="TOKEN" value="<?= htmlspecialchars($token) ?>" style="width:520px;max-width:90%;" autocomplete="off" spellcheck="false">
+  <br><span class="description">Required — without a token the GitHub API allows only 60 requests/hour, far too few for the catalog (a token gives 5,000/hour).
+  <br><b>How to get one:</b> open <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a> (Settings → Developer settings → Personal access tokens → <i>Generate new token (classic)</i>), give it any name, leave <b>all scopes unchecked</b> (it only reads public star counts), click <b>Generate token</b>, then copy the <code>ghp_…</code> value here. The Apps page shows a yellow warning while this is empty.</span>
+
+_(Refresh interval, hours)_:
+: <input type="number" name="INTERVAL_HOURS" min="1" max="168" value="<?= htmlspecialchars($interval) ?>" style="width:80px;">
+
+_(Database directory)_:
+: <input type="text" name="DATA_DIR" value="<?= htmlspecialchars($datadir) ?>" style="width:520px;max-width:90%;" spellcheck="false">
+  <br><span class="description">Where the star database (stars.db) and JSON live. Defaults to this plugin's appdata folder on the cache pool so the data persists across reboots. Change only if you want it elsewhere; the folder is created automatically.</span>
+
+&nbsp;
+: <span class="buttons-spaced">
+    <input type="submit" name="SAVE" value="_(Apply)_">
+    <input type="submit" name="REFRESH" value="_(Refresh now)_">
+    <input type="button" value="_(Done)_" onclick="done()">
+  </span>
+
+</form>
+
+<div class="title"><span class="left">Last scan</span></div>
+<?php if ($status): ?>
+<table class="asga-status" style="border-collapse:collapse;">
+  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Ran at</td><td><?= $status['ran_at'] ? date('Y-m-d H:i:s', $status['ran_at']) : '—' ?></td></tr>
+  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Repos with a GitHub link</td><td><?= (int)($status['repos_total'] ?? 0) ?></td></tr>
+  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Updated</td><td><?= (int)($status['ok'] ?? 0) ?></td></tr>
+  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Unchanged</td><td><?= (int)($status['not_modified'] ?? 0) ?></td></tr>
+  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Missing repos</td><td><?= (int)($status['missing'] ?? 0) ?></td></tr>
+  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Rate limit remaining</td><td><?= isset($status['rate_remaining']) ? (int)$status['rate_remaining'] : '—' ?></td></tr>
+  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Errors</td><td><?= count($status['errors'] ?? []) ?></td></tr>
+</table>
+<?php else: ?>
+<div>No scan has run yet. Click <b>Refresh now</b> to populate star counts.</div>
+<?php endif; ?>

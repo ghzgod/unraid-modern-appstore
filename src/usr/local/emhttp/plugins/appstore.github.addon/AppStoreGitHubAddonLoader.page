@@ -1,0 +1,23 @@
+Menu="Buttons:99"
+Link="nav-user"
+---
+<?php
+/* App Store GitHub Addon — global loader.
+ * Rides the same "Buttons" hook the custom.css plugin uses: this page body is
+ * emitted into the chrome of EVERY webGUI page. We output the inject script
+ * (which self-limits to /Apps) plus a tiny config object so the front-end knows
+ * whether a token is configured (drives the yellow no-token warning). Emits
+ * nothing when the plugin is disabled.
+ */
+$gas_cfg = "/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg";
+$gas = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
+if (($gas['SERVICE'] ?? 'disabled') === 'enabled') {
+    $gas_base = '/usr/local/emhttp/plugins/appstore.github.addon';
+    $gas_jsv  = @filemtime("$gas_base/inject.js")  ?: time();
+    $gas_cssv = @filemtime("$gas_base/inject.css") ?: time();
+    $gas_has  = !empty(trim($gas['TOKEN'] ?? '')) ? 'true' : 'false';
+    echo "<script>window.__appStoreGhAddon={hasToken:$gas_has,settingsUrl:'/Settings/AppStoreGitHubAddon'};</script>\n";
+    echo "<link rel='stylesheet' type='text/css' href='/plugins/appstore.github.addon/inject.css?v=$gas_cssv'>\n";
+    echo "<script src='/plugins/appstore.github.addon/inject.js?v=$gas_jsv'></script>\n";
+}
+?>

@@ -1,0 +1,1079 @@
+<?xml version='1.0' standalone='yes'?>
+<!DOCTYPE PLUGIN [
+<!ENTITY name    "appstore.github.addon">
+<!ENTITY author  "ghzgod">
+<!ENTITY version "2026.06.22">
+<!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/appstore-github-addon/main/appstore.github.addon.plg">
+<!ENTITY support "https://github.com/ghzgod/appstore-github-addon">
+]>
+<PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" min="6.12" icon="star" support="&support;">
+
+<CHANGES>
+##2026.06.22
+- GitHub star counts on every CA app tile.
+- "GitHub" view: the real App Store catalog, sortable by stars, trending, or newest.
+- Per-user GitHub token (set in Settings); no secrets shipped.
+</CHANGES>
+
+<FILE Run="/bin/bash">
+<INLINE>
+<![CDATA[
+mkdir -p /usr/local/emhttp/plugins/appstore.github.addon
+mkdir -p /boot/config/plugins/appstore.github.addon
+]]>
+</INLINE>
+</FILE>
+
+<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php">
+<INLINE>
+<![CDATA[
+<?php
+/**
+ * App Store GitHub Addon — star fetcher.
+ *
+ * Reads the Community Applications catalog cache READ-ONLY, derives owner/repo
+ * from each app's Project/Support GitHub URL, queries the GitHub API (token +
+ * fabricated User-Agent + ETag), and caches results in SQLite. Exports:
+ *   - stars.json : compact name->stars map for the badge painter
+ *   - apps.json  : full catalog (name, path, icon, author, category, stars,
+ *                  downloads, trend deltas) for the dedicated GitHub view
+ * Records a star-history snapshot per run so trending (1d/1w/1m/1y) can be
+ * computed over time.
+ *
+ * Persistent data (DB + JSON) lives in a configurable appdata dir on the cache
+ * SSD so it survives reboots; served copies go to the tmpfs webroot. curl_multi
+ * keep-alive for speed; a flock guarantees one scan at a time.
+ *
+ * NEVER writes to any CA-owned path. NEVER logs the token. UA is fabricated.
+ */
+
+error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
+
+const UA = 'unraid-app-stars/1.0 (+https://example.com)';
+const PLUGIN = 'appstore.github.addon';
+
+$cfgPath = '/boot/config/plugins/' . PLUGIN . '/' . PLUGIN . '.cfg';
+
+$defaults = [
+    'cfg'         => $cfgPath,
+    'data-dir'    => '',   // resolved below (cfg DATA_DIR or appdata default)
+    'db'          => '',
+    'out-dir'     => '/usr/local/emhttp/plugins/' . PLUGIN,
+    'ca-cache'    => '/tmp/community.applications/tempFiles/templates_new.json',
+    'limit'       => '0',
+    'concurrency' => '8',
+    'manual'      => '0',  // 1 = invoked by the Refresh button (records manual time)
+    'sg-limit'    => '0',  // cap repos for the stargazer-trend backfill (0 = all)
+];
+
+// ---- arg parsing -----------------------------------------------------------
+$opt = $defaults;
+for ($i = 1; $i < $argc; $i++) {
+    if (substr($argv[$i], 0, 2) === '--') {
+        $key = substr($argv[$i], 2);
+        $val = $argv[$i + 1] ?? '';
+        if (array_key_exists($key, $opt)) { $opt[$key] = $val; $i++; }
+    }
+}
+$limit       = (int)$opt['limit'];
+$concurrency = max(1, min(16, (int)$opt['concurrency']));
+
+// ---- read cfg early (TOKEN + DATA_DIR) -------------------------------------
+$cfg = is_file($opt['cfg']) ? @parse_ini_file($opt['cfg']) : [];
+$token = trim($cfg['TOKEN'] ?? '');
+$cfgDataDir = trim($cfg['DATA_DIR'] ?? '');
+
+$appdataDefault = '/mnt/user/appdata/appstore_github_addon';
+$dataDir = $opt['data-dir'] !== '' ? $opt['data-dir'] : ($cfgDataDir !== '' ? $cfgDataDir : $appdataDefault);
+$dataDir = rtrim($dataDir, '/');
+$db_path = $opt['db'] !== '' ? $opt['db'] : ($dataDir . '/stars.db');
+$outDir  = rtrim($opt['out-dir'], '/');
+@mkdir($dataDir, 0755, true);
+
+$status = [
+    'ran_at' => time(), 'repos_total' => 0, 'ok' => 0, 'not_modified' => 0,
+    'missing' => 0, 'rate_remaining' => null, 'errors' => [],
+];
+
+function write_status(array $status, string $outDir, string $dataDir): void {
+    $json = json_encode($status, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+    @file_put_contents($outDir . '/status.json', $json);
+    @file_put_contents($dataDir . '/status.json', $json);
+}
+function write_progress(string $outDir, bool $running, int $done, int $total, array $status): void {
+    @file_put_contents($outDir . '/progress.json', json_encode([
+        'running' => $running, 'done' => $done, 'total' => $total,
+        'ok' => $status['ok'], 'not_modified' => $status['not_modified'],
+        'missing' => $status['missing'], 'errors' => count($status['errors']),
+        'updated_at' => time(),
+    ], JSON_UNESCAPED_SLASHES));
+}
+
+// ---- single-instance lock --------------------------------------------------
+$lockFh = @fopen($dataDir . '/fetch.lock', 'c');
+if ($lockFh && !flock($lockFh, LOCK_EX | LOCK_NB)) {
+    fwrite(STDERR, "fetch_stars: another scan is already running; exiting.\n");
+    exit(0);
+}
+if ((int)$opt['manual'] === 1) {
+    @file_put_contents($dataDir . '/last_manual.json', json_encode(['ts' => time()]));
+}
+
+if ($token === '') {
+    $status['errors'][] = 'No GitHub token configured.';
+    write_status($status, $outDir, $dataDir);
+    write_progress($outDir, false, 0, 0, $status);
+    fwrite(STDERR, "fetch_stars: no token; aborting.\n");
+    exit(0);
+}
+if (!is_file($opt['ca-cache'])) {
+    $status['errors'][] = 'CA catalog cache not found at ' . $opt['ca-cache'];
+    write_status($status, $outDir, $dataDir);
+    write_progress($outDir, false, 0, 0, $status);
+    exit(0);
+}
+$apps = @unserialize(file_get_contents($opt['ca-cache']));   // read-only
+if (!is_array($apps)) {
+    $status['errors'][] = 'Failed to unserialize CA catalog cache.';
+    write_status($status, $outDir, $dataDir);
+    write_progress($outDir, false, 0, 0, $status);
+    exit(0);
+}
+
+// ---- derive owner/repo per app ---------------------------------------------
+function derive_repo(array $app): ?array {
+    foreach (['Project', 'Support'] as $field) {
+        $url = $app[$field] ?? '';
+        if (!$url) continue;
+        if (preg_match('~github\.com/([^/]+)/([^/#?\s]+)~i', $url, $m)) {
+            $repo = preg_replace('~\.git$~', '', $m[2]);
+            if (strtolower($repo) === 'issues') continue;
+            return ['owner' => $m[1], 'repo' => $repo, 'full' => strtolower($m[1] . '/' . $repo)];
+        }
+    }
+    return null;
+}
+
+$repoMeta = [];      // full => ['owner','repo']
+$appRepoMap = [];    // app index => full
+foreach ($apps as $idx => $app) {
+    if (!is_array($app)) continue;
+    $d = derive_repo($app);
+    if (!$d) continue;
+    $repoMeta[$d['full']] = ['owner' => $d['owner'], 'repo' => $d['repo']];
+    $appRepoMap[$idx] = $d['full'];
+}
+$status['repos_total'] = count($repoMeta);
+
+// ---- SQLite ----------------------------------------------------------------
+if (!class_exists('SQLite3')) {
+    $status['errors'][] = 'SQLite3 extension unavailable.';
+    write_status($status, $outDir, $dataDir);
+    exit(1);
+}
+try { $db = new SQLite3($db_path); $db->busyTimeout(8000); }
+catch (Throwable $e) {
+    $status['errors'][] = 'SQLite open failed: ' . $e->getMessage();
+    write_status($status, $outDir, $dataDir);
+    exit(1);
+}
+$db->exec('CREATE TABLE IF NOT EXISTS repos (
+    repo TEXT PRIMARY KEY, owner TEXT, name TEXT,
+    stars INTEGER, etag TEXT, http_status INTEGER, fetched_at INTEGER)');
+$db->exec('CREATE TABLE IF NOT EXISTS star_history (repo TEXT, ts INTEGER, stars INTEGER)');
+$db->exec('CREATE INDEX IF NOT EXISTS idx_hist ON star_history(repo, ts)');
+
+function db_get(SQLite3 $db, string $repo): ?array {
+    $s = $db->prepare('SELECT stars, etag FROM repos WHERE repo = :r');
+    $s->bindValue(':r', $repo, SQLITE3_TEXT);
+    return $s->execute()->fetchArray(SQLITE3_ASSOC) ?: null;
+}
+function db_upsert(SQLite3 $db, string $repo, string $owner, string $name, ?int $stars, ?string $etag, int $hs, int $ts): void {
+    $s = $db->prepare('INSERT INTO repos (repo, owner, name, stars, etag, http_status, fetched_at)
+        VALUES (:repo,:owner,:name,:stars,:etag,:hs,:ts)
+        ON CONFLICT(repo) DO UPDATE SET owner=:owner,name=:name,stars=:stars,etag=:etag,http_status=:hs,fetched_at=:ts');
+    $s->bindValue(':repo', $repo, SQLITE3_TEXT); $s->bindValue(':owner', $owner, SQLITE3_TEXT);
+    $s->bindValue(':name', $name, SQLITE3_TEXT);
+    $s->bindValue(':stars', $stars, $stars === null ? SQLITE3_NULL : SQLITE3_INTEGER);
+    $s->bindValue(':etag', $etag, $etag === null ? SQLITE3_NULL : SQLITE3_TEXT);
+    $s->bindValue(':hs', $hs, SQLITE3_INTEGER); $s->bindValue(':ts', $ts, SQLITE3_INTEGER);
+    $s->execute();
+}
+
+// ---- concurrent scan (curl_multi + pooled keep-alive) ----------------------
+$starsByRepo = [];
+$queue = array_keys($repoMeta);
+if ($limit > 0) $queue = array_slice($queue, 0, $limit);
+$total = count($queue);
+$stop = false; $scanned = 0;
+write_progress($outDir, true, 0, $total, $status);
+
+$mh = curl_multi_init();
+$inflight = []; $hdr = [];
+$makeHandle = function (string $full) use (&$repoMeta, &$inflight, &$hdr, $mh, $token, $db) {
+    $m = $repoMeta[$full]; $row = db_get($db, $full);
+    $ch = curl_init('https://api.github.com/repos/' . rawurlencode($m['owner']) . '/' . rawurlencode($m['repo']));
+    $h = ['Authorization: Bearer ' . $token, 'User-Agent: ' . UA,
+          'Accept: application/vnd.github+json', 'X-GitHub-Api-Version: 2022-11-28'];
+    if (!empty($row['etag'])) $h[] = 'If-None-Match: ' . $row['etag'];
+    $id = spl_object_id($ch); $hdr[$id] = [];
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true, CURLOPT_HTTPHEADER => $h,
+        CURLOPT_TIMEOUT => 30, CURLOPT_CONNECTTIMEOUT => 10,
+        CURLOPT_FOLLOWLOCATION => true, CURLOPT_MAXREDIRS => 5,
+        CURLOPT_HEADERFUNCTION => function ($c, $line) use (&$hdr, $id) {
+            $p = explode(':', $line, 2);
+            if (count($p) === 2) $hdr[$id][strtolower(trim($p[0]))] = trim($p[1]);
+            return strlen($line);
+        },
+    ]);
+    $inflight[$id] = ['full' => $full, 'row' => $row, 'ch' => $ch];
+    curl_multi_add_handle($mh, $ch);
+};
+for ($i = 0; $i < $concurrency && $queue; $i++) $makeHandle(array_shift($queue));
+
+do {
+    curl_multi_exec($mh, $running);
+    if ($running) curl_multi_select($mh, 1.0);
+    while ($done = curl_multi_info_read($mh)) {
+        $ch = $done['handle']; $id = spl_object_id($ch);
+        $ctx = $inflight[$id] ?? null; unset($inflight[$id]);
+        $heads = $hdr[$id] ?? []; unset($hdr[$id]);
+        $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $body = curl_multi_getcontent($ch); $err = curl_error($ch);
+        curl_multi_remove_handle($mh, $ch); curl_close($ch);
+        if (!$ctx) continue;
+        $full = $ctx['full']; $row = $ctx['row']; $m = $repoMeta[$full]; $scanned++;
+        if (isset($heads['x-ratelimit-remaining'])) $status['rate_remaining'] = (int)$heads['x-ratelimit-remaining'];
+
+        if ($code === 200) {
+            $stars = (int)((json_decode($body, true)['stargazers_count']) ?? 0);
+            db_upsert($db, $full, $m['owner'], $m['repo'], $stars, $heads['etag'] ?? ($row['etag'] ?? null), 200, time());
+            $starsByRepo[$full] = $stars; $status['ok']++;
+        } elseif ($code === 304) {
+            $stars = (int)($row['stars'] ?? 0);
+            db_upsert($db, $full, $m['owner'], $m['repo'], $stars, $row['etag'] ?? null, 304, time());
+            $starsByRepo[$full] = $stars; $status['not_modified']++;
+        } elseif ($code === 404 || $code === 451) {
+            db_upsert($db, $full, $m['owner'], $m['repo'], null, $row['etag'] ?? null, $code, time());
+            $status['missing']++;
+        } elseif ($code === 403 || $code === 429) {
+            if (!$stop) $status['errors'][] = "Rate limited ($code) after $scanned repos; resuming next run via ETags.";
+            $stop = true;
+        } else {
+            $status['errors'][] = "HTTP $code for $full" . ($err ? " ($err)" : '');
+            if (isset($row['stars'])) $starsByRepo[$full] = (int)$row['stars'];
+        }
+        if ($scanned % 25 === 0) write_progress($outDir, true, $scanned, $total, $status);
+        if (!$stop && $queue) $makeHandle(array_shift($queue));
+    }
+} while ($running || !empty($inflight) || (!$stop && $queue));
+foreach ($inflight as $ctx) { @curl_multi_remove_handle($mh, $ctx['ch']); @curl_close($ctx['ch']); }
+curl_multi_close($mh);
+
+// merge in repos not scanned this run
+$res = $db->query('SELECT repo, stars FROM repos WHERE stars IS NOT NULL');
+while ($ar = $res->fetchArray(SQLITE3_ASSOC)) {
+    if (!isset($starsByRepo[$ar['repo']])) $starsByRepo[$ar['repo']] = (int)$ar['stars'];
+}
+
+// ---- star-history snapshot (~1/day per repo) + trend computation -----------
+$now = time();
+$db->exec('BEGIN');
+$ins = $db->prepare('INSERT INTO star_history (repo, ts, stars) VALUES (:r,:t,:s)');
+$lastQ = $db->prepare('SELECT MAX(ts) AS m FROM star_history WHERE repo = :r');
+foreach ($starsByRepo as $repo => $st) {
+    $lastQ->reset(); $lastQ->bindValue(':r', $repo, SQLITE3_TEXT);
+    $last = (int)($lastQ->execute()->fetchArray(SQLITE3_ASSOC)['m'] ?? 0);
+    if ($last < $now - 20 * 3600) {
+        $ins->reset();
+        $ins->bindValue(':r', $repo, SQLITE3_TEXT);
+        $ins->bindValue(':t', $now, SQLITE3_INTEGER);
+        $ins->bindValue(':s', (int)$st, SQLITE3_INTEGER);
+        $ins->execute();
+    }
+}
+$db->exec('DELETE FROM star_history WHERE ts < ' . ($now - 400 * 86400));
+$db->exec('COMMIT');
+
+$baseQ = $db->prepare('SELECT stars FROM star_history WHERE repo=:r AND ts<=:c ORDER BY ts DESC LIMIT 1');
+function trend_at(SQLite3Stmt $baseQ, string $repo, int $cutoff): ?int {
+    $baseQ->reset(); $baseQ->bindValue(':r', $repo, SQLITE3_TEXT); $baseQ->bindValue(':c', $cutoff, SQLITE3_INTEGER);
+    $row = $baseQ->execute()->fetchArray(SQLITE3_ASSOC);
+    return $row ? (int)$row['stars'] : null;
+}
+function delta(?int $base, int $cur): ?int { return $base === null ? null : ($cur - $base); }
+
+/**
+ * Stargazer-timestamp trend backfill. Fetches each repo's newest stargazer page
+ * (per_page=100, the last page) with star+json so every star carries starred_at,
+ * then counts stars gained in the last 1d/7d/30d/365d. Repos above ~40k stars
+ * exceed GitHub's stargazer pagination cap (~400 pages) so they're skipped here
+ * and fall back to the daily snapshots. Returns full => [c1,c7,c30,c365].
+ */
+function backfill_trends(array $repoMeta, array $starsByRepo, string $token, string $outDir, array &$status, int $sgLimit): array {
+    $now = time();
+    $periods = [86400, 7 * 86400, 30 * 86400, 365 * 86400];
+    $trends = [];
+    $list = [];
+    foreach ($starsByRepo as $full => $s) {
+        if ($s <= 0 || $s > 40000) continue;
+        $m = $repoMeta[$full] ?? null; if (!$m) continue;
+        $list[] = ['full' => $full, 'owner' => $m['owner'], 'name' => $m['repo'], 'page' => max(1, (int)ceil($s / 100))];
+    }
+    if ($sgLimit > 0) $list = array_slice($list, 0, $sgLimit);
+    $total = count($list); $i = 0; $done = 0; $stop = false; $C = 8;
+    if ($total === 0) return $trends;
+
+    $mh = curl_multi_init(); $inflight = [];
+    $add = function ($it) use (&$inflight, $mh, $token) {
+        $url = 'https://api.github.com/repos/' . rawurlencode($it['owner']) . '/' . rawurlencode($it['name']) .
+               '/stargazers?per_page=100&page=' . $it['page'];
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token, 'User-Agent: ' . UA,
+                'Accept: application/vnd.github.star+json', 'X-GitHub-Api-Version: 2022-11-28'],
+        ]);
+        $inflight[spl_object_id($ch)] = $it['full'];
+        curl_multi_add_handle($mh, $ch);
+    };
+    for (; $i < $C && $i < $total; $i++) $add($list[$i]);
+    do {
+        curl_multi_exec($mh, $run);
+        if ($run) curl_multi_select($mh, 1.0);
+        while ($d = curl_multi_info_read($mh)) {
+            $ch = $d['handle']; $id = spl_object_id($ch); $full = $inflight[$id] ?? null; unset($inflight[$id]);
+            $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); $body = curl_multi_getcontent($ch);
+            curl_multi_remove_handle($mh, $ch); curl_close($ch);
+            if ($full) {
+                $done++;
+                if ($code === 200) {
+                    $arr = json_decode($body, true); $c = [0, 0, 0, 0];
+                    if (is_array($arr)) foreach ($arr as $it) {
+                        $t = isset($it['starred_at']) ? strtotime($it['starred_at']) : 0;
+                        if ($t) for ($p = 0; $p < 4; $p++) if ($t >= $now - $periods[$p]) $c[$p]++;
+                    }
+                    $trends[$full] = $c;
+                } elseif ($code === 403 || $code === 429) { $stop = true; }
+            }
+            if (!$stop && $i < $total) { $add($list[$i]); $i++; }
+            if ($done % 50 === 0) write_progress($outDir, true, $done, $total, $status);
+        }
+    } while ($run || !empty($inflight) || (!$stop && $i < $total));
+    curl_multi_close($mh);
+    if ($stop) $status['errors'][] = 'Stargazer trend backfill hit a rate limit; trends partial this run.';
+    return $trends;
+}
+
+$sgTrends = backfill_trends($repoMeta, $starsByRepo, $token, $outDir, $status, (int)$opt['sg-limit']);
+
+// ---- build outputs ---------------------------------------------------------
+$byId = $byName = $byRepo = $byPath = [];
+$catalog = [];   // for apps.json
+foreach ($apps as $idx => $app) {
+    if (!is_array($app)) continue;
+    $name = $app['Name'] ?? '';
+    if ($name === '') continue;
+    $full  = $appRepoMap[$idx] ?? null;
+    $stars = ($full !== null && isset($starsByRepo[$full])) ? (int)$starsByRepo[$full] : null;
+
+    if ($stars !== null) {
+        $byRepo[$full] = $stars;
+        if (isset($app['ID'])) $byId[(string)$app['ID']] = $stars;
+        $byName[strtolower(trim($name))] = $stars;                 // last-wins (not unique)
+        if (!empty($app['Path'])) $byPath[$app['Path']] = $stars;  // unique per template
+    }
+
+    $t1 = $t7 = $t30 = $t365 = null;
+    if ($stars !== null && $full !== null) {
+        if (isset($sgTrends[$full])) {                       // stargazer-timestamp counts (instant)
+            $t1 = $sgTrends[$full][0]; $t7 = $sgTrends[$full][1];
+            $t30 = $sgTrends[$full][2]; $t365 = $sgTrends[$full][3];
+        } else {                                             // fallback: snapshot deltas (build over time)
+            $t1   = delta(trend_at($baseQ, $full, $now - 86400),       $stars);
+            $t7   = delta(trend_at($baseQ, $full, $now - 7 * 86400),   $stars);
+            $t30  = delta(trend_at($baseQ, $full, $now - 30 * 86400),  $stars);
+            $t365 = delta(trend_at($baseQ, $full, $now - 365 * 86400), $stars);
+        }
+    }
+
+    $desc = (string)($app['Overview'] ?? '');
+    $desc = preg_replace('/\[[^\]]{1,40}\]/', ' ', $desc);   // strip BBCode ([br], [b], [/b], …)
+    $desc = trim(preg_replace('/\s+/', ' ', strip_tags($desc)));
+    if (function_exists('mb_substr')) { if (mb_strlen($desc) > 240) $desc = mb_substr($desc, 0, 237) . '…'; }
+    else { if (strlen($desc) > 240) $desc = substr($desc, 0, 237) . '…'; }
+    $cat = is_array($app['Category'] ?? null) ? implode(' ', $app['Category']) : ($app['Category'] ?? '');
+    $cat = trim(str_replace(':', ' ', explode(' ', trim($cat))[0] ?? ''));   // first category, no colons
+
+    $catalog[] = [
+        'n'  => $name,
+        'p'  => $app['Path'] ?? '',
+        'ic' => $app['Icon'] ?? '',
+        'au' => $app['Author'] ?? ($app['Repository'] ?? ''),
+        'ct' => $cat,
+        'de' => $desc,
+        'pr' => $app['Project'] ?? '',
+        'su' => $app['Support'] ?? '',
+        'rp' => $full,
+        's'  => $stars,
+        'dl' => (int)($app['downloads'] ?? 0),
+        't1' => $t1, 't7' => $t7, 't30' => $t30, 't365' => $t365,
+    ];
+}
+
+$starsJson = json_encode(['generated' => $now, 'byId' => $byId, 'byName' => $byName, 'byRepo' => $byRepo, 'byPath' => $byPath], JSON_UNESCAPED_SLASHES);
+$appsJson  = json_encode(['generated' => $now, 'apps' => $catalog], JSON_UNESCAPED_SLASHES);
+foreach ([$outDir, $dataDir] as $d) {
+    @file_put_contents($d . '/stars.json', $starsJson);
+    @file_put_contents($d . '/apps.json', $appsJson);
+}
+
+write_status($status, $outDir, $dataDir);
+write_progress($outDir, false, $scanned, $total, $status);
+
+fwrite(STDERR, sprintf("fetch_stars: repos=%d ok=%d notmod=%d missing=%d rate=%s errors=%d apps=%d sgTrends=%d\n",
+    $status['repos_total'], $status['ok'], $status['not_modified'], $status['missing'],
+    var_export($status['rate_remaining'], true), count($status['errors']), count($catalog), count($sgTrends)));
+exit(0);
+]]>
+</INLINE>
+</FILE>
+
+<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/refresh.php">
+<INLINE>
+<![CDATA[
+<?php
+/**
+ * App Store GitHub Addon — manual refresh trigger.
+ *
+ * Launches the fetcher in the background (with --manual so its time is
+ * recorded) and returns JSON. Enforces a 3-day cooldown between MANUAL
+ * refreshes (the 6-hourly cron is unaffected). Writes an immediate
+ * progress.json so the bar appears at once. The fetcher's flock makes a
+ * duplicate launch a harmless no-op.
+ */
+header('Content-Type: application/json');
+
+const COOLDOWN = 3 * 86400;
+$base = '/usr/local/emhttp/plugins/appstore.github.addon';
+$php  = $base . '/fetch_stars.php';
+$cfg  = @parse_ini_file('/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg') ?: [];
+$dataDir = trim($cfg['DATA_DIR'] ?? '') ?: '/mnt/user/appdata/appstore_github_addon';
+
+$now = time();
+$lm  = @json_decode(@file_get_contents($dataDir . '/last_manual.json'), true);
+$last = (int)($lm['ts'] ?? 0);
+if ($now - $last < COOLDOWN) {
+    echo json_encode(['started' => false, 'cooldown' => true, 'next_allowed' => $last + COOLDOWN, 'last' => $last]);
+    exit;
+}
+
+if (trim(@shell_exec("pgrep -f 'fetch_stars\\.php' 2>/dev/null") ?? '') !== '') {
+    echo json_encode(['started' => false, 'running' => true]);
+    exit;
+}
+
+@file_put_contents($base . '/progress.json', json_encode([
+    'running' => true, 'done' => 0, 'total' => 0,
+    'ok' => 0, 'not_modified' => 0, 'missing' => 0, 'errors' => 0, 'updated_at' => $now,
+], JSON_UNESCAPED_SLASHES));
+
+@exec('nohup php ' . escapeshellarg($php) . ' --manual 1 >/dev/null 2>&1 &');
+echo json_encode(['started' => true, 'running' => true]);
+]]>
+</INLINE>
+</FILE>
+
+<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/cancel.php">
+<INLINE>
+<![CDATA[
+<?php
+/**
+ * App Store GitHub Addon — cancel a running scan.
+ * Kills the fetcher and marks progress.json as not running.
+ */
+header('Content-Type: application/json');
+
+$base = '/usr/local/emhttp/plugins/appstore.github.addon';
+@exec("pkill -f 'fetch_stars\\.php' 2>/dev/null");
+
+$p = @json_decode(@file_get_contents($base . '/progress.json'), true) ?: [];
+$p['running'] = false;
+$p['updated_at'] = time();
+@file_put_contents($base . '/progress.json', json_encode($p, JSON_UNESCAPED_SLASHES));
+
+echo json_encode(['canceled' => true]);
+]]>
+</INLINE>
+</FILE>
+
+<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/sortinject.php">
+<INLINE>
+<![CDATA[
+<?php
+/**
+ * App Store GitHub Addon — sort augmentation.
+ *
+ * Injects our GitHub metrics (ghstars + trend deltas) into Community
+ * Applications' OWN displayed.json (the transient, regenerable view cache),
+ * keyed by app Name. CA's native changeSortOrder() then sorts and renders its
+ * REAL tiles by those keys — so the GitHub view is literally CA's app page,
+ * just orderable by stars/trending. We only ADD numeric fields; CA rebuilds
+ * this cache on the next navigation, so nothing is permanently changed.
+ */
+header('Content-Type: application/json');
+
+$displayed = '/tmp/community.applications/tempFiles/displayed.json';
+$base = '/usr/local/emhttp/plugins/appstore.github.addon';
+
+$apps = @json_decode(@file_get_contents($base . '/apps.json'), true);
+$map = [];   // keyed by unique template path (names are NOT unique)
+if ($apps && isset($apps['apps'])) {
+    foreach ($apps['apps'] as $a) {
+        $p = $a['p'] ?? '';
+        if ($p === '') continue;
+        $map[$p] = $a;
+    }
+}
+
+if (!is_file($displayed)) { echo json_encode(['ok' => false, 'err' => 'no displayed.json']); exit; }
+$d = @unserialize(file_get_contents($displayed));
+if (!is_array($d) || !isset($d['community']) || !is_array($d['community'])) {
+    echo json_encode(['ok' => false, 'err' => 'unexpected displayed.json']); exit;
+}
+
+function gi($m, $k) { return ($m && $m[$k] !== null) ? (int)$m[$k] : -1; }
+
+$n = 0;
+foreach ($d['community'] as &$app) {
+    if (!is_array($app)) continue;
+    $m = $map[$app['Path'] ?? ''] ?? null;
+    $app['ghstars'] = ($m && $m['s'] !== null) ? (int)$m['s'] : -1;
+    $app['ght1']    = gi($m, 't1');
+    $app['ght7']    = gi($m, 't7');
+    $app['ght30']   = gi($m, 't30');
+    $app['ght365']  = gi($m, 't365');
+    $n++;
+}
+unset($app);
+
+@file_put_contents($displayed, serialize($d));
+echo json_encode(['ok' => true, 'count' => $n]);
+]]>
+</INLINE>
+</FILE>
+
+<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/inject.js">
+<INLINE>
+<![CDATA[
+/*
+ * App Store GitHub Addon — front-end injector.
+ *
+ * Runs only on /Apps. It does NOT recreate any tiles — it uses Community
+ * Applications' OWN rendering:
+ *   1. paints a ★ star badge on every GitHub-backed tile,
+ *   2. adds "GitHub Stars" + "Trending" options to CA's native Sort By menu,
+ *   3. adds a "GitHub ★" left-menu item that opens CA's real All-Apps view
+ *      sorted by stars,
+ *   4. a small Refresh control (confirm + 3-day cooldown + cancel) and a thin
+ *      progress bar while a scan runs.
+ *
+ * Sorting works by injecting numeric metrics into CA's transient displayed.json
+ * (via sortinject.php) and then calling CA's own changeSortOrder() — so the
+ * GitHub view IS the real app page, just orderable by stars/trending, and it
+ * tracks any change CA makes to its tiles. Everything is wrapped so a failure
+ * is a silent no-op that never breaks CA.
+ */
+(function () {
+  'use strict';
+  try {
+    if (location.pathname.indexOf('/Apps') !== 0) return;
+    var PREFIX = '/plugins/appstore.github.addon/';
+    var STARS = null;
+    var polling = false, wasRunning = false, didDefault = false;
+
+    var SORT_OPTS = [
+      { v: 'new',    key: 'FirstSeen', label: 'Newest to the App Store' },
+      { v: 'ghstars', key: 'ghstars',  label: 'GitHub Stars' },
+      { v: 'ght1',   key: 'ght1',      label: 'Trending — today' },
+      { v: 'ght7',   key: 'ght7',      label: 'Trending — this week' },
+      { v: 'ght30',  key: 'ght30',     label: 'Trending — this month' },
+      { v: 'ght365', key: 'ght365',    label: 'Trending — this year' }
+    ];
+
+    function fmt(n) {
+      if (n == null) return '';
+      var a = Math.abs(n);
+      if (a >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, '') + 'B';
+      if (a >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+      if (a >= 1e3) return (n / 1e3).toFixed(a >= 1e4 ? 0 : 1).replace(/\.0$/, '') + 'k';
+      return '' + n;
+    }
+    function ago(ts) {
+      if (!ts) return 'never';
+      var s = Math.floor(Date.now() / 1000) - ts;
+      if (s < 3600) return Math.max(1, Math.floor(s / 60)) + 'm ago';
+      if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+      return Math.floor(s / 86400) + 'd ago';
+    }
+
+    function loadStars(cb) {
+      fetch(PREFIX + 'stars.json?_=' + Date.now()).then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) { STARS = j || { byName: {} }; cb && cb(); })
+        .catch(function () { STARS = STARS || { byName: {} }; cb && cb(); });
+    }
+
+    // ---- badges on CA's real tiles ----
+    // match each tile to its OWN repo by unique template path (data-apppath);
+    // fall back to name only if no path match (names are not unique).
+    function starsForTile(t) {
+      if (!STARS) return null;
+      var path = t.getAttribute('data-apppath');
+      if (path && STARS.byPath && Object.prototype.hasOwnProperty.call(STARS.byPath, path)) return STARS.byPath[path];
+      var name = (t.getAttribute('data-appname') || '').toLowerCase().trim();
+      if (STARS.byName && Object.prototype.hasOwnProperty.call(STARS.byName, name)) return STARS.byName[name];
+      return null;
+    }
+    function paintBadges() {
+      var tiles = document.querySelectorAll('.ca_holder[data-appname]:not([data-ghstars-done])');
+      for (var i = 0; i < tiles.length; i++) {
+        var t = tiles[i];
+        t.setAttribute('data-ghstars-done', '1');
+        var s = starsForTile(t);
+        if (s == null) continue;
+        var b = document.createElement('span');
+        b.className = 'ghstars-badge';
+        b.title = s + ' GitHub stars';
+        b.textContent = '★ ' + fmt(s);
+        t.appendChild(b);
+      }
+    }
+
+    function showWarningIfNeeded() {
+      var cfg = window.__appStoreGhAddon || {};
+      if (cfg.hasToken) return;
+      if (document.querySelector('.ghstars-warning')) return;
+      var main = document.querySelector('.mainArea');
+      if (!main) return;
+      var w = document.createElement('div');
+      w.className = 'ghstars-warning';
+      var msg = document.createElement('span');
+      msg.innerHTML = '⚠ <b>App Store GitHub Addon:</b> no GitHub personal access token configured — ' +
+        'star counts are disabled. Add a token in <a href="' + (cfg.settingsUrl || '/Settings') +
+        '">Settings → App Store GitHub Addon</a>.';
+      var x = document.createElement('span');
+      x.className = 'ghstars-warning-x'; x.title = 'Dismiss'; x.textContent = '✕';
+      x.addEventListener('click', function () { w.parentNode && w.parentNode.removeChild(w); });
+      w.appendChild(msg); w.appendChild(x);
+      main.insertBefore(w, main.firstChild);
+    }
+
+    // ---- native sort integration ----
+    // Inject metrics into CA's displayed.json, then let CA sort+render its own
+    // tiles by that key. ('new' uses CA's native FirstSeen field; injecting is
+    // harmless there.)
+    function applySort(key) {
+      return fetch(PREFIX + 'sortinject.php?_=' + Date.now())
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .catch(function () { return null; })
+        .then(function () {
+          try { window.post({ action: 'changeSortOrder', sortOrder: { sortBy: key, sortDir: 'Down' } }, function () { window.changeSortOrder(); }); } catch (e) {}
+        });
+    }
+    function keyFor(v) { for (var i = 0; i < SORT_OPTS.length; i++) if (SORT_OPTS[i].v === v) return SORT_OPTS[i].key; return null; }
+
+    // a native <select> (inherits Unraid's dropdown theme) in the top toolbar
+    function addSortBar() {
+      var host = document.getElementById('searchFilter');
+      if (!host || document.getElementById('asga-bar')) return;
+      var opts = SORT_OPTS.map(function (o) { return '<option value="' + o.v + '">' + o.label + '</option>'; }).join('');
+      var bar = document.createElement('span');
+      bar.id = 'asga-bar';
+      bar.className = 'asga-bar';
+      bar.innerHTML = '<span class="asga-bar-label">GitHub sort:</span>' +
+        '<select id="asga-sortsel" class="asga-sortsel"><option value="">—</option>' + opts + '</select>' +
+        '<a id="asga-refresh" class="asga-refreshlink" title="Fetch the latest GitHub data (once every 3 days)">↻</a>';
+      host.appendChild(bar);
+      document.getElementById('asga-sortsel').addEventListener('change', function (e) {
+        var k = keyFor(e.target.value); if (k) applySort(k);
+      });
+      document.getElementById('asga-refresh').addEventListener('click', onRefreshClick);
+    }
+
+    function onRefreshClick(e) {
+      if (e) e.stopPropagation();
+      if (!window.confirm('Fetch the latest GitHub star data now? Allowed once every 3 days.')) return;
+      fetch(PREFIX + 'refresh.php?_=' + Date.now()).then(function (r) { return r.ok ? r.json() : null; })
+        .catch(function () { return null; })
+        .then(function (res) {
+          if (res && res.cooldown) {
+            var d = Math.max(1, Math.ceil((res.next_allowed - Math.floor(Date.now() / 1000)) / 86400));
+            alert('Already refreshed recently — next refresh allowed in ~' + d + ' day(s).');
+            return;
+          }
+          startPolling();
+        });
+    }
+
+    // ---- "GitHub ★" left-menu item: CA All Apps + sort by stars ----
+    function addMenuItem() {
+      if (document.getElementById('asga-menu')) return;
+      var cat = document.querySelector('.categoryMenu.caMenuItem');
+      if (!cat || !cat.parentNode) return;
+      var item = document.createElement(cat.tagName);
+      item.id = 'asga-menu';
+      item.className = cat.className.replace(/\ballApps\b/g, '') + ' asga-menu';
+      item.removeAttribute('data-category');
+      item.textContent = 'GitHub ★';
+      item.addEventListener('click', function (e) { e.stopPropagation(); openGitHub(); });
+      cat.parentNode.insertBefore(item, cat);
+    }
+
+    function openGitHub() {
+      document.querySelectorAll('.caMenuItem.selectedMenu').forEach(function (x) { x.classList.remove('selectedMenu'); });
+      var me = document.getElementById('asga-menu'); if (me) me.classList.add('selectedMenu');
+      try { window.getContent(false, 'All', 'GitHub ★', false); } catch (e) { var b = document.querySelector('.allApps'); if (b) b.click(); }
+      // wait until CA finishes building the full displayed.json, then sort by stars
+      var tries = 0;
+      (function waitFill() {
+        fetch(PREFIX + 'sortinject.php?_=' + Date.now()).then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (inj) {
+            if (inj && inj.count > 1000) {
+              var sel = document.getElementById('asga-sortsel'); if (sel) sel.value = 'new';
+              applySort('FirstSeen');                 // default: Newest to the App Store
+            } else if (tries++ < 40) setTimeout(waitFill, 350);
+          }).catch(function () {});
+      })();
+    }
+
+    // ---- refresh + progress (thin top bar) ----
+    function ensureTopBar() {
+      var bar = document.getElementById('ghstars-topbar');
+      if (bar) return bar;
+      bar = document.createElement('div');
+      bar.id = 'ghstars-topbar';
+      bar.className = 'ghstars-topbar';
+      bar.style.display = 'none';
+      bar.innerHTML = '<div class="ghstars-topbar-fill"></div><span class="ghstars-topbar-label"></span><a class="ghstars-topbar-x" title="Cancel">✕</a>';
+      document.body.appendChild(bar);
+      bar.querySelector('.ghstars-topbar-x').addEventListener('click', function () {
+        fetch(PREFIX + 'cancel.php?_=' + Date.now()).catch(function () {});
+      });
+      return bar;
+    }
+    function pollProgress() {
+      fetch(PREFIX + 'progress.json?_=' + Date.now()).then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (p) {
+          var bar = ensureTopBar();
+          var stale = p && p.updated_at && (Math.floor(Date.now() / 1000) - p.updated_at) > 90;
+          if (p && p.running && !stale) {
+            wasRunning = true;
+            bar.style.display = '';
+            var pct = p.total > 0 ? Math.min(100, Math.round(p.done / p.total * 100)) : 3;
+            bar.querySelector('.ghstars-topbar-fill').style.width = pct + '%';
+            bar.querySelector('.ghstars-topbar-label').textContent = 'Pulling GitHub stars… ' + (p.total > 0 ? (p.done + '/' + p.total) : 'starting…');
+            setTimeout(pollProgress, 1200);
+          } else {
+            bar.style.display = 'none';
+            if (wasRunning) { wasRunning = false; loadStars(function () { repaintBadges(); }); }
+            polling = false;
+          }
+        }).catch(function () { polling = false; });
+    }
+    function startPolling() { if (polling) return; polling = true; pollProgress(); }
+
+    function repaintBadges() {
+      var marked = document.querySelectorAll('.ca_holder[data-ghstars-done]');
+      for (var i = 0; i < marked.length; i++) marked[i].removeAttribute('data-ghstars-done');
+      var badges = document.querySelectorAll('.ghstars-badge');
+      for (var j = 0; j < badges.length; j++) if (badges[j].parentNode) badges[j].parentNode.removeChild(badges[j]);
+      paintBadges();
+    }
+
+    // ---- lifecycle ----
+    // make the GitHub view the default landing page (once, after CA's first render)
+    function maybeDefaultOpen() {
+      if (didDefault) return;
+      if (!document.getElementById('asga-menu') || typeof window.getContent !== 'function') return;
+      if (!document.querySelector('#templates_content .ca_holder[data-appname]')) return;
+      didDefault = true;
+      setTimeout(openGitHub, 300);
+    }
+
+    function apply() {
+      paintBadges();
+      showWarningIfNeeded();
+      addMenuItem();
+      addSortBar();
+      maybeDefaultOpen();
+    }
+    function start() {
+      loadStars(function () {
+        apply();
+        var main = document.querySelector('.mainArea') || document.body;
+        var pending = false;
+        var mo = new MutationObserver(function () {
+          if (pending) return;
+          pending = true;
+          setTimeout(function () { pending = false; apply(); }, 150);
+        });
+        mo.observe(main, { childList: true, subtree: true });
+        startPolling();
+      });
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
+    else start();
+  } catch (e) { /* never break CA */ }
+})();
+]]>
+</INLINE>
+</FILE>
+
+<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/inject.css">
+<INLINE>
+<![CDATA[
+/* App Store GitHub Addon — injected styles. Scoped to .ghstars-* / .asga-* so it never touches CA. */
+
+.ca_holder[data-appname] { position: relative; }
+
+.ghstars-badge {
+  position: absolute; top: 4px; right: 6px; z-index: 5;
+  font-size: 11px; line-height: 1; font-weight: 600;
+  color: #f0a500; background: rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(127, 127, 127, 0.25);
+  padding: 2px 6px; border-radius: 10px;
+  pointer-events: none; white-space: nowrap;
+}
+
+/* yellow no-token warning banner */
+.ghstars-warning {
+  margin: 8px 10px; padding: 8px 12px;
+  background: #fff3cd; color: #7a5d00; border: 1px solid #ffe69c; border-radius: 6px;
+  display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px;
+}
+.ghstars-warning a { color: #7a5d00; text-decoration: underline; }
+.ghstars-warning-x { cursor: pointer; font-weight: bold; opacity: 0.7; }
+.ghstars-warning-x:hover { opacity: 1; }
+
+/* left-menu item inherits CA's look */
+.asga-menu { cursor: pointer; }
+
+/* sort toolbar — a native <select> inherits Unraid's dropdown theme */
+.asga-bar { display: inline-flex; align-items: center; gap: 6px; margin-left: 14px; vertical-align: middle; font-size: 13px; }
+.asga-bar-label { opacity: 0.85; white-space: nowrap; }
+.asga-sortsel { vertical-align: middle; }
+.asga-refreshlink { cursor: pointer; opacity: 0.8; font-size: 15px; text-decoration: none; }
+.asga-refreshlink:hover { opacity: 1; }
+
+/* thin fixed progress bar at the very top of the page (no layout impact) */
+.ghstars-topbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+  height: 22px; line-height: 22px;
+  background: rgba(0, 0, 0, 0.85); color: #eee; font-size: 11px;
+  padding-left: 10px;
+}
+.ghstars-topbar-fill {
+  position: absolute; top: 0; left: 0; bottom: 0; width: 0;
+  background: rgba(240, 165, 0, 0.35); transition: width 0.4s ease; z-index: -1;
+}
+.ghstars-topbar-label { color: #f0a500; }
+.ghstars-topbar-x { position: absolute; right: 10px; cursor: pointer; color: #d9534f; }
+]]>
+</INLINE>
+</FILE>
+
+<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/AppStoreGitHubAddon.page">
+<INLINE>
+<![CDATA[
+Menu="Utilities"
+Title="App Store GitHub Addon"
+Icon="star"
+---
+<?php
+/* App Store GitHub Addon — settings page (Settings -> Utilities -> App Store GitHub Addon). */
+require_once "$docroot/plugins/dynamix/include/Wrappers.php";
+
+$gas_dir  = "/boot/config/plugins/appstore.github.addon";
+$gas_cfg  = "$gas_dir/appstore.github.addon.cfg";
+$gas_cron = "$gas_dir/appstore.github.addon.cron";
+$gas_php  = "/usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php";
+$gas_msg  = "";
+
+if (!is_dir($gas_dir)) @mkdir($gas_dir, 0755, true);
+
+function gas_write_cfg($path, $token, $service, $interval, $datadir) {
+    $token   = str_replace(["\"", "\n", "\r"], "", $token);
+    $datadir = rtrim(str_replace(["\"", "\n", "\r"], "", $datadir), '/');
+    if ($datadir === '') $datadir = '/mnt/user/appdata/appstore_github_addon';
+    $service = ($service === 'enabled') ? 'enabled' : 'disabled';
+    $interval = max(1, (int)$interval);
+    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nINTERVAL_HOURS=\"$interval\"\nDATA_DIR=\"$datadir\"\n";
+    file_put_contents($path, $out);
+    @chmod($path, 0600);
+    @mkdir($datadir, 0755, true);
+}
+
+function gas_write_cron($path, $interval) {
+    $interval = max(1, (int)$interval);
+    $line = "0 */$interval * * * php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php >/dev/null 2>&1\n";
+    file_put_contents($path, $line);
+    @exec("/usr/local/sbin/update_cron 2>/dev/null");
+}
+
+if ($_POST) {
+    if (isset($_POST['SAVE'])) {
+        $token    = $_POST['TOKEN'] ?? '';
+        $service  = $_POST['SERVICE'] ?? 'disabled';
+        $interval = $_POST['INTERVAL_HOURS'] ?? 24;
+        $datadir  = $_POST['DATA_DIR'] ?? '';
+        gas_write_cfg($gas_cfg, $token, $service, $interval, $datadir);
+        gas_write_cron($gas_cron, $interval);
+        $gas_msg = "Settings saved." . (trim($token) === '' ? " WARNING: no token set — star counts are disabled." : "");
+    }
+    if (isset($_POST['REFRESH'])) {
+        @exec("nohup php " . escapeshellarg($gas_php) . " >/dev/null 2>&1 &");
+        $gas_msg = "Refresh started in the background. Reload this page in a few minutes for updated stats.";
+    }
+}
+
+$cfg = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
+$token    = $cfg['TOKEN'] ?? '';
+$service  = $cfg['SERVICE'] ?? 'enabled';
+$interval = $cfg['INTERVAL_HOURS'] ?? '24';
+$datadir  = $cfg['DATA_DIR'] ?? '/mnt/user/appdata/appstore_github_addon';
+
+$status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/appstore.github.addon/status.json"), true) ?: [];
+?>
+
+<div markdown="1">
+<?php if ($gas_msg): ?>
+<span class="<?= (strpos($gas_msg,'WARNING')!==false) ? 'orange-text' : 'green-text' ?>"><?= htmlspecialchars($gas_msg) ?></span>
+<?php endif; ?>
+</div>
+
+<form markdown="1" method="POST" action="/Settings/AppStoreGitHubAddon">
+
+_(Enable App Store GitHub Addon)_:
+: <select name="SERVICE" size="1">
+    <?= mk_option($service, "enabled", "Yes") ?>
+    <?= mk_option($service, "disabled", "No") ?>
+  </select>
+
+_(GitHub Personal Access Token)_:
+: <input type="password" name="TOKEN" value="<?= htmlspecialchars($token) ?>" style="width:520px;max-width:90%;" autocomplete="off" spellcheck="false">
+  <br><span class="description">Required — without a token the GitHub API allows only 60 requests/hour, far too few for the catalog (a token gives 5,000/hour).
+  <br><b>How to get one:</b> open <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a> (Settings → Developer settings → Personal access tokens → <i>Generate new token (classic)</i>), give it any name, leave <b>all scopes unchecked</b> (it only reads public star counts), click <b>Generate token</b>, then copy the <code>ghp_…</code> value here. The Apps page shows a yellow warning while this is empty.</span>
+
+_(Refresh interval, hours)_:
+: <input type="number" name="INTERVAL_HOURS" min="1" max="168" value="<?= htmlspecialchars($interval) ?>" style="width:80px;">
+
+_(Database directory)_:
+: <input type="text" name="DATA_DIR" value="<?= htmlspecialchars($datadir) ?>" style="width:520px;max-width:90%;" spellcheck="false">
+  <br><span class="description">Where the star database (stars.db) and JSON live. Defaults to this plugin's appdata folder on the cache pool so the data persists across reboots. Change only if you want it elsewhere; the folder is created automatically.</span>
+
+&nbsp;
+: <span class="buttons-spaced">
+    <input type="submit" name="SAVE" value="_(Apply)_">
+    <input type="submit" name="REFRESH" value="_(Refresh now)_">
+    <input type="button" value="_(Done)_" onclick="done()">
+  </span>
+
+</form>
+
+<div class="title"><span class="left">Last scan</span></div>
+<?php if ($status): ?>
+<table class="asga-status" style="border-collapse:collapse;">
+  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Ran at</td><td><?= $status['ran_at'] ? date('Y-m-d H:i:s', $status['ran_at']) : '—' ?></td></tr>
+  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Repos with a GitHub link</td><td><?= (int)($status['repos_total'] ?? 0) ?></td></tr>
+  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Updated</td><td><?= (int)($status['ok'] ?? 0) ?></td></tr>
+  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Unchanged</td><td><?= (int)($status['not_modified'] ?? 0) ?></td></tr>
+  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Missing repos</td><td><?= (int)($status['missing'] ?? 0) ?></td></tr>
+  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Rate limit remaining</td><td><?= isset($status['rate_remaining']) ? (int)$status['rate_remaining'] : '—' ?></td></tr>
+  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Errors</td><td><?= count($status['errors'] ?? []) ?></td></tr>
+</table>
+<?php else: ?>
+<div>No scan has run yet. Click <b>Refresh now</b> to populate star counts.</div>
+<?php endif; ?>
+]]>
+</INLINE>
+</FILE>
+
+<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/AppStoreGitHubAddonLoader.page">
+<INLINE>
+<![CDATA[
+Menu="Buttons:99"
+Link="nav-user"
+---
+<?php
+/* App Store GitHub Addon — global loader.
+ * Rides the same "Buttons" hook the custom.css plugin uses: this page body is
+ * emitted into the chrome of EVERY webGUI page. We output the inject script
+ * (which self-limits to /Apps) plus a tiny config object so the front-end knows
+ * whether a token is configured (drives the yellow no-token warning). Emits
+ * nothing when the plugin is disabled.
+ */
+$gas_cfg = "/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg";
+$gas = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
+if (($gas['SERVICE'] ?? 'disabled') === 'enabled') {
+    $gas_base = '/usr/local/emhttp/plugins/appstore.github.addon';
+    $gas_jsv  = @filemtime("$gas_base/inject.js")  ?: time();
+    $gas_cssv = @filemtime("$gas_base/inject.css") ?: time();
+    $gas_has  = !empty(trim($gas['TOKEN'] ?? '')) ? 'true' : 'false';
+    echo "<script>window.__appStoreGhAddon={hasToken:$gas_has,settingsUrl:'/Settings/AppStoreGitHubAddon'};</script>\n";
+    echo "<link rel='stylesheet' type='text/css' href='/plugins/appstore.github.addon/inject.css?v=$gas_cssv'>\n";
+    echo "<script src='/plugins/appstore.github.addon/inject.js?v=$gas_jsv'></script>\n";
+}
+?>
+]]>
+</INLINE>
+</FILE>
+
+<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/README.md">
+<INLINE>
+<![CDATA[
+####App Store GitHub Addon###
+Adds GitHub star counts to every Community Applications app tile, plus a sortable GitHub view of the whole catalog — by stars, trending (day/week/month/year), or newest to the App Store. It uses CA's own app page and never modifies the Community Applications plugin.
+
+Set your GitHub personal access token at **Settings → Utilities → App Store GitHub Addon**. Star data is cached in appdata and refreshed automatically.
+]]>
+</INLINE>
+</FILE>
+
+<FILE Run="/bin/bash">
+<INLINE>
+<![CDATA[
+APPDATA=/mnt/user/appdata/appstore_github_addon
+mkdir -p "$APPDATA" /boot/config/plugins/appstore.github.addon
+CFG=/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg
+# seed an EMPTY token only if no config exists yet (preserves an existing token)
+if [ ! -f "$CFG" ]; then
+  printf 'TOKEN=""\nSERVICE="enabled"\nINTERVAL_HOURS="24"\nDATA_DIR="%s"\n' "$APPDATA" > "$CFG"
+  chmod 600 "$CFG"
+fi
+echo '0 4 * * * php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php >/dev/null 2>&1' > /boot/config/plugins/appstore.github.addon/appstore.github.addon.cron
+/usr/local/sbin/update_cron 2>/dev/null
+# restore persisted star data into the tmpfs webroot so badges work after a reboot
+cp -f "$APPDATA/stars.json"  /usr/local/emhttp/plugins/appstore.github.addon/ 2>/dev/null
+cp -f "$APPDATA/apps.json"   /usr/local/emhttp/plugins/appstore.github.addon/ 2>/dev/null
+cp -f "$APPDATA/status.json" /usr/local/emhttp/plugins/appstore.github.addon/ 2>/dev/null
+echo "----------------------------------------------------"
+echo " App Store GitHub Addon installed."
+echo " Set your GitHub token: Settings -> Utilities -> App Store GitHub Addon"
+echo "----------------------------------------------------"
+]]>
+</INLINE>
+</FILE>
+
+<FILE Run="/bin/bash" Method="remove">
+<INLINE>
+<![CDATA[
+rm -f /boot/config/plugins/appstore.github.addon/appstore.github.addon.cron
+/usr/local/sbin/update_cron 2>/dev/null
+rm -rf /usr/local/emhttp/plugins/appstore.github.addon
+rm -rf /boot/config/plugins/appstore.github.addon
+]]>
+</INLINE>
+</FILE>
+
+</PLUGIN>

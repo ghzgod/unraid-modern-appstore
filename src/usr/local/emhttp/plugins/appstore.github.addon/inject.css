@@ -1,0 +1,46 @@
+/* App Store GitHub Addon — injected styles. Scoped to .ghstars-* / .asga-* so it never touches CA. */
+
+.ca_holder[data-appname] { position: relative; }
+
+.ghstars-badge {
+  position: absolute; top: 4px; right: 6px; z-index: 5;
+  font-size: 11px; line-height: 1; font-weight: 600;
+  color: #f0a500; background: rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(127, 127, 127, 0.25);
+  padding: 2px 6px; border-radius: 10px;
+  pointer-events: none; white-space: nowrap;
+}
+
+/* yellow no-token warning banner */
+.ghstars-warning {
+  margin: 8px 10px; padding: 8px 12px;
+  background: #fff3cd; color: #7a5d00; border: 1px solid #ffe69c; border-radius: 6px;
+  display: flex; justify-content: space-between; align-items: center; gap: 12px; font-size: 13px;
+}
+.ghstars-warning a { color: #7a5d00; text-decoration: underline; }
+.ghstars-warning-x { cursor: pointer; font-weight: bold; opacity: 0.7; }
+.ghstars-warning-x:hover { opacity: 1; }
+
+/* left-menu item inherits CA's look */
+.asga-menu { cursor: pointer; }
+
+/* sort toolbar — a native <select> inherits Unraid's dropdown theme */
+.asga-bar { display: inline-flex; align-items: center; gap: 6px; margin-left: 14px; vertical-align: middle; font-size: 13px; }
+.asga-bar-label { opacity: 0.85; white-space: nowrap; }
+.asga-sortsel { vertical-align: middle; }
+.asga-refreshlink { cursor: pointer; opacity: 0.8; font-size: 15px; text-decoration: none; }
+.asga-refreshlink:hover { opacity: 1; }
+
+/* thin fixed progress bar at the very top of the page (no layout impact) */
+.ghstars-topbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
+  height: 22px; line-height: 22px;
+  background: rgba(0, 0, 0, 0.85); color: #eee; font-size: 11px;
+  padding-left: 10px;
+}
+.ghstars-topbar-fill {
+  position: absolute; top: 0; left: 0; bottom: 0; width: 0;
+  background: rgba(240, 165, 0, 0.35); transition: width 0.4s ease; z-index: -1;
+}
+.ghstars-topbar-label { color: #f0a500; }
+.ghstars-topbar-x { position: absolute; right: 10px; cursor: pointer; color: #d9534f; }

@@ -1,0 +1,4 @@
+appstore.github.addon.cfg
+*.env
+.DS_Store
+**/.DS_Store
