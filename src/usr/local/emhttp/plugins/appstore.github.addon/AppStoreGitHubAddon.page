@@ -74,7 +74,7 @@ _(Enable App Store GitHub Addon)_:
 
 _(GitHub Personal Access Token)_:
 : <input type="password" name="TOKEN" value="<?= htmlspecialchars($token) ?>" style="width:520px;max-width:90%;" autocomplete="off" spellcheck="false">
-  <br><span class="description">Required — without a token the GitHub API allows only 60 requests/hour, far too few for the catalog (a token gives 5,000/hour).
+  <br><span class="description" style="display:block;max-width:620px;line-height:1.5;margin-top:4px;">Required — without a token the GitHub API allows only 60 requests/hour, far too few for the catalog (a token gives 5,000/hour).
   <br><b>How to get one:</b> open <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a> (Settings → Developer settings → Personal access tokens → <i>Generate new token (classic)</i>), give it any name, leave <b>all scopes unchecked</b> (it only reads public star counts), click <b>Generate token</b>, then copy the <code>ghp_…</code> value here. The Apps page shows a yellow warning while this is empty.</span>
 
 _(Refresh interval, hours)_:
@@ -82,7 +82,7 @@ _(Refresh interval, hours)_:
 
 _(Database directory)_:
 : <input type="text" name="DATA_DIR" value="<?= htmlspecialchars($datadir) ?>" style="width:520px;max-width:90%;" spellcheck="false">
-  <br><span class="description">Where the star database (stars.db) and JSON live. Defaults to this plugin's appdata folder on the cache pool so the data persists across reboots. Change only if you want it elsewhere; the folder is created automatically.</span>
+  <br><span class="description" style="display:block;max-width:620px;line-height:1.5;margin-top:4px;">Where the star database (stars.db) and JSON live. Defaults to this plugin's appdata folder on the cache pool so the data persists across reboots. Change only if you want it elsewhere; the folder is created automatically.</span>
 
 &nbsp;
 : <span class="buttons-spaced">
