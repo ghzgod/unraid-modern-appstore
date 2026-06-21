@@ -72,17 +72,26 @@ _(Enable App Store GitHub Addon)_:
     <?= mk_option($service, "disabled", "No") ?>
   </select>
 
+> Turn the plugin on or off. When on, it adds GitHub star badges to the Community Applications app tiles and a sortable GitHub view.
+
 _(GitHub Personal Access Token)_:
 : <input type="password" name="TOKEN" value="<?= htmlspecialchars($token) ?>" style="width:520px;max-width:90%;" autocomplete="off" spellcheck="false">
-  <br><span class="description" style="display:block;max-width:620px;line-height:1.5;margin-top:4px;">Required — without a token the GitHub API allows only 60 requests/hour, far too few for the catalog (a token gives 5,000/hour).
-  <br><b>How to get one:</b> open <a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a> (Settings → Developer settings → Personal access tokens → <i>Generate new token (classic)</i>), give it any name, leave <b>all scopes unchecked</b> (it only reads public star counts), click <b>Generate token</b>, then copy the <code>ghp_…</code> value here. The Apps page shows a yellow warning while this is empty.</span>
+
+> A GitHub personal access token is required. Without one the GitHub API allows only 60 requests per hour, which is far too few for the catalog; a token raises the limit to 5,000 per hour.
+>
+> To create a token, open <u><a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a></u> (GitHub &rarr; Settings &rarr; Developer settings &rarr; Personal access tokens &rarr; Generate new token (classic)). Give it any name, leave all scopes unchecked since it only needs to read public star counts, click Generate token, and paste the value here.
+>
+> While this field is empty the Apps page shows a yellow warning and star counts stay disabled.
 
 _(Refresh interval, hours)_:
 : <input type="number" name="INTERVAL_HOURS" min="1" max="168" value="<?= htmlspecialchars($interval) ?>" style="width:80px;">
 
+> How often the background scan refreshes star counts, in hours. The default is 24 (once a day).
+
 _(Database directory)_:
 : <input type="text" name="DATA_DIR" value="<?= htmlspecialchars($datadir) ?>" style="width:520px;max-width:90%;" spellcheck="false">
-  <br><span class="description" style="display:block;max-width:620px;line-height:1.5;margin-top:4px;">Where the star database (stars.db) and JSON live. Defaults to this plugin's appdata folder on the cache pool so the data persists across reboots. Change only if you want it elsewhere; the folder is created automatically.</span>
+
+> Where the star database (stars.db) and the generated JSON files live. Defaults to this plugin's appdata folder on the cache pool so the data survives reboots. Change it only if you want the data stored elsewhere; the folder is created automatically.
 
 &nbsp;
 : <span class="buttons-spaced">
