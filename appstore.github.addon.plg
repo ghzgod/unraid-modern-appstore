@@ -2,14 +2,14 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "appstore.github.addon">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.06.22">
+<!ENTITY version "2026.06.23">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/appstore-github-addon/main/appstore.github.addon.plg">
 <!ENTITY support "https://github.com/ghzgod/appstore-github-addon">
 ]>
-<PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" min="6.12" icon="star" support="&support;">
+<PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/AppStoreGitHubAddon" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.06.22
+##2026.06.23
 - GitHub star counts on every CA app tile.
 - "GitHub" view: the real App Store catalog, sortable by stars, trending, or newest.
 - Per-user GitHub token (set in Settings); no secrets shipped.

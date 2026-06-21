@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.06.22}"
+VERSION="${1:-2026.06.23}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -40,7 +40,7 @@ cat <<XMLHEAD
 <!ENTITY plugin  "$PLUGIN_URL">
 <!ENTITY support "$SUPPORT_URL">
 ]>
-<PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" min="6.12" icon="star" support="&support;">
+<PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/AppStoreGitHubAddon" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
 ##$VERSION
