@@ -239,7 +239,17 @@
       addSortBar();
       maybeDefaultOpen();
     }
+    // on Apps-page load, pull stars for any newly-published repos right away
+    // (throttled server-side); the progress poller repaints badges when it finishes.
+    function triggerNewScan() {
+      fetch(PREFIX + 'newscan.php?_=' + Date.now())
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (res) { if (res && res.started) setTimeout(startPolling, 1000); })
+        .catch(function () {});
+    }
+
     function start() {
+      triggerNewScan();
       loadStars(function () {
         apply();
         var main = document.querySelector('.mainArea') || document.body;

@@ -16,7 +16,7 @@ PLUGIN_URL="https://raw.githubusercontent.com/ghzgod/appstore-github-addon/main/
 SUPPORT_URL="https://github.com/ghzgod/appstore-github-addon"
 
 # --- payload files (order: php, js, css, pages, readme) --------------------
-FILES=(fetch_stars.php refresh.php cancel.php sortinject.php inject.js inject.css AppStoreGitHubAddon.page AppStoreGitHubAddonLoader.page README.md)
+FILES=(fetch_stars.php refresh.php cancel.php sortinject.php newscan.php inject.js inject.css AppStoreGitHubAddon.page AppStoreGitHubAddonLoader.page README.md)
 
 # guard: CDATA cannot contain ]]>
 for f in "${FILES[@]}"; do

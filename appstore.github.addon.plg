@@ -2,14 +2,14 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "appstore.github.addon">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.06.27">
+<!ENTITY version "2026.06.28">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/appstore-github-addon/main/appstore.github.addon.plg">
 <!ENTITY support "https://github.com/ghzgod/appstore-github-addon">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/AppStoreGitHubAddon" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.06.27
+##2026.06.28
 - GitHub star counts on every CA app tile.
 - "GitHub" view: the real App Store catalog, sortable by stars, trending, or newest.
 - Per-user GitHub token (set in Settings); no secrets shipped.
@@ -612,6 +612,39 @@ echo json_encode(['ok' => true, 'count' => $n]);
 </INLINE>
 </FILE>
 
+<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/newscan.php">
+<INLINE>
+<![CDATA[
+<?php
+/**
+ * App Store GitHub Addon — on-demand new-repo check.
+ *
+ * Called by inject.js when the Apps page loads. Launches a lightweight
+ * --new-only scan (fetches stars only for repos not yet in the DB), so newly
+ * published app-store apps get their badge within seconds instead of waiting
+ * for the hourly cron. Throttled server-side and a no-op while a scan runs.
+ */
+header('Content-Type: application/json');
+
+const THROTTLE = 180;   // at most one on-demand check every 3 minutes
+$base = '/usr/local/emhttp/plugins/appstore.github.addon';
+$php  = $base . '/fetch_stars.php';
+$cfg  = @parse_ini_file('/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg') ?: [];
+$dataDir = trim($cfg['DATA_DIR'] ?? '') ?: '/mnt/user/appdata/appstore_github_addon';
+
+$now = time();
+$f = $dataDir . '/last_newscan.json';
+$last = (int)(@json_decode(@file_get_contents($f), true)['ts'] ?? 0);
+if ($now - $last < THROTTLE) { echo json_encode(['started' => false, 'throttled' => true]); exit; }
+if (trim(@shell_exec("pgrep -f 'fetch_stars\\.php' 2>/dev/null") ?? '') !== '') { echo json_encode(['started' => false, 'running' => true]); exit; }
+
+@file_put_contents($f, json_encode(['ts' => $now]));
+@exec('nohup php ' . escapeshellarg($php) . ' --new-only 1 >/dev/null 2>&1 &');
+echo json_encode(['started' => true]);
+]]>
+</INLINE>
+</FILE>
+
 <FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/inject.js">
 <INLINE>
 <![CDATA[
@@ -856,7 +889,17 @@ echo json_encode(['ok' => true, 'count' => $n]);
       addSortBar();
       maybeDefaultOpen();
     }
+    // on Apps-page load, pull stars for any newly-published repos right away
+    // (throttled server-side); the progress poller repaints badges when it finishes.
+    function triggerNewScan() {
+      fetch(PREFIX + 'newscan.php?_=' + Date.now())
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (res) { if (res && res.started) setTimeout(startPolling, 1000); })
+        .catch(function () {});
+    }
+
     function start() {
+      triggerNewScan();
       loadStars(function () {
         apply();
         var main = document.querySelector('.mainArea') || document.body;
