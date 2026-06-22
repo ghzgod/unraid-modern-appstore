@@ -2,14 +2,14 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "appstore.github.addon">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.06.26">
+<!ENTITY version "2026.06.27">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/appstore-github-addon/main/appstore.github.addon.plg">
 <!ENTITY support "https://github.com/ghzgod/appstore-github-addon">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/AppStoreGitHubAddon" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.06.26
+##2026.06.27
 - GitHub star counts on every CA app tile.
 - "GitHub" view: the real App Store catalog, sortable by stars, trending, or newest.
 - Per-user GitHub token (set in Settings); no secrets shipped.
@@ -72,8 +72,13 @@ $opt = $defaults;
 for ($i = 1; $i < $argc; $i++) {
     if (substr($argv[$i], 0, 2) === '--') {
         $key = substr($argv[$i], 2);
-        $val = $argv[$i + 1] ?? '';
-        if (array_key_exists($key, $opt)) { $opt[$key] = $val; $i++; }
+        if (!array_key_exists($key, $opt)) continue;
+        $next = $argv[$i + 1] ?? null;
+        if ($next === null || substr($next, 0, 2) === '--') {
+            $opt[$key] = '1';          // valueless flag, e.g. "--new-only"
+        } else {
+            $opt[$key] = $next; $i++;  // "--limit 5"
+        }
     }
 }
 $limit       = (int)$opt['limit'];
@@ -945,24 +950,22 @@ $gas_msg  = "";
 
 if (!is_dir($gas_dir)) @mkdir($gas_dir, 0755, true);
 
-function gas_write_cfg($path, $token, $service, $interval, $datadir) {
+function gas_write_cfg($path, $token, $service, $datadir) {
     $token   = str_replace(["\"", "\n", "\r"], "", $token);
     $datadir = rtrim(str_replace(["\"", "\n", "\r"], "", $datadir), '/');
     if ($datadir === '') $datadir = '/mnt/user/appdata/appstore_github_addon';
     $service = ($service === 'enabled') ? 'enabled' : 'disabled';
-    $interval = max(1, (int)$interval);
-    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nINTERVAL_HOURS=\"$interval\"\nDATA_DIR=\"$datadir\"\n";
+    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nDATA_DIR=\"$datadir\"\n";
     file_put_contents($path, $out);
     @chmod($path, 0600);
     @mkdir($datadir, 0755, true);
 }
 
-function gas_write_cron($path, $interval) {
-    $interval = max(1, (int)$interval);
+function gas_write_cron($path) {
     $php = "php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php";
-    // full scan on the interval + an hourly check that pulls stars for newly
-    // published app-store repos (bypasses the manual-refresh cooldown)
-    $lines = "0 */$interval * * * $php >/dev/null 2>&1\n23 * * * * $php --new-only >/dev/null 2>&1\n";
+    // full scan every 3 days + an hourly check that pulls only NEWLY published
+    // app-store repos (bypasses the manual-refresh cooldown)
+    $lines = "0 4 */3 * * $php >/dev/null 2>&1\n23 * * * * $php --new-only 1 >/dev/null 2>&1\n";
     file_put_contents($path, $lines);
     @exec("/usr/local/sbin/update_cron 2>/dev/null");
 }
@@ -971,10 +974,9 @@ if ($_POST) {
     if (isset($_POST['SAVE'])) {
         $token    = $_POST['TOKEN'] ?? '';
         $service  = $_POST['SERVICE'] ?? 'disabled';
-        $interval = $_POST['INTERVAL_HOURS'] ?? 24;
         $datadir  = $_POST['DATA_DIR'] ?? '';
-        gas_write_cfg($gas_cfg, $token, $service, $interval, $datadir);
-        gas_write_cron($gas_cron, $interval);
+        gas_write_cfg($gas_cfg, $token, $service, $datadir);
+        gas_write_cron($gas_cron);
         $gas_msg = "Settings saved." . (trim($token) === '' ? " WARNING: no token set — star counts are disabled." : "");
     }
     if (isset($_POST['REFRESH'])) {
@@ -986,7 +988,6 @@ if ($_POST) {
 $cfg = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
 $token    = $cfg['TOKEN'] ?? '';
 $service  = $cfg['SERVICE'] ?? 'enabled';
-$interval = $cfg['INTERVAL_HOURS'] ?? '24';
 $datadir  = $cfg['DATA_DIR'] ?? '/mnt/user/appdata/appstore_github_addon';
 
 $status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/appstore.github.addon/status.json"), true) ?: [];
@@ -1016,11 +1017,6 @@ _(GitHub Personal Access Token)_:
 > To create a token, open <u><a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a></u> (GitHub &rarr; Settings &rarr; Developer settings &rarr; Personal access tokens &rarr; Generate new token (classic)). Give it any name, leave all scopes unchecked since it only needs to read public star counts, click Generate token, and paste the value here.
 >
 > While this field is empty the Apps page shows a yellow warning and star counts stay disabled.
-
-_(Refresh interval, hours)_:
-: <input type="number" name="INTERVAL_HOURS" min="1" max="168" value="<?= htmlspecialchars($interval) ?>" style="width:80px;">
-
-> How often the background scan refreshes star counts, in hours. The default is 24 (once a day).
 
 _(Database directory)_:
 : <input type="text" name="DATA_DIR" value="<?= htmlspecialchars($datadir) ?>" style="width:520px;max-width:90%;" spellcheck="false">
@@ -1103,13 +1099,14 @@ mkdir -p "$APPDATA" /boot/config/plugins/appstore.github.addon
 CFG=/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg
 # seed an EMPTY token only if no config exists yet (preserves an existing token)
 if [ ! -f "$CFG" ]; then
-  printf 'TOKEN=""\nSERVICE="enabled"\nINTERVAL_HOURS="24"\nDATA_DIR="%s"\n' "$APPDATA" > "$CFG"
+  printf 'TOKEN=""\nSERVICE="enabled"\nDATA_DIR="%s"\n' "$APPDATA" > "$CFG"
   chmod 600 "$CFG"
 fi
 CRON=/boot/config/plugins/appstore.github.addon/appstore.github.addon.cron
+# full scan every 3 days; hourly check that only pulls NEWLY published repos
 {
-  echo '0 4 * * * php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php >/dev/null 2>&1'
-  echo '23 * * * * php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php --new-only >/dev/null 2>&1'
+  echo '0 4 */3 * * php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php >/dev/null 2>&1'
+  echo '23 * * * * php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php --new-only 1 >/dev/null 2>&1'
 } > "$CRON"
 /usr/local/sbin/update_cron 2>/dev/null
 # restore persisted star data into the tmpfs webroot so badges work after a reboot

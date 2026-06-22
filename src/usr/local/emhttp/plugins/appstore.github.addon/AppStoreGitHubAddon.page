@@ -14,24 +14,22 @@ $gas_msg  = "";
 
 if (!is_dir($gas_dir)) @mkdir($gas_dir, 0755, true);
 
-function gas_write_cfg($path, $token, $service, $interval, $datadir) {
+function gas_write_cfg($path, $token, $service, $datadir) {
     $token   = str_replace(["\"", "\n", "\r"], "", $token);
     $datadir = rtrim(str_replace(["\"", "\n", "\r"], "", $datadir), '/');
     if ($datadir === '') $datadir = '/mnt/user/appdata/appstore_github_addon';
     $service = ($service === 'enabled') ? 'enabled' : 'disabled';
-    $interval = max(1, (int)$interval);
-    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nINTERVAL_HOURS=\"$interval\"\nDATA_DIR=\"$datadir\"\n";
+    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nDATA_DIR=\"$datadir\"\n";
     file_put_contents($path, $out);
     @chmod($path, 0600);
     @mkdir($datadir, 0755, true);
 }
 
-function gas_write_cron($path, $interval) {
-    $interval = max(1, (int)$interval);
+function gas_write_cron($path) {
     $php = "php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php";
-    // full scan on the interval + an hourly check that pulls stars for newly
-    // published app-store repos (bypasses the manual-refresh cooldown)
-    $lines = "0 */$interval * * * $php >/dev/null 2>&1\n23 * * * * $php --new-only >/dev/null 2>&1\n";
+    // full scan every 3 days + an hourly check that pulls only NEWLY published
+    // app-store repos (bypasses the manual-refresh cooldown)
+    $lines = "0 4 */3 * * $php >/dev/null 2>&1\n23 * * * * $php --new-only 1 >/dev/null 2>&1\n";
     file_put_contents($path, $lines);
     @exec("/usr/local/sbin/update_cron 2>/dev/null");
 }
@@ -40,10 +38,9 @@ if ($_POST) {
     if (isset($_POST['SAVE'])) {
         $token    = $_POST['TOKEN'] ?? '';
         $service  = $_POST['SERVICE'] ?? 'disabled';
-        $interval = $_POST['INTERVAL_HOURS'] ?? 24;
         $datadir  = $_POST['DATA_DIR'] ?? '';
-        gas_write_cfg($gas_cfg, $token, $service, $interval, $datadir);
-        gas_write_cron($gas_cron, $interval);
+        gas_write_cfg($gas_cfg, $token, $service, $datadir);
+        gas_write_cron($gas_cron);
         $gas_msg = "Settings saved." . (trim($token) === '' ? " WARNING: no token set — star counts are disabled." : "");
     }
     if (isset($_POST['REFRESH'])) {
@@ -55,7 +52,6 @@ if ($_POST) {
 $cfg = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
 $token    = $cfg['TOKEN'] ?? '';
 $service  = $cfg['SERVICE'] ?? 'enabled';
-$interval = $cfg['INTERVAL_HOURS'] ?? '24';
 $datadir  = $cfg['DATA_DIR'] ?? '/mnt/user/appdata/appstore_github_addon';
 
 $status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/appstore.github.addon/status.json"), true) ?: [];
@@ -85,11 +81,6 @@ _(GitHub Personal Access Token)_:
 > To create a token, open <u><a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a></u> (GitHub &rarr; Settings &rarr; Developer settings &rarr; Personal access tokens &rarr; Generate new token (classic)). Give it any name, leave all scopes unchecked since it only needs to read public star counts, click Generate token, and paste the value here.
 >
 > While this field is empty the Apps page shows a yellow warning and star counts stay disabled.
-
-_(Refresh interval, hours)_:
-: <input type="number" name="INTERVAL_HOURS" min="1" max="168" value="<?= htmlspecialchars($interval) ?>" style="width:80px;">
-
-> How often the background scan refreshes star counts, in hours. The default is 24 (once a day).
 
 _(Database directory)_:
 : <input type="text" name="DATA_DIR" value="<?= htmlspecialchars($datadir) ?>" style="width:520px;max-width:90%;" spellcheck="false">

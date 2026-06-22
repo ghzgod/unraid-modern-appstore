@@ -43,8 +43,13 @@ $opt = $defaults;
 for ($i = 1; $i < $argc; $i++) {
     if (substr($argv[$i], 0, 2) === '--') {
         $key = substr($argv[$i], 2);
-        $val = $argv[$i + 1] ?? '';
-        if (array_key_exists($key, $opt)) { $opt[$key] = $val; $i++; }
+        if (!array_key_exists($key, $opt)) continue;
+        $next = $argv[$i + 1] ?? null;
+        if ($next === null || substr($next, 0, 2) === '--') {
+            $opt[$key] = '1';          // valueless flag, e.g. "--new-only"
+        } else {
+            $opt[$key] = $next; $i++;  // "--limit 5"
+        }
     }
 }
 $limit       = (int)$opt['limit'];

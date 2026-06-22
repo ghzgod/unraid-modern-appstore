@@ -71,13 +71,14 @@ mkdir -p "$APPDATA" /boot/config/plugins/appstore.github.addon
 CFG=/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg
 # seed an EMPTY token only if no config exists yet (preserves an existing token)
 if [ ! -f "$CFG" ]; then
-  printf 'TOKEN=""\nSERVICE="enabled"\nINTERVAL_HOURS="24"\nDATA_DIR="%s"\n' "$APPDATA" > "$CFG"
+  printf 'TOKEN=""\nSERVICE="enabled"\nDATA_DIR="%s"\n' "$APPDATA" > "$CFG"
   chmod 600 "$CFG"
 fi
 CRON=/boot/config/plugins/appstore.github.addon/appstore.github.addon.cron
+# full scan every 3 days; hourly check that only pulls NEWLY published repos
 {
-  echo '0 4 * * * php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php >/dev/null 2>&1'
-  echo '23 * * * * php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php --new-only >/dev/null 2>&1'
+  echo '0 4 */3 * * php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php >/dev/null 2>&1'
+  echo '23 * * * * php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php --new-only 1 >/dev/null 2>&1'
 } > "$CRON"
 /usr/local/sbin/update_cron 2>/dev/null
 # restore persisted star data into the tmpfs webroot so badges work after a reboot
