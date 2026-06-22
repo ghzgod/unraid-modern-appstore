@@ -35,6 +35,7 @@ $defaults = [
     'concurrency' => '8',
     'manual'      => '0',  // 1 = invoked by the Refresh button (records manual time)
     'sg-limit'    => '0',  // cap repos for the stargazer-trend backfill (0 = all)
+    'new-only'    => '0',  // 1 = only fetch repos not yet in the DB (newly-published apps)
 ];
 
 // ---- arg parsing -----------------------------------------------------------
@@ -151,6 +152,8 @@ catch (Throwable $e) {
 $db->exec('CREATE TABLE IF NOT EXISTS repos (
     repo TEXT PRIMARY KEY, owner TEXT, name TEXT,
     stars INTEGER, etag TEXT, http_status INTEGER, fetched_at INTEGER)');
+// trend columns persist computed deltas so a --new-only run doesn't wipe them
+foreach (['t1', 't7', 't30', 't365'] as $tcol) { @$db->exec("ALTER TABLE repos ADD COLUMN $tcol INTEGER"); }
 $db->exec('CREATE TABLE IF NOT EXISTS star_history (repo TEXT, ts INTEGER, stars INTEGER)');
 $db->exec('CREATE INDEX IF NOT EXISTS idx_hist ON star_history(repo, ts)');
 
@@ -174,6 +177,25 @@ function db_upsert(SQLite3 $db, string $repo, string $owner, string $name, ?int 
 // ---- concurrent scan (curl_multi + pooled keep-alive) ----------------------
 $starsByRepo = [];
 $queue = array_keys($repoMeta);
+
+// --new-only: limit to repos we have never recorded (newly-published apps).
+// This runs on a frequent cron and bypasses the manual-refresh cooldown so new
+// app-store repos get their stars within the hour, without re-scanning the rest.
+$newOnly = ((int)$opt['new-only'] === 1);
+$newRepoSet = null;
+if ($newOnly) {
+    $existing = [];
+    $er = $db->query('SELECT repo FROM repos');
+    while ($row = $er->fetchArray(SQLITE3_ASSOC)) $existing[$row['repo']] = 1;
+    $queue = array_values(array_filter($queue, function ($k) use ($existing) { return !isset($existing[$k]); }));
+    if (empty($queue)) {
+        write_progress($outDir, false, 0, 0, $status);
+        fwrite(STDERR, "fetch_stars: new-only, no new repos.\n");
+        exit(0);
+    }
+    $newRepoSet = array_flip($queue);
+}
+
 if ($limit > 0) $queue = array_slice($queue, 0, $limit);
 $total = count($queue);
 $stop = false; $scanned = 0;
@@ -282,12 +304,13 @@ function delta(?int $base, int $cur): ?int { return $base === null ? null : ($cu
  * exceed GitHub's stargazer pagination cap (~400 pages) so they're skipped here
  * and fall back to the daily snapshots. Returns full => [c1,c7,c30,c365].
  */
-function backfill_trends(array $repoMeta, array $starsByRepo, string $token, string $outDir, array &$status, int $sgLimit): array {
+function backfill_trends(array $repoMeta, array $starsByRepo, string $token, string $outDir, array &$status, int $sgLimit, ?array $restrict = null): array {
     $now = time();
     $periods = [86400, 7 * 86400, 30 * 86400, 365 * 86400];
     $trends = [];
     $list = [];
     foreach ($starsByRepo as $full => $s) {
+        if ($restrict !== null && !isset($restrict[$full])) continue;   // new-only: just the new repos
         if ($s <= 0 || $s > 40000) continue;
         $m = $repoMeta[$full] ?? null; if (!$m) continue;
         $list[] = ['full' => $full, 'owner' => $m['owner'], 'name' => $m['repo'], 'page' => max(1, (int)ceil($s / 100))];
@@ -337,7 +360,27 @@ function backfill_trends(array $repoMeta, array $starsByRepo, string $token, str
     return $trends;
 }
 
-$sgTrends = backfill_trends($repoMeta, $starsByRepo, $token, $outDir, $status, (int)$opt['sg-limit']);
+$sgTrends = backfill_trends($repoMeta, $starsByRepo, $token, $outDir, $status, (int)$opt['sg-limit'], $newRepoSet);
+
+// persist freshly-computed trends so a later --new-only run keeps them
+if ($sgTrends) {
+    $tu = $db->prepare('UPDATE repos SET t1=:a,t7=:b,t30=:c,t365=:d WHERE repo=:r');
+    $db->exec('BEGIN');
+    foreach ($sgTrends as $full => $c) {
+        $tu->reset();
+        $tu->bindValue(':a', $c[0], SQLITE3_INTEGER); $tu->bindValue(':b', $c[1], SQLITE3_INTEGER);
+        $tu->bindValue(':c', $c[2], SQLITE3_INTEGER); $tu->bindValue(':d', $c[3], SQLITE3_INTEGER);
+        $tu->bindValue(':r', $full, SQLITE3_TEXT);
+        $tu->execute();
+    }
+    $db->exec('COMMIT');
+}
+// read all stored trends (existing repos preserved + the ones we just refreshed)
+$dbTrends = [];
+$trq = $db->query('SELECT repo, t1, t7, t30, t365 FROM repos WHERE t7 IS NOT NULL');
+while ($row = $trq->fetchArray(SQLITE3_ASSOC)) {
+    $dbTrends[$row['repo']] = [(int)$row['t1'], (int)$row['t7'], (int)$row['t30'], (int)$row['t365']];
+}
 
 // ---- build outputs ---------------------------------------------------------
 $byId = $byName = $byRepo = $byPath = [];
@@ -358,9 +401,9 @@ foreach ($apps as $idx => $app) {
 
     $t1 = $t7 = $t30 = $t365 = null;
     if ($stars !== null && $full !== null) {
-        if (isset($sgTrends[$full])) {                       // stargazer-timestamp counts (instant)
-            $t1 = $sgTrends[$full][0]; $t7 = $sgTrends[$full][1];
-            $t30 = $sgTrends[$full][2]; $t365 = $sgTrends[$full][3];
+        if (isset($dbTrends[$full])) {                       // stored stargazer-timestamp counts
+            $t1 = $dbTrends[$full][0]; $t7 = $dbTrends[$full][1];
+            $t30 = $dbTrends[$full][2]; $t365 = $dbTrends[$full][3];
         } else {                                             // fallback: snapshot deltas (build over time)
             $t1   = delta(trend_at($baseQ, $full, $now - 86400),       $stars);
             $t7   = delta(trend_at($baseQ, $full, $now - 7 * 86400),   $stars);

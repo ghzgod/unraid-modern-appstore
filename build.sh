@@ -74,7 +74,11 @@ if [ ! -f "$CFG" ]; then
   printf 'TOKEN=""\nSERVICE="enabled"\nINTERVAL_HOURS="24"\nDATA_DIR="%s"\n' "$APPDATA" > "$CFG"
   chmod 600 "$CFG"
 fi
-echo '0 4 * * * php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php >/dev/null 2>&1' > /boot/config/plugins/appstore.github.addon/appstore.github.addon.cron
+CRON=/boot/config/plugins/appstore.github.addon/appstore.github.addon.cron
+{
+  echo '0 4 * * * php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php >/dev/null 2>&1'
+  echo '23 * * * * php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php --new-only >/dev/null 2>&1'
+} > "$CRON"
 /usr/local/sbin/update_cron 2>/dev/null
 # restore persisted star data into the tmpfs webroot so badges work after a reboot
 cp -f "$APPDATA/stars.json"  /usr/local/emhttp/plugins/appstore.github.addon/ 2>/dev/null

@@ -28,8 +28,11 @@ function gas_write_cfg($path, $token, $service, $interval, $datadir) {
 
 function gas_write_cron($path, $interval) {
     $interval = max(1, (int)$interval);
-    $line = "0 */$interval * * * php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php >/dev/null 2>&1\n";
-    file_put_contents($path, $line);
+    $php = "php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php";
+    // full scan on the interval + an hourly check that pulls stars for newly
+    // published app-store repos (bypasses the manual-refresh cooldown)
+    $lines = "0 */$interval * * * $php >/dev/null 2>&1\n23 * * * * $php --new-only >/dev/null 2>&1\n";
+    file_put_contents($path, $lines);
     @exec("/usr/local/sbin/update_cron 2>/dev/null");
 }
 
