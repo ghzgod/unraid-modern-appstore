@@ -36,6 +36,7 @@ $defaults = [
     'manual'      => '0',  // 1 = invoked by the Refresh button (records manual time)
     'sg-limit'    => '0',  // cap repos for the stargazer-trend backfill (0 = all)
     'new-only'    => '0',  // 1 = only fetch repos not yet in the DB (newly-published apps)
+    'trends-only' => '0',  // 1 = no network: recompute trend deltas from stored star history and rewrite JSON
 ];
 
 // ---- arg parsing -----------------------------------------------------------
@@ -54,6 +55,7 @@ for ($i = 1; $i < $argc; $i++) {
 }
 $limit       = (int)$opt['limit'];
 $concurrency = max(1, min(16, (int)$opt['concurrency']));
+$trendsOnly  = ((int)$opt['trends-only'] === 1);   // recompute trends from history, no GitHub calls
 
 // ---- read cfg early (TOKEN + DATA_DIR) -------------------------------------
 $cfg = is_file($opt['cfg']) ? @parse_ini_file($opt['cfg']) : [];
@@ -96,7 +98,7 @@ if ((int)$opt['manual'] === 1) {
     @file_put_contents($dataDir . '/last_manual.json', json_encode(['ts' => time()]));
 }
 
-if ($token === '') {
+if ($token === '' && !$trendsOnly) {
     $status['errors'][] = 'No GitHub token configured.';
     write_status($status, $outDir, $dataDir);
     write_progress($outDir, false, 0, 0, $status);
@@ -181,7 +183,12 @@ function db_upsert(SQLite3 $db, string $repo, string $owner, string $name, ?int 
 
 // ---- concurrent scan (curl_multi + pooled keep-alive) ----------------------
 $starsByRepo = [];
+$total = 0; $scanned = 0; $stop = false; $newRepoSet = null;
 $queue = array_keys($repoMeta);
+
+// trends-only: no network. Fill stars from the DB (below) and jump to the trend
+// recompute + JSON rebuild, so a hot fix to the trend maths takes effect at once.
+if (!$trendsOnly) {
 
 // --new-only: limit to repos we have never recorded (newly-published apps).
 // This runs on a frequent cron and bypasses the manual-refresh cooldown so new
@@ -268,8 +275,9 @@ do {
 } while ($running || !empty($inflight) || (!$stop && $queue));
 foreach ($inflight as $ctx) { @curl_multi_remove_handle($mh, $ctx['ch']); @curl_close($ctx['ch']); }
 curl_multi_close($mh);
+}   // end if (!$trendsOnly)
 
-// merge in repos not scanned this run
+// merge in repos not scanned this run (in trends-only mode this loads ALL stars)
 $res = $db->query('SELECT repo, stars FROM repos WHERE stars IS NOT NULL');
 while ($ar = $res->fetchArray(SQLITE3_ASSOC)) {
     if (!isset($starsByRepo[$ar['repo']])) $starsByRepo[$ar['repo']] = (int)$ar['stars'];
@@ -277,6 +285,7 @@ while ($ar = $res->fetchArray(SQLITE3_ASSOC)) {
 
 // ---- star-history snapshot (~1/day per repo) + trend computation -----------
 $now = time();
+if (!$trendsOnly) {
 $db->exec('BEGIN');
 $ins = $db->prepare('INSERT INTO star_history (repo, ts, stars) VALUES (:r,:t,:s)');
 $lastQ = $db->prepare('SELECT MAX(ts) AS m FROM star_history WHERE repo = :r');
@@ -293,14 +302,33 @@ foreach ($starsByRepo as $repo => $st) {
 }
 $db->exec('DELETE FROM star_history WHERE ts < ' . ($now - 400 * 86400));
 $db->exec('COMMIT');
+}   // end if (!$trendsOnly)
 
 $baseQ = $db->prepare('SELECT stars FROM star_history WHERE repo=:r AND ts<=:c ORDER BY ts DESC LIMIT 1');
+$oldQ  = $db->prepare('SELECT stars, ts FROM star_history WHERE repo=:r ORDER BY ts ASC LIMIT 1');
 function trend_at(SQLite3Stmt $baseQ, string $repo, int $cutoff): ?int {
     $baseQ->reset(); $baseQ->bindValue(':r', $repo, SQLITE3_TEXT); $baseQ->bindValue(':c', $cutoff, SQLITE3_INTEGER);
     $row = $baseQ->execute()->fetchArray(SQLITE3_ASSOC);
     return $row ? (int)$row['stars'] : null;
 }
 function delta(?int $base, int $cur): ?int { return $base === null ? null : ($cur - $base); }
+
+/*
+ * Uncapped trend for a rolling window: current stars minus the snapshot at (or
+ * just before) the window's start. If star history is younger than the window
+ * but still covers >=60% of it, approximate using the OLDEST snapshot (so a
+ * "30-day" trend works off ~25 days of history rather than showing nothing).
+ * Only when history is too short to be meaningful do we fall back to $fallback
+ * (the stargazer-page count, which saturates at 100 and can't rank hot repos).
+ */
+function trend_window(SQLite3Stmt $baseQ, SQLite3Stmt $oldQ, string $repo, int $window, int $stars, int $now, ?int $fallback): ?int {
+    $base = trend_at($baseQ, $repo, $now - $window);
+    if ($base !== null) return $stars - $base;
+    $oldQ->reset(); $oldQ->bindValue(':r', $repo, SQLITE3_TEXT);
+    $o = $oldQ->execute()->fetchArray(SQLITE3_ASSOC);
+    if ($o && ($now - (int)$o['ts']) >= 0.6 * $window) return $stars - (int)$o['stars'];
+    return $fallback;
+}
 
 /**
  * Stargazer-timestamp trend backfill. Fetches each repo's newest stargazer page
@@ -365,7 +393,7 @@ function backfill_trends(array $repoMeta, array $starsByRepo, string $token, str
     return $trends;
 }
 
-$sgTrends = backfill_trends($repoMeta, $starsByRepo, $token, $outDir, $status, (int)$opt['sg-limit'], $newRepoSet);
+$sgTrends = $trendsOnly ? [] : backfill_trends($repoMeta, $starsByRepo, $token, $outDir, $status, (int)$opt['sg-limit'], $newRepoSet);
 
 // persist freshly-computed trends so a later --new-only run keeps them
 if ($sgTrends) {
@@ -406,15 +434,14 @@ foreach ($apps as $idx => $app) {
 
     $t1 = $t7 = $t30 = $t365 = null;
     if ($stars !== null && $full !== null) {
-        if (isset($dbTrends[$full])) {                       // stored stargazer-timestamp counts
-            $t1 = $dbTrends[$full][0]; $t7 = $dbTrends[$full][1];
-            $t30 = $dbTrends[$full][2]; $t365 = $dbTrends[$full][3];
-        } else {                                             // fallback: snapshot deltas (build over time)
-            $t1   = delta(trend_at($baseQ, $full, $now - 86400),       $stars);
-            $t7   = delta(trend_at($baseQ, $full, $now - 7 * 86400),   $stars);
-            $t30  = delta(trend_at($baseQ, $full, $now - 30 * 86400),  $stars);
-            $t365 = delta(trend_at($baseQ, $full, $now - 365 * 86400), $stars);
-        }
+        // Prefer uncapped snapshot deltas; the stored stargazer-page counts
+        // saturate at 100 and can't rank fast-growing repos, so they're only a
+        // last-resort fallback for windows longer than our star history.
+        $fb = $dbTrends[$full] ?? [null, null, null, null];
+        $t1   = trend_window($baseQ, $oldQ, $full, 86400,       $stars, $now, $fb[0]);
+        $t7   = trend_window($baseQ, $oldQ, $full, 7 * 86400,   $stars, $now, $fb[1]);
+        $t30  = trend_window($baseQ, $oldQ, $full, 30 * 86400,  $stars, $now, $fb[2]);
+        $t365 = trend_window($baseQ, $oldQ, $full, 365 * 86400, $stars, $now, $fb[3]);
     }
 
     $desc = (string)($app['Overview'] ?? '');

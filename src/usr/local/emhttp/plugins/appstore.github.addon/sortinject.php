@@ -11,7 +11,18 @@
  */
 header('Content-Type: application/json');
 
-$displayed = '/tmp/community.applications/tempFiles/displayed.json';
+// CA (7.2.3) writes a single displayed.json (see include/paths.php:
+// community-templates-displayed => tempFiles/displayed.json). If a build ever
+// appends a per-tab suffix, fall back to the newest displayed*.json.
+$dir = '/tmp/community.applications/tempFiles';
+$displayed = "$dir/displayed.json";
+if (!is_file($displayed)) {
+    $newest = 0;
+    foreach (glob("$dir/displayed*.json") ?: [] as $f) {
+        $m = @filemtime($f);
+        if ($m !== false && $m > $newest) { $newest = $m; $displayed = $f; }
+    }
+}
 $base = '/usr/local/emhttp/plugins/appstore.github.addon';
 
 $apps = @json_decode(@file_get_contents($base . '/apps.json'), true);

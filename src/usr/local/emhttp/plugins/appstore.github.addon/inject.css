@@ -2,14 +2,19 @@
 
 .ca_holder[data-appname] { position: relative; }
 
+/* top-RIGHT corner. The app icon lives top-left, so the right corner is clear on
+   ordinary cards. Official/Installed cards draw a triangular corner ribbon in the
+   top-right (.officialCardBackground / .installedCardBackground, ~9rem); on those
+   we add .ghstars-badge-flagged to slide left of the ribbon (see inject.js). */
 .ghstars-badge {
-  position: absolute; top: 4px; right: 6px; z-index: 5;
+  position: absolute; top: 6px; right: 6px; z-index: 5;
   font-size: 11px; line-height: 1; font-weight: 600;
-  color: #f0a500; background: rgba(0, 0, 0, 0.06);
+  color: #f0a500; background: rgba(0, 0, 0, 0.55);
   border: 1px solid rgba(127, 127, 127, 0.25);
   padding: 2px 6px; border-radius: 10px;
   pointer-events: none; white-space: nowrap;
 }
+.ghstars-badge.ghstars-badge-flagged { right: 10.5rem; }
 
 /* yellow no-token warning banner */
 .ghstars-warning {

@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.06.23}"
+VERSION="${1:-2026.07.16}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,14 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Fix: compatibility with the Community Applications 7.2.3 rewrite.
+  - Star badge sits in the tile's top-right corner (clear of the app icon); on
+    Official/Installed cards it slides left of CA's corner ribbon.
+  - GitHub sort works again (star + trending): sort injection targets CA's
+    displayed.json regardless of layout churn.
+- Fix: trending (day/week/month/year) is now a real, uncapped star delta from
+  the daily snapshot history instead of a single stargazer page that saturated
+  at 100 and tied every hot repo. Recompute path added (--trends-only, no API).
 - GitHub star counts on every CA app tile.
 - "GitHub" view: the real App Store catalog, sortable by stars, trending, or newest.
 - Per-user GitHub token (set in Settings); no secrets shipped.

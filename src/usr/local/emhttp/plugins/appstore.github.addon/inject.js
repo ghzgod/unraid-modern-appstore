@@ -49,6 +49,8 @@
       return Math.floor(s / 86400) + 'd ago';
     }
 
+    function injectUrl() { return PREFIX + 'sortinject.php?_=' + Date.now(); }
+
     function loadStars(cb) {
       fetch(PREFIX + 'stars.json?_=' + Date.now()).then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) { STARS = j || { byName: {} }; cb && cb(); })
@@ -75,6 +77,10 @@
         if (s == null) continue;
         var b = document.createElement('span');
         b.className = 'ghstars-badge';
+        // official/installed cards draw a corner ribbon in the top-right; slide left of it
+        if (t.querySelector('.officialCardBackground, .LTOfficialCardBackground, .installedCardBackground, .warningCardBackground, .betaCardBackground, .greenCardBackground, .spotlightCardBackground')) {
+          b.className += ' ghstars-badge-flagged';
+        }
         b.title = s + ' GitHub stars';
         b.textContent = '★ ' + fmt(s);
         t.appendChild(b);
@@ -105,7 +111,7 @@
     // tiles by that key. ('new' uses CA's native FirstSeen field; injecting is
     // harmless there.)
     function applySort(key) {
-      return fetch(PREFIX + 'sortinject.php?_=' + Date.now())
+      return fetch(injectUrl())
         .then(function (r) { return r.ok ? r.json() : null; })
         .catch(function () { return null; })
         .then(function () {
@@ -168,7 +174,7 @@
       // wait until CA finishes building the full displayed.json, then sort by stars
       var tries = 0;
       (function waitFill() {
-        fetch(PREFIX + 'sortinject.php?_=' + Date.now()).then(function (r) { return r.ok ? r.json() : null; })
+        fetch(injectUrl()).then(function (r) { return r.ok ? r.json() : null; })
           .then(function (inj) {
             if (inj && inj.count > 1000) {
               var sel = document.getElementById('asga-sortsel'); if (sel) sel.value = 'new';
