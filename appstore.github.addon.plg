@@ -2,14 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "appstore.github.addon">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.07.16">
+<!ENTITY version "2026.07.20">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/appstore-github-addon/main/appstore.github.addon.plg">
 <!ENTITY support "https://github.com/ghzgod/appstore-github-addon">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/AppStoreGitHubAddon" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.07.16
+##2026.07.20
+- Fix (critical): store data on the flash (/boot/config/plugins/appstore.github.addon)
+  instead of /mnt/user/appdata. The install hook created its data dir under
+  /mnt/user before the array mounted, which made Unraid's shfs refuse to mount
+  /mnt/user and hid every user share. Existing installs are migrated automatically.
 - Fix: compatibility with the Community Applications 7.2.3 rewrite.
   - Star badge sits in the tile's top-right corner (clear of the app icon); on
     Official/Installed cards it slides left of CA's corner ribbon.
@@ -99,7 +103,7 @@ $cfg = is_file($opt['cfg']) ? @parse_ini_file($opt['cfg']) : [];
 $token = trim($cfg['TOKEN'] ?? '');
 $cfgDataDir = trim($cfg['DATA_DIR'] ?? '');
 
-$appdataDefault = '/mnt/user/appdata/appstore_github_addon';
+$appdataDefault = '/boot/config/plugins/appstore.github.addon';
 $dataDir = $opt['data-dir'] !== '' ? $opt['data-dir'] : ($cfgDataDir !== '' ? $cfgDataDir : $appdataDefault);
 $dataDir = rtrim($dataDir, '/');
 $db_path = $opt['db'] !== '' ? $opt['db'] : ($dataDir . '/stars.db');
@@ -542,7 +546,7 @@ const COOLDOWN = 3 * 86400;
 $base = '/usr/local/emhttp/plugins/appstore.github.addon';
 $php  = $base . '/fetch_stars.php';
 $cfg  = @parse_ini_file('/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg') ?: [];
-$dataDir = trim($cfg['DATA_DIR'] ?? '') ?: '/mnt/user/appdata/appstore_github_addon';
+$dataDir = trim($cfg['DATA_DIR'] ?? '') ?: '/boot/config/plugins/appstore.github.addon';
 
 $now = time();
 $lm  = @json_decode(@file_get_contents($dataDir . '/last_manual.json'), true);
@@ -676,7 +680,7 @@ const THROTTLE = 180;   // at most one on-demand check every 3 minutes
 $base = '/usr/local/emhttp/plugins/appstore.github.addon';
 $php  = $base . '/fetch_stars.php';
 $cfg  = @parse_ini_file('/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg') ?: [];
-$dataDir = trim($cfg['DATA_DIR'] ?? '') ?: '/mnt/user/appdata/appstore_github_addon';
+$dataDir = trim($cfg['DATA_DIR'] ?? '') ?: '/boot/config/plugins/appstore.github.addon';
 
 $now = time();
 $f = $dataDir . '/last_newscan.json';
@@ -1053,7 +1057,7 @@ if (!is_dir($gas_dir)) @mkdir($gas_dir, 0755, true);
 function gas_write_cfg($path, $token, $service, $datadir) {
     $token   = str_replace(["\"", "\n", "\r"], "", $token);
     $datadir = rtrim(str_replace(["\"", "\n", "\r"], "", $datadir), '/');
-    if ($datadir === '') $datadir = '/mnt/user/appdata/appstore_github_addon';
+    if ($datadir === '') $datadir = '/boot/config/plugins/appstore.github.addon';
     $service = ($service === 'enabled') ? 'enabled' : 'disabled';
     $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nDATA_DIR=\"$datadir\"\n";
     file_put_contents($path, $out);
@@ -1088,7 +1092,7 @@ if ($_POST) {
 $cfg = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
 $token    = $cfg['TOKEN'] ?? '';
 $service  = $cfg['SERVICE'] ?? 'enabled';
-$datadir  = $cfg['DATA_DIR'] ?? '/mnt/user/appdata/appstore_github_addon';
+$datadir  = $cfg['DATA_DIR'] ?? '/boot/config/plugins/appstore.github.addon';
 
 $status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/appstore.github.addon/status.json"), true) ?: [];
 ?>
@@ -1194,13 +1198,21 @@ Set your GitHub personal access token at **Settings → Utilities → App Store 
 <FILE Run="/bin/bash">
 <INLINE>
 <![CDATA[
-APPDATA=/mnt/user/appdata/appstore_github_addon
-mkdir -p "$APPDATA" /boot/config/plugins/appstore.github.addon
+# Data dir lives on the flash (like every other plugin) so it exists BEFORE the
+# array mounts. A directory created under /mnt/user at plugin-install time (which
+# runs early in boot, before the array) leaves /mnt/user non-empty and makes shfs
+# refuse to mount it — hiding every user share. Never write to /mnt/user here.
+APPDATA=/boot/config/plugins/appstore.github.addon
+mkdir -p "$APPDATA"
 CFG=/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg
 # seed an EMPTY token only if no config exists yet (preserves an existing token)
 if [ ! -f "$CFG" ]; then
   printf 'TOKEN=""\nSERVICE="enabled"\nDATA_DIR="%s"\n' "$APPDATA" > "$CFG"
   chmod 600 "$CFG"
+fi
+# migrate a legacy DATA_DIR under /mnt/user off the array (it breaks shfs mounting)
+if grep -q 'DATA_DIR="/mnt/user' "$CFG" 2>/dev/null; then
+  sed -i 's#^DATA_DIR=.*#DATA_DIR="'"$APPDATA"'"#' "$CFG"
 fi
 CRON=/boot/config/plugins/appstore.github.addon/appstore.github.addon.cron
 # full scan every 3 days; hourly check that only pulls NEWLY published repos

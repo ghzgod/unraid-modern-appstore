@@ -62,7 +62,7 @@ $cfg = is_file($opt['cfg']) ? @parse_ini_file($opt['cfg']) : [];
 $token = trim($cfg['TOKEN'] ?? '');
 $cfgDataDir = trim($cfg['DATA_DIR'] ?? '');
 
-$appdataDefault = '/mnt/user/appdata/appstore_github_addon';
+$appdataDefault = '/boot/config/plugins/appstore.github.addon';
 $dataDir = $opt['data-dir'] !== '' ? $opt['data-dir'] : ($cfgDataDir !== '' ? $cfgDataDir : $appdataDefault);
 $dataDir = rtrim($dataDir, '/');
 $db_path = $opt['db'] !== '' ? $opt['db'] : ($dataDir . '/stars.db');

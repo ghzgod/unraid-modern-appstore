@@ -17,7 +17,7 @@ if (!is_dir($gas_dir)) @mkdir($gas_dir, 0755, true);
 function gas_write_cfg($path, $token, $service, $datadir) {
     $token   = str_replace(["\"", "\n", "\r"], "", $token);
     $datadir = rtrim(str_replace(["\"", "\n", "\r"], "", $datadir), '/');
-    if ($datadir === '') $datadir = '/mnt/user/appdata/appstore_github_addon';
+    if ($datadir === '') $datadir = '/boot/config/plugins/appstore.github.addon';
     $service = ($service === 'enabled') ? 'enabled' : 'disabled';
     $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nDATA_DIR=\"$datadir\"\n";
     file_put_contents($path, $out);
@@ -52,7 +52,7 @@ if ($_POST) {
 $cfg = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
 $token    = $cfg['TOKEN'] ?? '';
 $service  = $cfg['SERVICE'] ?? 'enabled';
-$datadir  = $cfg['DATA_DIR'] ?? '/mnt/user/appdata/appstore_github_addon';
+$datadir  = $cfg['DATA_DIR'] ?? '/boot/config/plugins/appstore.github.addon';
 
 $status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/appstore.github.addon/status.json"), true) ?: [];
 ?>

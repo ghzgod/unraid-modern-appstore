@@ -14,7 +14,7 @@ const COOLDOWN = 3 * 86400;
 $base = '/usr/local/emhttp/plugins/appstore.github.addon';
 $php  = $base . '/fetch_stars.php';
 $cfg  = @parse_ini_file('/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg') ?: [];
-$dataDir = trim($cfg['DATA_DIR'] ?? '') ?: '/mnt/user/appdata/appstore_github_addon';
+$dataDir = trim($cfg['DATA_DIR'] ?? '') ?: '/boot/config/plugins/appstore.github.addon';
 
 $now = time();
 $lm  = @json_decode(@file_get_contents($dataDir . '/last_manual.json'), true);

@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.16}"
+VERSION="${1:-2026.07.20}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,10 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Fix (critical): store data on the flash (/boot/config/plugins/appstore.github.addon)
+  instead of /mnt/user/appdata. The install hook created its data dir under
+  /mnt/user before the array mounted, which made Unraid's shfs refuse to mount
+  /mnt/user and hid every user share. Existing installs are migrated automatically.
 - Fix: compatibility with the Community Applications 7.2.3 rewrite.
   - Star badge sits in the tile's top-right corner (clear of the app icon); on
     Official/Installed cards it slides left of CA's corner ribbon.
@@ -74,13 +78,21 @@ cat <<'POSTINSTALL'
 <FILE Run="/bin/bash">
 <INLINE>
 <![CDATA[
-APPDATA=/mnt/user/appdata/appstore_github_addon
-mkdir -p "$APPDATA" /boot/config/plugins/appstore.github.addon
+# Data dir lives on the flash (like every other plugin) so it exists BEFORE the
+# array mounts. A directory created under /mnt/user at plugin-install time (which
+# runs early in boot, before the array) leaves /mnt/user non-empty and makes shfs
+# refuse to mount it — hiding every user share. Never write to /mnt/user here.
+APPDATA=/boot/config/plugins/appstore.github.addon
+mkdir -p "$APPDATA"
 CFG=/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg
 # seed an EMPTY token only if no config exists yet (preserves an existing token)
 if [ ! -f "$CFG" ]; then
   printf 'TOKEN=""\nSERVICE="enabled"\nDATA_DIR="%s"\n' "$APPDATA" > "$CFG"
   chmod 600 "$CFG"
+fi
+# migrate a legacy DATA_DIR under /mnt/user off the array (it breaks shfs mounting)
+if grep -q 'DATA_DIR="/mnt/user' "$CFG" 2>/dev/null; then
+  sed -i 's#^DATA_DIR=.*#DATA_DIR="'"$APPDATA"'"#' "$CFG"
 fi
 CRON=/boot/config/plugins/appstore.github.addon/appstore.github.addon.cron
 # full scan every 3 days; hourly check that only pulls NEWLY published repos
