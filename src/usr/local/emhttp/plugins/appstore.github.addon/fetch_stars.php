@@ -3,7 +3,7 @@
  * App Store GitHub Addon — star fetcher.
  *
  * Reads the Community Applications catalog cache READ-ONLY, derives owner/repo
- * from each app's Project/Support GitHub URL, queries the GitHub API (token +
+ * from each app's Project GitHub URL, queries the GitHub API (token +
  * fabricated User-Agent + ETag), and caches results in SQLite. Exports:
  *   - stars.json : compact name->stars map for the badge painter
  *   - apps.json  : full catalog (name, path, icon, author, category, stars,
@@ -120,15 +120,21 @@ if (!is_array($apps)) {
 }
 
 // ---- derive owner/repo per app ---------------------------------------------
+// Only the Project URL is a reliable source for an app's OWN repo. The Support
+// URL is a "get help" link that template authors routinely point at an umbrella
+// project's issues/discussions page (e.g. every Immich component links to
+// github.com/immich-app/immich), which would mis-attribute that project's star
+// count to unrelated components (postgres, redis, ...). Derive from Project
+// only, and ignore GitHub non-repo paths (issues/discussions/org pages/etc).
 function derive_repo(array $app): ?array {
-    foreach (['Project', 'Support'] as $field) {
-        $url = $app[$field] ?? '';
-        if (!$url) continue;
-        if (preg_match('~github\.com/([^/]+)/([^/#?\s]+)~i', $url, $m)) {
-            $repo = preg_replace('~\.git$~', '', $m[2]);
-            if (strtolower($repo) === 'issues') continue;
-            return ['owner' => $m[1], 'repo' => $repo, 'full' => strtolower($m[1] . '/' . $repo)];
-        }
+    $url = $app['Project'] ?? '';
+    if (!$url) return null;
+    if (preg_match('~github\.com/([^/]+)/([^/#?\s]+)~i', $url, $m)) {
+        $owner = strtolower($m[1]);
+        $repo  = preg_replace('~\.git$~', '', $m[2]);
+        if (in_array($owner, ['orgs','sponsors','topics','marketplace','features','about','apps'], true)) return null;
+        if (in_array(strtolower($repo), ['issues','discussions','wiki','pulls','releases'], true)) return null;
+        return ['owner' => $m[1], 'repo' => $repo, 'full' => strtolower($m[1] . '/' . $repo)];
     }
     return null;
 }

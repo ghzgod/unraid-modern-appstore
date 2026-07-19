@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.20}"
+VERSION="${1:-2026.07.21}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,12 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Fix: derive each app's repo from its Project URL only, not Support. Support
+  URLs are "get help" links that template authors routinely point at an umbrella
+  project's issues/discussions page (every Immich component links to
+  github.com/immich-app/immich), which mis-attributed that repo's ~108k stars to
+  unrelated components (immich-postgres, immich-redis, etc.). Also ignores GitHub
+  non-repo paths (issues/discussions/org pages).
 - Fix (critical): store data on the flash (/boot/config/plugins/appstore.github.addon)
   instead of /mnt/user/appdata. The install hook created its data dir under
   /mnt/user before the array mounted, which made Unraid's shfs refuse to mount
