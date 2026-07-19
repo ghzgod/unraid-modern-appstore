@@ -30,7 +30,11 @@
       { v: 'ght1',   key: 'ght1',      label: 'Trending — today' },
       { v: 'ght7',   key: 'ght7',      label: 'Trending — this week' },
       { v: 'ght30',  key: 'ght30',     label: 'Trending — this month' },
-      { v: 'ght365', key: 'ght365',    label: 'Trending — this year' }
+      { v: 'ght365', key: 'ght365',    label: 'Trending — this year' },
+      { v: 'ghp1',   key: 'ghp1',      label: 'Trending % — today' },
+      { v: 'ghp7',   key: 'ghp7',      label: 'Trending % — this week' },
+      { v: 'ghp30',  key: 'ghp30',     label: 'Trending % — this month' },
+      { v: 'ghp365', key: 'ghp365',    label: 'Trending % — this year' }
     ];
 
     function fmt(n) {

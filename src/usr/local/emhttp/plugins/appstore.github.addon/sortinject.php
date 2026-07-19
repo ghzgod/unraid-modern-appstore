@@ -43,6 +43,16 @@ if (!is_array($d) || !isset($d['community']) || !is_array($d['community'])) {
 
 function gi($m, $k) { return ($m && $m[$k] !== null) ? (int)$m[$k] : -1; }
 
+// Relative growth for a window, in basis points (0.01%) so CA sorts it as an
+// integer. delta / (stars at the window's start). A 10-star baseline floor keeps
+// trivial repos (2->4 stars = "+100%") from dominating the percent sort.
+function gp($m, $k) {
+    if (!$m || $m[$k] === null || $m['s'] === null) return -1;
+    $d = (int)$m[$k]; $base = (int)$m['s'] - $d;
+    if ($base < 10) return -1;
+    return (int)round($d / $base * 10000);
+}
+
 $n = 0;
 foreach ($d['community'] as &$app) {
     if (!is_array($app)) continue;
@@ -52,6 +62,10 @@ foreach ($d['community'] as &$app) {
     $app['ght7']    = gi($m, 't7');
     $app['ght30']   = gi($m, 't30');
     $app['ght365']  = gi($m, 't365');
+    $app['ghp1']    = gp($m, 't1');
+    $app['ghp7']    = gp($m, 't7');
+    $app['ghp30']   = gp($m, 't30');
+    $app['ghp365']  = gp($m, 't365');
     $n++;
 }
 unset($app);

@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.21}"
+VERSION="${1:-2026.07.22}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,10 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Feature: "Trending %" sort (today/week/month/year) in the GitHub view — ranks by
+  RELATIVE star growth (window delta / stars at the window's start), so fast-growing
+  small apps surface above mega-repos that dominate the absolute-delta sort. A
+  10-star baseline floor keeps trivial repos (2->4 stars) out of the top.
 - Fix: derive each app's repo from its Project URL only, not Support. Support
   URLs are "get help" links that template authors routinely point at an umbrella
   project's issues/discussions page (every Immich component links to

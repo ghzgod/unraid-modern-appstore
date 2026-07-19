@@ -2,14 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "appstore.github.addon">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.07.21">
+<!ENTITY version "2026.07.22">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/appstore-github-addon/main/appstore.github.addon.plg">
 <!ENTITY support "https://github.com/ghzgod/appstore-github-addon">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/AppStoreGitHubAddon" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.07.21
+##2026.07.22
+- Feature: "Trending %" sort (today/week/month/year) in the GitHub view — ranks by
+  RELATIVE star growth (window delta / stars at the window's start), so fast-growing
+  small apps surface above mega-repos that dominate the absolute-delta sort. A
+  10-star baseline floor keeps trivial repos (2->4 stars) out of the top.
 - Fix: derive each app's repo from its Project URL only, not Support. Support
   URLs are "get help" links that template authors routinely point at an umbrella
   project's issues/discussions page (every Immich component links to
@@ -655,6 +659,16 @@ if (!is_array($d) || !isset($d['community']) || !is_array($d['community'])) {
 
 function gi($m, $k) { return ($m && $m[$k] !== null) ? (int)$m[$k] : -1; }
 
+// Relative growth for a window, in basis points (0.01%) so CA sorts it as an
+// integer. delta / (stars at the window's start). A 10-star baseline floor keeps
+// trivial repos (2->4 stars = "+100%") from dominating the percent sort.
+function gp($m, $k) {
+    if (!$m || $m[$k] === null || $m['s'] === null) return -1;
+    $d = (int)$m[$k]; $base = (int)$m['s'] - $d;
+    if ($base < 10) return -1;
+    return (int)round($d / $base * 10000);
+}
+
 $n = 0;
 foreach ($d['community'] as &$app) {
     if (!is_array($app)) continue;
@@ -664,6 +678,10 @@ foreach ($d['community'] as &$app) {
     $app['ght7']    = gi($m, 't7');
     $app['ght30']   = gi($m, 't30');
     $app['ght365']  = gi($m, 't365');
+    $app['ghp1']    = gp($m, 't1');
+    $app['ghp7']    = gp($m, 't7');
+    $app['ghp30']   = gp($m, 't30');
+    $app['ghp365']  = gp($m, 't365');
     $n++;
 }
 unset($app);
@@ -742,7 +760,11 @@ echo json_encode(['started' => true]);
       { v: 'ght1',   key: 'ght1',      label: 'Trending — today' },
       { v: 'ght7',   key: 'ght7',      label: 'Trending — this week' },
       { v: 'ght30',  key: 'ght30',     label: 'Trending — this month' },
-      { v: 'ght365', key: 'ght365',    label: 'Trending — this year' }
+      { v: 'ght365', key: 'ght365',    label: 'Trending — this year' },
+      { v: 'ghp1',   key: 'ghp1',      label: 'Trending % — today' },
+      { v: 'ghp7',   key: 'ghp7',      label: 'Trending % — this week' },
+      { v: 'ghp30',  key: 'ghp30',     label: 'Trending % — this month' },
+      { v: 'ghp365', key: 'ghp365',    label: 'Trending % — this year' }
     ];
 
     function fmt(n) {
