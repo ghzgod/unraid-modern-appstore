@@ -2,14 +2,17 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "appstore.github.addon">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.07.29a">
+<!ENTITY version "2026.07.29b">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/appstore-github-addon/main/appstore.github.addon.plg">
 <!ENTITY support "https://github.com/ghzgod/appstore-github-addon">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/AppStoreGitHubAddon" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.07.29a
+##2026.07.29b
+- Fix: the Sort By dropdown is now present in BOTH the GitHub view and All Apps
+  (it was missing whenever CA hid its sort area), and the search row no longer
+  sits jammed against the nav bar.
 - Fix: the Sort By dropdown was invisible. It was placed inside CA's #sortIconArea,
   which CA hides as a unit (clearSearchBox calls hideSortIcons), so it vanished in
   the GitHub view. The dropdown now lives in the toolbar row next to the search box,
@@ -1175,6 +1178,12 @@ echo json_encode(['started' => true]);
 /* Unified Sort By control. CA's own sort links stay in the DOM (its code reads
    and writes their classes) but are hidden; our dropdown drives them. */
 #sortIconArea.asga-sorthidden .sortIcons { display: none; }
+
+/* The GitHub view hides CA's whole #sortIconArea, which normally sits between
+   the nav and the search row and provides its top spacing. Without it the
+   search box butts right against the nav bar, so give the toolbar row its own
+   breathing room. (#searchFilter only exists on the Apps page.) */
+#searchFilter { margin-top: 24px; }
 
 /* sort toolbar. A native <select> inherits Unraid's dropdown theme. Sized and
    coloured to match CA's own .sortIcons so it reads as part of the page. */

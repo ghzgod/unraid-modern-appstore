@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.29a}"
+VERSION="${1:-2026.07.29b}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,9 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Fix: the Sort By dropdown is now present in BOTH the GitHub view and All Apps
+  (it was missing whenever CA hid its sort area), and the search row no longer
+  sits jammed against the nav bar.
 - Fix: the Sort By dropdown was invisible. It was placed inside CA's #sortIconArea,
   which CA hides as a unit (clearSearchBox calls hideSortIcons), so it vanished in
   the GitHub view. The dropdown now lives in the toolbar row next to the search box,

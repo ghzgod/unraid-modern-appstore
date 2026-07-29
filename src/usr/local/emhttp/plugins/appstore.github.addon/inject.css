@@ -33,6 +33,12 @@
    and writes their classes) but are hidden; our dropdown drives them. */
 #sortIconArea.asga-sorthidden .sortIcons { display: none; }
 
+/* The GitHub view hides CA's whole #sortIconArea, which normally sits between
+   the nav and the search row and provides its top spacing. Without it the
+   search box butts right against the nav bar, so give the toolbar row its own
+   breathing room. (#searchFilter only exists on the Apps page.) */
+#searchFilter { margin-top: 24px; }
+
 /* sort toolbar. A native <select> inherits Unraid's dropdown theme. Sized and
    coloured to match CA's own .sortIcons so it reads as part of the page. */
 .asga-bar {
