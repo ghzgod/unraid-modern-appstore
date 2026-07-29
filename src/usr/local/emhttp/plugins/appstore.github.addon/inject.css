@@ -26,9 +26,6 @@
 .ghstars-warning-x { cursor: pointer; font-weight: bold; opacity: 0.7; }
 .ghstars-warning-x:hover { opacity: 1; }
 
-/* left-menu item inherits CA's look */
-.asga-menu { cursor: pointer; }
-
 /* Unified Sort By control. CA's own sort links stay in the DOM (its code reads
    and writes their classes) but are hidden; our dropdown drives them. */
 #sortIconArea.asga-sorthidden .sortIcons { display: none; }

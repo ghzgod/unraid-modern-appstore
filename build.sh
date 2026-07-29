@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.29b}"
+VERSION="${1:-2026.07.29c}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,8 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Change: removed the "GitHub" item from the left menu. The Sort By dropdown
+  covers everything it did, so browsing is just CA's normal All Apps view.
 - Fix: the Sort By dropdown is now present in BOTH the GitHub view and All Apps
   (it was missing whenever CA hid its sort area), and the search row no longer
   sits jammed against the nav bar.

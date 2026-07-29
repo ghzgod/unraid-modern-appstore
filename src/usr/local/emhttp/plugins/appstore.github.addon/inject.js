@@ -6,8 +6,7 @@
  *   1. paints a ★ star badge on every GitHub-backed tile,
  *   2. replaces CA's row of "Sort By:" links with ONE dropdown holding both
  *      CA's own sort orders and ours (stars / trending),
- *   3. adds a "GitHub ★" left-menu item that opens CA's real All-Apps view,
- *   4. a small Refresh control (confirm + 3-day cooldown + cancel) and a thin
+ *   3. a small Refresh control (confirm + 3-day cooldown + cancel) and a thin
  *      progress bar while a scan runs.
  *
  * Sorting works by injecting numeric metrics into CA's transient view caches
@@ -27,7 +26,7 @@
     if (location.pathname.indexOf('/Apps') !== 0) return;
     var PREFIX = '/plugins/appstore.github.addon/';
     var STARS = null;
-    var polling = false, wasRunning = false, didDefault = false;
+    var polling = false, wasRunning = false;
     var activeOpt = null;      // the option currently applied
     var reSorting = false;     // guards the one re-sort we trigger per CA render
 
@@ -253,37 +252,6 @@
         });
     }
 
-    // ---- "GitHub ★" left-menu item: CA All Apps + sort by stars ----
-    function addMenuItem() {
-      if (document.getElementById('asga-menu')) return;
-      var cat = document.querySelector('.categoryMenu.caMenuItem');
-      if (!cat || !cat.parentNode) return;
-      var item = document.createElement(cat.tagName);
-      item.id = 'asga-menu';
-      item.className = cat.className.replace(/\ballApps\b/g, '') + ' asga-menu';
-      item.removeAttribute('data-category');
-      item.textContent = 'GitHub ★';
-      item.addEventListener('click', function (e) { e.stopPropagation(); openGitHub(); });
-      cat.parentNode.insertBefore(item, cat);
-    }
-
-    function openGitHub() {
-      document.querySelectorAll('.caMenuItem.selectedMenu').forEach(function (x) { x.classList.remove('selectedMenu'); });
-      var me = document.getElementById('asga-menu'); if (me) me.classList.add('selectedMenu');
-      try { window.getContent(false, 'All', 'GitHub ★', false); } catch (e) { var b = document.querySelector('.allApps'); if (b) b.click(); }
-      // wait until CA finishes building the full displayed.json, then sort by stars
-      var tries = 0;
-      (function waitFill() {
-        fetch(injectUrl()).then(function (r) { return r.ok ? r.json() : null; })
-          .then(function (inj) {
-            if (inj && inj.count > 1000) {
-              maybeSetPerPage();
-              applySort(optFor('new'));               // default: Newest to the App Store
-            } else if (tries++ < 40) setTimeout(waitFill, 350);
-          }).catch(function () {});
-      })();
-    }
-
     // ---- refresh + progress (thin top bar) ----
     function ensureTopBar() {
       var bar = document.getElementById('ghstars-topbar');
@@ -329,23 +297,13 @@
     }
 
     // ---- lifecycle ----
-    // make the GitHub view the default landing page (once, after CA's first render)
-    function maybeDefaultOpen() {
-      if (didDefault) return;
-      if (!document.getElementById('asga-menu') || typeof window.getContent !== 'function') return;
-      if (!document.querySelector('#templates_content .ca_holder[data-appname]')) return;
-      didDefault = true;
-      setTimeout(openGitHub, 300);
-    }
-
     function apply() {
       paintBadges();
       showWarningIfNeeded();
-      addMenuItem();
       addSortBar();
       hideNativeSortRow();
       hookUpdateDisplay();
-      maybeDefaultOpen();
+      maybeSetPerPage();
     }
     // on Apps-page load, pull stars for any newly-published repos right away
     // (throttled server-side); the progress poller repaints badges when it finishes.
