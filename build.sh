@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.22}"
+VERSION="${1:-2026.07.29}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,20 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Fix: sorting during a search. The Community Applications 2026.07.21 rewrite sorts
+  three view caches (displayed.json plus allSearchResults.json and
+  catSearchResults.json) and rebuilds them from the raw feed on every search and
+  category change, which dropped our metrics, so a GitHub sort silently fell back
+  to feed order and put 0-star apps above 50k-star ones. All three caches are now
+  injected, and the addon re-injects and re-sorts once after each CA render.
+- Change: one "Sort By:" dropdown instead of two competing sort controls. It holds
+  CA's own orders (Name Ascending/Descending, Unraid Downloads) alongside ours
+  (Newest to the App Store, GitHub Stars, Trending, Trending %). CA's own sort links
+  are hidden, not removed, and its orders are applied by driving CA's own controls,
+  so nothing about CA is modified.
+- Change: results per page defaults to 96 (CA's largest) once per browser, so a
+  stars or trending ranking shows a meaningful page. Your choice is respected after
+  that.
 - Feature: "Trending %" sort (today/week/month/year) in the GitHub view — ranks by
   RELATIVE star growth (window delta / stars at the window's start), so fast-growing
   small apps surface above mega-repos that dominate the absolute-delta sort. A

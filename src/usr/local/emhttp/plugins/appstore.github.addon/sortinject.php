@@ -3,25 +3,28 @@
  * App Store GitHub Addon — sort augmentation.
  *
  * Injects our GitHub metrics (ghstars + trend deltas) into Community
- * Applications' OWN displayed.json (the transient, regenerable view cache),
- * keyed by app Name. CA's native changeSortOrder() then sorts and renders its
- * REAL tiles by those keys — so the GitHub view is literally CA's app page,
- * just orderable by stars/trending. We only ADD numeric fields; CA rebuilds
- * this cache on the next navigation, so nothing is permanently changed.
+ * Applications' OWN transient view caches, keyed by unique template Path. CA's
+ * native changeSortOrder() then sorts and renders its REAL tiles by those keys,
+ * so the GitHub view is literally CA's app page, just orderable by
+ * stars/trending. We only ADD numeric fields; CA rebuilds these caches on the
+ * next navigation, so nothing is permanently changed.
+ *
+ * CA 2026.07.21 sorts THREE caches in changeSortOrder(): displayed.json plus
+ * allSearchResults.json and catSearchResults.json. A search rebuilds all of
+ * them from the raw feed, which drops our fields, so every one has to be
+ * (re-)injected, and inject.js re-runs this after each CA render.
  */
 header('Content-Type: application/json');
 
-// CA (7.2.3) writes a single displayed.json (see include/paths.php:
-// community-templates-displayed => tempFiles/displayed.json). If a build ever
-// appends a per-tab suffix, fall back to the newest displayed*.json.
 $dir = '/tmp/community.applications/tempFiles';
-$displayed = "$dir/displayed.json";
-if (!is_file($displayed)) {
-    $newest = 0;
-    foreach (glob("$dir/displayed*.json") ?: [] as $f) {
-        $m = @filemtime($f);
-        if ($m !== false && $m > $newest) { $newest = $m; $displayed = $f; }
-    }
+$targets = [
+    "$dir/displayed.json",
+    "$dir/allSearchResults.json",
+    "$dir/catSearchResults.json",
+];
+// If a future build ever appends a per-tab suffix to displayed.json, pick those up too.
+foreach (glob("$dir/displayed*.json") ?: [] as $f) {
+    if (!in_array($f, $targets, true)) $targets[] = $f;
 }
 $base = '/usr/local/emhttp/plugins/appstore.github.addon';
 
@@ -33,12 +36,6 @@ if ($apps && isset($apps['apps'])) {
         if ($p === '') continue;
         $map[$p] = $a;
     }
-}
-
-if (!is_file($displayed)) { echo json_encode(['ok' => false, 'err' => 'no displayed.json']); exit; }
-$d = @unserialize(file_get_contents($displayed));
-if (!is_array($d) || !isset($d['community']) || !is_array($d['community'])) {
-    echo json_encode(['ok' => false, 'err' => 'unexpected displayed.json']); exit;
 }
 
 function gi($m, $k) { return ($m && $m[$k] !== null) ? (int)$m[$k] : -1; }
@@ -53,22 +50,36 @@ function gp($m, $k) {
     return (int)round($d / $base * 10000);
 }
 
-$n = 0;
-foreach ($d['community'] as &$app) {
-    if (!is_array($app)) continue;
-    $m = $map[$app['Path'] ?? ''] ?? null;
-    $app['ghstars'] = ($m && $m['s'] !== null) ? (int)$m['s'] : -1;
-    $app['ght1']    = gi($m, 't1');
-    $app['ght7']    = gi($m, 't7');
-    $app['ght30']   = gi($m, 't30');
-    $app['ght365']  = gi($m, 't365');
-    $app['ghp1']    = gp($m, 't1');
-    $app['ghp7']    = gp($m, 't7');
-    $app['ghp30']   = gp($m, 't30');
-    $app['ghp365']  = gp($m, 't365');
-    $n++;
-}
-unset($app);
+$total = 0;
+$files = [];
+foreach ($targets as $file) {
+    if (!is_file($file)) continue;
+    $d = @unserialize(@file_get_contents($file));
+    if (!is_array($d) || !isset($d['community']) || !is_array($d['community'])) continue;
 
-@file_put_contents($displayed, serialize($d));
-echo json_encode(['ok' => true, 'count' => $n]);
+    $n = 0;
+    foreach ($d['community'] as &$app) {
+        if (!is_array($app)) continue;
+        $m = $map[$app['Path'] ?? ''] ?? null;
+        $app['ghstars'] = ($m && $m['s'] !== null) ? (int)$m['s'] : -1;
+        $app['ght1']    = gi($m, 't1');
+        $app['ght7']    = gi($m, 't7');
+        $app['ght30']   = gi($m, 't30');
+        $app['ght365']  = gi($m, 't365');
+        $app['ghp1']    = gp($m, 't1');
+        $app['ghp7']    = gp($m, 't7');
+        $app['ghp30']   = gp($m, 't30');
+        $app['ghp365']  = gp($m, 't365');
+        $n++;
+    }
+    unset($app);
+
+    @file_put_contents($file, serialize($d));
+    $files[basename($file)] = $n;
+    // 'count' stays the displayed.json tally: inject.js uses it to detect when
+    // CA has finished building the full app list.
+    if (basename($file) === 'displayed.json') $total = $n;
+}
+
+if (!$files) { echo json_encode(['ok' => false, 'err' => 'no CA view cache']); exit; }
+echo json_encode(['ok' => true, 'count' => $total, 'files' => $files]);

@@ -4,17 +4,22 @@
  * Runs only on /Apps. It does NOT recreate any tiles — it uses Community
  * Applications' OWN rendering:
  *   1. paints a ★ star badge on every GitHub-backed tile,
- *   2. adds "GitHub Stars" + "Trending" options to CA's native Sort By menu,
- *   3. adds a "GitHub ★" left-menu item that opens CA's real All-Apps view
- *      sorted by stars,
+ *   2. replaces CA's row of "Sort By:" links with ONE dropdown holding both
+ *      CA's own sort orders and ours (stars / trending),
+ *   3. adds a "GitHub ★" left-menu item that opens CA's real All-Apps view,
  *   4. a small Refresh control (confirm + 3-day cooldown + cancel) and a thin
  *      progress bar while a scan runs.
  *
- * Sorting works by injecting numeric metrics into CA's transient displayed.json
- * (via sortinject.php) and then calling CA's own changeSortOrder() — so the
+ * Sorting works by injecting numeric metrics into CA's transient view caches
+ * (via sortinject.php) and then calling CA's own changeSortOrder(), so the
  * GitHub view IS the real app page, just orderable by stars/trending, and it
- * tracks any change CA makes to its tiles. Everything is wrapped so a failure
- * is a silent no-op that never breaks CA.
+ * tracks any change CA makes to its tiles. CA rebuilds those caches from the
+ * raw feed on every search / category change, wiping our fields, so we hook
+ * CA's updateDisplay() and re-inject + re-sort once after each render whenever
+ * a GitHub sort is active. CA's own sort orders are applied by clicking its
+ * hidden .sortIcons anchors, so CA's internal state stays exactly as it
+ * expects. Everything is wrapped so a failure is a silent no-op that never
+ * breaks CA.
  */
 (function () {
   'use strict';
@@ -23,19 +28,28 @@
     var PREFIX = '/plugins/appstore.github.addon/';
     var STARS = null;
     var polling = false, wasRunning = false, didDefault = false;
+    var activeOpt = null;      // the option currently applied
+    var reSorting = false;     // guards the one re-sort we trigger per CA render
 
+    // One list for BOTH sorts. `native: true` means CA already owns the field
+    // and has a matching .sortIcons anchor we can click; the rest are ours and
+    // need sortinject.php to run first.
     var SORT_OPTS = [
-      { v: 'new',    key: 'FirstSeen', label: 'Newest to the App Store' },
-      { v: 'ghstars', key: 'ghstars',  label: 'GitHub Stars' },
-      { v: 'ght1',   key: 'ght1',      label: 'Trending — today' },
-      { v: 'ght7',   key: 'ght7',      label: 'Trending — this week' },
-      { v: 'ght30',  key: 'ght30',     label: 'Trending — this month' },
-      { v: 'ght365', key: 'ght365',    label: 'Trending — this year' },
-      { v: 'ghp1',   key: 'ghp1',      label: 'Trending % — today' },
-      { v: 'ghp7',   key: 'ghp7',      label: 'Trending % — this week' },
-      { v: 'ghp30',  key: 'ghp30',     label: 'Trending % — this month' },
-      { v: 'ghp365', key: 'ghp365',    label: 'Trending % — this year' }
+      { v: 'name_asc',  key: 'Name',      dir: 'Up',   label: 'Name Ascending',  native: true },
+      { v: 'name_desc', key: 'Name',      dir: 'Down', label: 'Name Descending', native: true },
+      { v: 'downloads', key: 'downloads', dir: 'Down', label: 'Unraid Downloads', native: true },
+      { v: 'new',       key: 'FirstSeen', dir: 'Down', label: 'Newest to the App Store', native: true },
+      { v: 'ghstars',   key: 'ghstars',   dir: 'Down', label: 'GitHub Stars' },
+      { v: 'ght1',      key: 'ght1',      dir: 'Down', label: 'Trending — today' },
+      { v: 'ght7',      key: 'ght7',      dir: 'Down', label: 'Trending — this week' },
+      { v: 'ght30',     key: 'ght30',     dir: 'Down', label: 'Trending — this month' },
+      { v: 'ght365',    key: 'ght365',    dir: 'Down', label: 'Trending — this year' },
+      { v: 'ghp1',      key: 'ghp1',      dir: 'Down', label: 'Trending % — today' },
+      { v: 'ghp7',      key: 'ghp7',      dir: 'Down', label: 'Trending % — this week' },
+      { v: 'ghp30',     key: 'ghp30',     dir: 'Down', label: 'Trending % — this month' },
+      { v: 'ghp365',    key: 'ghp365',    dir: 'Down', label: 'Trending % — this year' }
     ];
+    function optFor(v) { for (var i = 0; i < SORT_OPTS.length; i++) if (SORT_OPTS[i].v === v) return SORT_OPTS[i]; return null; }
 
     function fmt(n) {
       if (n == null) return '';
@@ -110,36 +124,109 @@
       main.insertBefore(w, main.firstChild);
     }
 
-    // ---- native sort integration ----
-    // Inject metrics into CA's displayed.json, then let CA sort+render its own
-    // tiles by that key. ('new' uses CA's native FirstSeen field; injecting is
-    // harmless there.)
-    function applySort(key) {
+    // ---- sort integration ----
+    // CA's own orders go through CA's own (hidden) anchors so its internal
+    // state (search flag, page number, enabled-icon) stays consistent.
+    function nativeAnchor(o) {
+      var all = document.querySelectorAll('#sortIconArea .sortIcons');
+      for (var i = 0; i < all.length; i++) {
+        if (all[i].getAttribute('data-sortBy') === o.key && all[i].getAttribute('data-sortDir') === o.dir) return all[i];
+      }
+      return null;
+    }
+
+    // Ours: inject metrics into CA's view caches, then let CA sort+render its
+    // own tiles by that key.
+    function applyGhSort(o) {
+      // never let a dropped response wedge the re-sort guard
+      setTimeout(function () { reSorting = false; }, 15000);
       return fetch(injectUrl())
         .then(function (r) { return r.ok ? r.json() : null; })
         .catch(function () { return null; })
         .then(function () {
-          try { window.post({ action: 'changeSortOrder', sortOrder: { sortBy: key, sortDir: 'Down' } }, function () { window.changeSortOrder(); }); } catch (e) {}
+          try {
+            var icons = document.querySelectorAll('#sortIconArea .sortIcons');
+            for (var i = 0; i < icons.length; i++) icons[i].classList.remove('enabledIcon');
+            window.post({ action: 'changeSortOrder', sortOrder: { sortBy: o.key, sortDir: o.dir } }, function () { window.changeSortOrder(); });
+          } catch (e) { reSorting = false; }
         });
     }
-    function keyFor(v) { for (var i = 0; i < SORT_OPTS.length; i++) if (SORT_OPTS[i].v === v) return SORT_OPTS[i].key; return null; }
 
-    // a native <select> (inherits Unraid's dropdown theme) in the top toolbar
+    function applySort(o) {
+      if (!o) return;
+      activeOpt = o;
+      var sel = document.getElementById('asga-sortsel');
+      if (sel && sel.value !== o.v) sel.value = o.v;
+      if (o.native) {
+        var a = nativeAnchor(o);
+        if (a) { a.click(); return; }
+      }
+      reSorting = true;   // the render this causes is already correctly sorted
+      applyGhSort(o);
+    }
+
+    // CA rebuilds its view caches (without our fields) on every search,
+    // category switch and page change, so re-inject and re-sort exactly once
+    // after each of its renders while one of our orders is active.
+    function hookUpdateDisplay() {
+      if (window.__asgaDisplayHooked || typeof window.updateDisplay !== 'function') return;
+      window.__asgaDisplayHooked = true;
+      var orig = window.updateDisplay;
+      window.updateDisplay = function () {
+        var r = orig.apply(this, arguments);
+        try {
+          if (reSorting) {
+            reSorting = false;                      // this render IS our re-sort
+          } else if (activeOpt && !activeOpt.native) {
+            reSorting = true;
+            setTimeout(function () { applyGhSort(activeOpt); }, 0);
+          }
+        } catch (e) { reSorting = false; }
+        return r;
+      };
+    }
+
+    // a native <select> (inherits Unraid's dropdown theme) replacing CA's row
+    // of Sort By links, which we hide rather than remove, since CA's own code
+    // reads and writes their classes.
     function addSortBar() {
-      var host = document.getElementById('searchFilter');
+      var host = document.getElementById('sortIconArea');
       if (!host || document.getElementById('asga-bar')) return;
+      host.classList.add('asga-sorthidden');
+      // CA's "Sort By:" caption is a bare text node, so CSS can't hide it with
+      // the anchors. Blank it here and let our own label stand in.
+      for (var n = 0; n < host.childNodes.length; n++) {
+        var node = host.childNodes[n];
+        if (node.nodeType === 3 && node.nodeValue && node.nodeValue.trim()) node.nodeValue = '';
+      }
       var opts = SORT_OPTS.map(function (o) { return '<option value="' + o.v + '">' + o.label + '</option>'; }).join('');
       var bar = document.createElement('span');
       bar.id = 'asga-bar';
       bar.className = 'asga-bar';
-      bar.innerHTML = '<span class="asga-bar-label">GitHub sort:</span>' +
-        '<select id="asga-sortsel" class="asga-sortsel"><option value="">—</option>' + opts + '</select>' +
+      bar.innerHTML = '<span class="asga-bar-label">Sort By:</span>' +
+        '<select id="asga-sortsel" class="asga-sortsel">' + opts + '</select>' +
         '<a id="asga-refresh" class="asga-refreshlink" title="Fetch the latest GitHub data (once every 3 days)">↻</a>';
       host.appendChild(bar);
       document.getElementById('asga-sortsel').addEventListener('change', function (e) {
-        var k = keyFor(e.target.value); if (k) applySort(k);
+        applySort(optFor(e.target.value));
       });
       document.getElementById('asga-refresh').addEventListener('click', onRefreshClick);
+    }
+
+    // CA defaults to 24 results per page, which makes a stars/trending ranking
+    // useless. Nudge it to CA's largest option (96) once per browser, then
+    // leave the user's choice alone forever after.
+    function maybeSetPerPage() {
+      try {
+        if (localStorage.getItem('asga_perpage_default')) return;
+        if (typeof window.changeMax !== 'function') return;
+        var el = document.getElementById('maxPerPage');
+        if (!el || !el.textContent) return;
+        localStorage.setItem('asga_perpage_default', '1');
+        var m = /(\d+)/.exec(el.textContent);
+        if (m && parseInt(m[1], 10) >= 96) return;
+        window.changeMax(96);
+      } catch (e) {}
     }
 
     function onRefreshClick(e) {
@@ -181,8 +268,8 @@
         fetch(injectUrl()).then(function (r) { return r.ok ? r.json() : null; })
           .then(function (inj) {
             if (inj && inj.count > 1000) {
-              var sel = document.getElementById('asga-sortsel'); if (sel) sel.value = 'new';
-              applySort('FirstSeen');                 // default: Newest to the App Store
+              maybeSetPerPage();
+              applySort(optFor('new'));               // default: Newest to the App Store
             } else if (tries++ < 40) setTimeout(waitFill, 350);
           }).catch(function () {});
       })();
@@ -247,6 +334,7 @@
       showWarningIfNeeded();
       addMenuItem();
       addSortBar();
+      hookUpdateDisplay();
       maybeDefaultOpen();
     }
     // on Apps-page load, pull stars for any newly-published repos right away

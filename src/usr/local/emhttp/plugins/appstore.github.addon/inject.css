@@ -29,11 +29,19 @@
 /* left-menu item inherits CA's look */
 .asga-menu { cursor: pointer; }
 
-/* sort toolbar — a native <select> inherits Unraid's dropdown theme */
-.asga-bar { display: inline-flex; align-items: center; gap: 6px; margin-left: 14px; vertical-align: middle; font-size: 13px; }
-.asga-bar-label { opacity: 0.85; white-space: nowrap; }
-.asga-sortsel { vertical-align: middle; }
-.asga-refreshlink { cursor: pointer; opacity: 0.8; font-size: 15px; text-decoration: none; }
+/* Unified Sort By control. CA's own sort links stay in the DOM (its code reads
+   and writes their classes) but are hidden; our dropdown drives them. */
+#sortIconArea.asga-sorthidden .sortIcons { display: none; }
+
+/* sort toolbar. A native <select> inherits Unraid's dropdown theme. Sized and
+   coloured to match CA's own .sortIcons so it reads as part of the page. */
+.asga-bar {
+  display: inline-flex; align-items: center; gap: 8px;
+  vertical-align: middle; font-size: 1.2rem; color: var(--sidebar-text);
+}
+.asga-bar-label { white-space: nowrap; }
+.asga-sortsel { vertical-align: middle; font-size: 1.2rem; }
+.asga-refreshlink { cursor: pointer; opacity: 0.8; font-size: 1.4rem; text-decoration: none; color: inherit; }
 .asga-refreshlink:hover { opacity: 1; }
 
 /* thin fixed progress bar at the very top of the page (no layout impact) */
