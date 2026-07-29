@@ -30,14 +30,18 @@
     var activeOpt = null;      // the option currently applied
     var reSorting = false;     // guards the one re-sort we trigger per CA render
 
-    // One list for BOTH sorts. `native: true` means CA already owns the field
-    // and has a matching .sortIcons anchor we can click; the rest are ours and
-    // need sortinject.php to run first.
+    // Every option is sorted through OUR path (applyGhSort + the re-apply hook),
+    // including CA's own fields (Name/SortName, downloads, FirstSeen). Clicking
+    // CA's native sort anchors instead was unreliable: CA's changeMaxPerPage
+    // rebuilds the list alphabetically, and a native sort does not self-heal
+    // after that render, so "Newest"/"Downloads" would intermittently fall back
+    // to A-Z. Routing everything through the self-healing hook fixes that.
+    // `key` is the field CA's mySort() orders by (it maps 'Name' -> 'SortName').
     var SORT_OPTS = [
-      { v: 'name_asc',  key: 'Name',      dir: 'Up',   label: 'Name Ascending',  native: true },
-      { v: 'name_desc', key: 'Name',      dir: 'Down', label: 'Name Descending', native: true },
-      { v: 'downloads', key: 'downloads', dir: 'Down', label: 'Unraid Downloads', native: true },
-      { v: 'new',       key: 'FirstSeen', dir: 'Down', label: 'Newest to the App Store', native: true },
+      { v: 'name_asc',  key: 'Name',      dir: 'Up',   label: 'Name Ascending' },
+      { v: 'name_desc', key: 'Name',      dir: 'Down', label: 'Name Descending' },
+      { v: 'downloads', key: 'downloads', dir: 'Down', label: 'Unraid Downloads' },
+      { v: 'new',       key: 'FirstSeen', dir: 'Down', label: 'Newest to the App Store' },
       { v: 'ghstars',   key: 'ghstars',   dir: 'Down', label: 'GitHub Stars' },
       { v: 'ght1',      key: 'ght1',      dir: 'Down', label: 'Trending (today)' },
       { v: 'ght7',      key: 'ght7',      dir: 'Down', label: 'Trending (this week)' },
@@ -124,18 +128,10 @@
     }
 
     // ---- sort integration ----
-    // CA's own orders go through CA's own (hidden) anchors so its internal
-    // state (search flag, page number, enabled-icon) stays consistent.
-    function nativeAnchor(o) {
-      var all = document.querySelectorAll('#sortIconArea .sortIcons');
-      for (var i = 0; i < all.length; i++) {
-        if (all[i].getAttribute('data-sortBy') === o.key && all[i].getAttribute('data-sortDir') === o.dir) return all[i];
-      }
-      return null;
-    }
-
-    // Ours: inject metrics into CA's view caches, then let CA sort+render its
-    // own tiles by that key.
+    // Re-inject our metrics into CA's view caches, then ask CA to sort+render
+    // its own tiles by the chosen field. sortinject.php is a no-op for CA's own
+    // fields (Name/downloads/FirstSeen) and adds ours (ghstars/trends) for the
+    // rest, so the same path drives every option.
     function applyGhSort(o) {
       // never let a dropped response wedge the re-sort guard
       setTimeout(function () { reSorting = false; }, 15000);
@@ -156,17 +152,19 @@
       activeOpt = o;
       var sel = document.getElementById('asga-sortsel');
       if (sel && sel.value !== o.v) sel.value = o.v;
-      if (o.native) {
-        var a = nativeAnchor(o);
-        if (a) { a.click(); return; }
-      }
-      reSorting = true;   // the render this causes is already correctly sorted
+      reSorting = true;   // the render this first call causes is already sorted
       applyGhSort(o);
+      // Belt-and-suspenders: CA's changeMaxPerPage (our 96/page nudge) rebuilds
+      // the list A-Z on a later tick; re-assert the sort once it has settled so
+      // the final render is never alphabetical even if the hook missed a beat.
+      setTimeout(function () { if (activeOpt === o) { reSorting = true; applyGhSort(o); } }, 900);
     }
 
-    // CA rebuilds its view caches (without our fields) on every search,
-    // category switch and page change, so re-inject and re-sort exactly once
-    // after each of its renders while one of our orders is active.
+    // CA rebuilds its view caches (without our fields, and re-sorted A-Z) on
+    // every search, category switch, page change and per-page change, so
+    // re-inject and re-sort exactly once after each of its renders while one of
+    // our orders is active. This self-heal is what keeps every sort (including
+    // CA's own Newest/Downloads) from falling back to alphabetical.
     function hookUpdateDisplay() {
       if (window.__asgaDisplayHooked || typeof window.updateDisplay !== 'function') return;
       window.__asgaDisplayHooked = true;
@@ -176,7 +174,7 @@
         try {
           if (reSorting) {
             reSorting = false;                      // this render IS our re-sort
-          } else if (activeOpt && !activeOpt.native) {
+          } else if (activeOpt) {
             reSorting = true;
             setTimeout(function () { applyGhSort(activeOpt); }, 0);
           }
@@ -222,18 +220,22 @@
     }
 
     // CA defaults to 24 results per page, which makes a stars/trending ranking
-    // useless. Nudge it to CA's largest option (96) once per browser, then
-    // leave the user's choice alone forever after.
+    // useless. Nudge it to CA's largest option (96). CA persists this
+    // server-side, so it only has to succeed once, but the old code set its
+    // "done" flag BEFORE 96 actually took effect, so a failed nudge left the
+    // browser stuck at 24 forever. Now we only mark it done once we OBSERVE 96
+    // is active, and retry on every apply() until then. (New flag key, so
+    // browsers stuck under the old key re-run.)
     function maybeSetPerPage() {
       try {
-        if (localStorage.getItem('asga_perpage_default')) return;
+        if (localStorage.getItem('asga_perpage_96')) return;
         if (typeof window.changeMax !== 'function') return;
         var el = document.getElementById('maxPerPage');
         if (!el || !el.textContent) return;
-        localStorage.setItem('asga_perpage_default', '1');
         var m = /(\d+)/.exec(el.textContent);
-        if (m && parseInt(m[1], 10) >= 96) return;
-        window.changeMax(96);
+        var cur = m ? parseInt(m[1], 10) : 0;
+        if (cur >= 96) { localStorage.setItem('asga_perpage_96', '1'); return; }
+        window.changeMax(96);   // retried next apply() until 96 is observed
       } catch (e) {}
     }
 

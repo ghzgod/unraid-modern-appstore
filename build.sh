@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.29c}"
+VERSION="${1:-2026.07.29d}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,13 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Fix: "Newest to the App Store" and "Unraid Downloads" intermittently fell back
+  to alphabetical order. They relied on CA's native sort, which does not re-apply
+  after CA rebuilds the list A-Z on a results-per-page change. Every sort now runs
+  through the addon's own self-healing path, so the order is stable and correct.
+- Fix: the 96-results-per-page default did not always take effect. The old code
+  marked itself done before 96 was actually applied; it now confirms 96 is active
+  and retries until it is.
 - Change: removed the "GitHub" item from the left menu. The Sort By dropdown
   covers everything it did, so browsing is just CA's normal All Apps view.
 - Fix: the Sort By dropdown is now present in BOTH the GitHub view and All Apps
