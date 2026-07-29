@@ -24,7 +24,7 @@
 - Change: results per page defaults to 96 (CA's largest) once per browser, so a
   stars or trending ranking shows a meaningful page. Your choice is respected after
   that.
-- Feature: "Trending %" sort (today/week/month/year) in the GitHub view — ranks by
+- Feature: "Trending %" sort (today/week/month/year) in the GitHub view. Ranks by
   RELATIVE star growth (window delta / stars at the window's start), so fast-growing
   small apps surface above mega-repos that dominate the absolute-delta sort. A
   10-star baseline floor keeps trivial repos (2->4 stars) out of the top.
@@ -630,7 +630,7 @@ echo json_encode(['canceled' => true]);
 <![CDATA[
 <?php
 /**
- * App Store GitHub Addon — sort augmentation.
+ * Sort augmentation for the App Store GitHub Addon.
  *
  * Injects our GitHub metrics (ghstars + trend deltas) into Community
  * Applications' OWN transient view caches, keyed by unique template Path. CA's
@@ -754,9 +754,9 @@ echo json_encode(['started' => true]);
 <INLINE>
 <![CDATA[
 /*
- * App Store GitHub Addon — front-end injector.
+ * Front-end injector for the App Store GitHub Addon.
  *
- * Runs only on /Apps. It does NOT recreate any tiles — it uses Community
+ * Runs only on /Apps. It does NOT recreate any tiles. It uses Community
  * Applications' OWN rendering:
  *   1. paints a ★ star badge on every GitHub-backed tile,
  *   2. replaces CA's row of "Sort By:" links with ONE dropdown holding both
@@ -795,14 +795,14 @@ echo json_encode(['started' => true]);
       { v: 'downloads', key: 'downloads', dir: 'Down', label: 'Unraid Downloads', native: true },
       { v: 'new',       key: 'FirstSeen', dir: 'Down', label: 'Newest to the App Store', native: true },
       { v: 'ghstars',   key: 'ghstars',   dir: 'Down', label: 'GitHub Stars' },
-      { v: 'ght1',      key: 'ght1',      dir: 'Down', label: 'Trending — today' },
-      { v: 'ght7',      key: 'ght7',      dir: 'Down', label: 'Trending — this week' },
-      { v: 'ght30',     key: 'ght30',     dir: 'Down', label: 'Trending — this month' },
-      { v: 'ght365',    key: 'ght365',    dir: 'Down', label: 'Trending — this year' },
-      { v: 'ghp1',      key: 'ghp1',      dir: 'Down', label: 'Trending % — today' },
-      { v: 'ghp7',      key: 'ghp7',      dir: 'Down', label: 'Trending % — this week' },
-      { v: 'ghp30',     key: 'ghp30',     dir: 'Down', label: 'Trending % — this month' },
-      { v: 'ghp365',    key: 'ghp365',    dir: 'Down', label: 'Trending % — this year' }
+      { v: 'ght1',      key: 'ght1',      dir: 'Down', label: 'Trending (today)' },
+      { v: 'ght7',      key: 'ght7',      dir: 'Down', label: 'Trending (this week)' },
+      { v: 'ght30',     key: 'ght30',     dir: 'Down', label: 'Trending (this month)' },
+      { v: 'ght365',    key: 'ght365',    dir: 'Down', label: 'Trending (this year)' },
+      { v: 'ghp1',      key: 'ghp1',      dir: 'Down', label: 'Trending % (today)' },
+      { v: 'ghp7',      key: 'ghp7',      dir: 'Down', label: 'Trending % (this week)' },
+      { v: 'ghp30',     key: 'ghp30',     dir: 'Down', label: 'Trending % (this month)' },
+      { v: 'ghp365',    key: 'ghp365',    dir: 'Down', label: 'Trending % (this year)' }
     ];
     function optFor(v) { for (var i = 0; i < SORT_OPTS.length; i++) if (SORT_OPTS[i].v === v) return SORT_OPTS[i]; return null; }
 
@@ -869,7 +869,7 @@ echo json_encode(['started' => true]);
       var w = document.createElement('div');
       w.className = 'ghstars-warning';
       var msg = document.createElement('span');
-      msg.innerHTML = '⚠ <b>App Store GitHub Addon:</b> no GitHub personal access token configured — ' +
+      msg.innerHTML = '⚠ <b>App Store GitHub Addon:</b> no GitHub personal access token configured, so ' +
         'star counts are disabled. Add a token in <a href="' + (cfg.settingsUrl || '/Settings') +
         '">Settings → App Store GitHub Addon</a>.';
       var x = document.createElement('span');
@@ -992,7 +992,7 @@ echo json_encode(['started' => true]);
         .then(function (res) {
           if (res && res.cooldown) {
             var d = Math.max(1, Math.ceil((res.next_allowed - Math.floor(Date.now() / 1000)) / 86400));
-            alert('Already refreshed recently — next refresh allowed in ~' + d + ' day(s).');
+            alert('Already refreshed recently. Next refresh allowed in ~' + d + ' day(s).');
             return;
           }
           startPolling();
@@ -1127,7 +1127,7 @@ echo json_encode(['started' => true]);
 <FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/inject.css">
 <INLINE>
 <![CDATA[
-/* App Store GitHub Addon — injected styles. Scoped to .ghstars-* / .asga-* so it never touches CA. */
+/* Injected styles for the App Store GitHub Addon. Scoped to .ghstars-* / .asga-* so it never touches CA. */
 
 .ca_holder[data-appname] { position: relative; }
 
@@ -1167,6 +1167,9 @@ echo json_encode(['started' => true]);
 .asga-bar {
   display: inline-flex; align-items: center; gap: 8px;
   vertical-align: middle; font-size: 1.2rem; color: var(--sidebar-text);
+  /* the <select> is taller than the plain-text row it replaces, so give it a
+     little air under CA's category line */
+  margin-top: 0.2rem;
 }
 .asga-bar-label { white-space: nowrap; }
 .asga-sortsel { vertical-align: middle; font-size: 1.2rem; }
@@ -1356,7 +1359,7 @@ Set your GitHub personal access token at **Settings → Utilities → App Store 
 # Data dir lives on the flash (like every other plugin) so it exists BEFORE the
 # array mounts. A directory created under /mnt/user at plugin-install time (which
 # runs early in boot, before the array) leaves /mnt/user non-empty and makes shfs
-# refuse to mount it — hiding every user share. Never write to /mnt/user here.
+# refuse to mount it, hiding every user share. Never write to /mnt/user here.
 APPDATA=/boot/config/plugins/appstore.github.addon
 mkdir -p "$APPDATA"
 CFG=/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg

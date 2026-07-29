@@ -1,4 +1,4 @@
-/* App Store GitHub Addon — injected styles. Scoped to .ghstars-* / .asga-* so it never touches CA. */
+/* Injected styles for the App Store GitHub Addon. Scoped to .ghstars-* / .asga-* so it never touches CA. */
 
 .ca_holder[data-appname] { position: relative; }
 
@@ -38,6 +38,9 @@
 .asga-bar {
   display: inline-flex; align-items: center; gap: 8px;
   vertical-align: middle; font-size: 1.2rem; color: var(--sidebar-text);
+  /* the <select> is taller than the plain-text row it replaces, so give it a
+     little air under CA's category line */
+  margin-top: 0.2rem;
 }
 .asga-bar-label { white-space: nowrap; }
 .asga-sortsel { vertical-align: middle; font-size: 1.2rem; }

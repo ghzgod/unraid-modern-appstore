@@ -1,7 +1,7 @@
 /*
- * App Store GitHub Addon — front-end injector.
+ * Front-end injector for the App Store GitHub Addon.
  *
- * Runs only on /Apps. It does NOT recreate any tiles — it uses Community
+ * Runs only on /Apps. It does NOT recreate any tiles. It uses Community
  * Applications' OWN rendering:
  *   1. paints a ★ star badge on every GitHub-backed tile,
  *   2. replaces CA's row of "Sort By:" links with ONE dropdown holding both
@@ -40,14 +40,14 @@
       { v: 'downloads', key: 'downloads', dir: 'Down', label: 'Unraid Downloads', native: true },
       { v: 'new',       key: 'FirstSeen', dir: 'Down', label: 'Newest to the App Store', native: true },
       { v: 'ghstars',   key: 'ghstars',   dir: 'Down', label: 'GitHub Stars' },
-      { v: 'ght1',      key: 'ght1',      dir: 'Down', label: 'Trending — today' },
-      { v: 'ght7',      key: 'ght7',      dir: 'Down', label: 'Trending — this week' },
-      { v: 'ght30',     key: 'ght30',     dir: 'Down', label: 'Trending — this month' },
-      { v: 'ght365',    key: 'ght365',    dir: 'Down', label: 'Trending — this year' },
-      { v: 'ghp1',      key: 'ghp1',      dir: 'Down', label: 'Trending % — today' },
-      { v: 'ghp7',      key: 'ghp7',      dir: 'Down', label: 'Trending % — this week' },
-      { v: 'ghp30',     key: 'ghp30',     dir: 'Down', label: 'Trending % — this month' },
-      { v: 'ghp365',    key: 'ghp365',    dir: 'Down', label: 'Trending % — this year' }
+      { v: 'ght1',      key: 'ght1',      dir: 'Down', label: 'Trending (today)' },
+      { v: 'ght7',      key: 'ght7',      dir: 'Down', label: 'Trending (this week)' },
+      { v: 'ght30',     key: 'ght30',     dir: 'Down', label: 'Trending (this month)' },
+      { v: 'ght365',    key: 'ght365',    dir: 'Down', label: 'Trending (this year)' },
+      { v: 'ghp1',      key: 'ghp1',      dir: 'Down', label: 'Trending % (today)' },
+      { v: 'ghp7',      key: 'ghp7',      dir: 'Down', label: 'Trending % (this week)' },
+      { v: 'ghp30',     key: 'ghp30',     dir: 'Down', label: 'Trending % (this month)' },
+      { v: 'ghp365',    key: 'ghp365',    dir: 'Down', label: 'Trending % (this year)' }
     ];
     function optFor(v) { for (var i = 0; i < SORT_OPTS.length; i++) if (SORT_OPTS[i].v === v) return SORT_OPTS[i]; return null; }
 
@@ -114,7 +114,7 @@
       var w = document.createElement('div');
       w.className = 'ghstars-warning';
       var msg = document.createElement('span');
-      msg.innerHTML = '⚠ <b>App Store GitHub Addon:</b> no GitHub personal access token configured — ' +
+      msg.innerHTML = '⚠ <b>App Store GitHub Addon:</b> no GitHub personal access token configured, so ' +
         'star counts are disabled. Add a token in <a href="' + (cfg.settingsUrl || '/Settings') +
         '">Settings → App Store GitHub Addon</a>.';
       var x = document.createElement('span');
@@ -237,7 +237,7 @@
         .then(function (res) {
           if (res && res.cooldown) {
             var d = Math.max(1, Math.ceil((res.next_allowed - Math.floor(Date.now() / 1000)) / 86400));
-            alert('Already refreshed recently — next refresh allowed in ~' + d + ' day(s).');
+            alert('Already refreshed recently. Next refresh allowed in ~' + d + ' day(s).');
             return;
           }
           startPolling();

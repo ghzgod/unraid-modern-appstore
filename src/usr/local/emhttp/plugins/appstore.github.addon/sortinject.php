@@ -1,6 +1,6 @@
 <?php
 /**
- * App Store GitHub Addon — sort augmentation.
+ * Sort augmentation for the App Store GitHub Addon.
  *
  * Injects our GitHub metrics (ghstars + trend deltas) into Community
  * Applications' OWN transient view caches, keyed by unique template Path. CA's

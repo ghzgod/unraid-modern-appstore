@@ -1,7 +1,7 @@
 #!/bin/bash
 # Build a self-contained, SHAREABLE appstore.github.addon.plg from src/.
 # Embeds every src file inline (CDATA) plus install/remove scripts.
-# Contains NO secrets — the GitHub token is left empty and each user sets their
+# Contains NO secrets. The GitHub token is left empty and each user sets their
 # own at Settings -> Utilities -> App Store GitHub Addon. Safe to publish.
 #
 # Usage: ./build.sh [version]   (default version below)
@@ -58,7 +58,7 @@ cat <<XMLHEAD
 - Change: results per page defaults to 96 (CA's largest) once per browser, so a
   stars or trending ranking shows a meaningful page. Your choice is respected after
   that.
-- Feature: "Trending %" sort (today/week/month/year) in the GitHub view — ranks by
+- Feature: "Trending %" sort (today/week/month/year) in the GitHub view. Ranks by
   RELATIVE star growth (window delta / stars at the window's start), so fast-growing
   small apps surface above mega-repos that dominate the absolute-delta sort. A
   10-star baseline floor keeps trivial repos (2->4 stars) out of the top.
@@ -105,7 +105,7 @@ cat <<'POSTINSTALL'
 # Data dir lives on the flash (like every other plugin) so it exists BEFORE the
 # array mounts. A directory created under /mnt/user at plugin-install time (which
 # runs early in boot, before the array) leaves /mnt/user non-empty and makes shfs
-# refuse to mount it — hiding every user share. Never write to /mnt/user here.
+# refuse to mount it, hiding every user share. Never write to /mnt/user here.
 APPDATA=/boot/config/plugins/appstore.github.addon
 mkdir -p "$APPDATA"
 CFG=/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg
@@ -152,4 +152,4 @@ rm -rf /boot/config/plugins/appstore.github.addon
 POSTINSTALL
 } > "$OUT"
 
-echo "Built $OUT ($VERSION) — token-free, ${#FILES[@]} files embedded."
+echo "Built $OUT ($VERSION), token-free, ${#FILES[@]} files embedded."
