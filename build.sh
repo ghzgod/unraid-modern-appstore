@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.29}"
+VERSION="${1:-2026.07.29a}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,10 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Fix: the Sort By dropdown was invisible. It was placed inside CA's #sortIconArea,
+  which CA hides as a unit (clearSearchBox calls hideSortIcons), so it vanished in
+  the GitHub view. The dropdown now lives in the toolbar row next to the search box,
+  which CA never hides; CA's own sort links are still hidden in place.
 - Fix: sorting during a search. The Community Applications 2026.07.21 rewrite sorts
   three view caches (displayed.json plus allSearchResults.json and
   catSearchResults.json) and rebuilds them from the raw feed on every search and

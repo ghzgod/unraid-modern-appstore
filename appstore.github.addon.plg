@@ -2,14 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "appstore.github.addon">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.07.29">
+<!ENTITY version "2026.07.29a">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/appstore-github-addon/main/appstore.github.addon.plg">
 <!ENTITY support "https://github.com/ghzgod/appstore-github-addon">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/AppStoreGitHubAddon" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.07.29
+##2026.07.29a
+- Fix: the Sort By dropdown was invisible. It was placed inside CA's #sortIconArea,
+  which CA hides as a unit (clearSearchBox calls hideSortIcons), so it vanished in
+  the GitHub view. The dropdown now lives in the toolbar row next to the search box,
+  which CA never hides; CA's own sort links are still hidden in place.
 - Fix: sorting during a search. The Community Applications 2026.07.21 rewrite sorts
   three view caches (displayed.json plus allSearchResults.json and
   catSearchResults.json) and rebuilds them from the raw feed on every search and
@@ -944,16 +948,25 @@ echo json_encode(['started' => true]);
     // a native <select> (inherits Unraid's dropdown theme) replacing CA's row
     // of Sort By links, which we hide rather than remove, since CA's own code
     // reads and writes their classes.
-    function addSortBar() {
-      var host = document.getElementById('sortIconArea');
-      if (!host || document.getElementById('asga-bar')) return;
-      host.classList.add('asga-sorthidden');
+    // Hide CA's own Sort By row. Separate from placing our control, because CA
+    // hides and shows #sortIconArea as a unit (clearSearchBox -> hideSortIcons),
+    // so anything we put INSIDE it disappears with it.
+    function hideNativeSortRow() {
+      var area = document.getElementById('sortIconArea');
+      if (!area || area.classList.contains('asga-sorthidden')) return;
+      area.classList.add('asga-sorthidden');
       // CA's "Sort By:" caption is a bare text node, so CSS can't hide it with
       // the anchors. Blank it here and let our own label stand in.
-      for (var n = 0; n < host.childNodes.length; n++) {
-        var node = host.childNodes[n];
+      for (var n = 0; n < area.childNodes.length; n++) {
+        var node = area.childNodes[n];
         if (node.nodeType === 3 && node.nodeValue && node.nodeValue.trim()) node.nodeValue = '';
       }
+    }
+
+    function addSortBar() {
+      // the toolbar row, which CA never hides
+      var host = document.getElementById('searchFilter');
+      if (!host || document.getElementById('asga-bar')) return;
       var opts = SORT_OPTS.map(function (o) { return '<option value="' + o.v + '">' + o.label + '</option>'; }).join('');
       var bar = document.createElement('span');
       bar.id = 'asga-bar';
@@ -1089,6 +1102,7 @@ echo json_encode(['started' => true]);
       showWarningIfNeeded();
       addMenuItem();
       addSortBar();
+      hideNativeSortRow();
       hookUpdateDisplay();
       maybeDefaultOpen();
     }
@@ -1166,10 +1180,8 @@ echo json_encode(['started' => true]);
    coloured to match CA's own .sortIcons so it reads as part of the page. */
 .asga-bar {
   display: inline-flex; align-items: center; gap: 8px;
-  vertical-align: middle; font-size: 1.2rem; color: var(--sidebar-text);
-  /* the <select> is taller than the plain-text row it replaces, so give it a
-     little air under CA's category line */
-  margin-top: 0.2rem;
+  margin-left: 14px; vertical-align: middle;
+  font-size: 1.2rem; color: var(--sidebar-text);
 }
 .asga-bar-label { white-space: nowrap; }
 .asga-sortsel { vertical-align: middle; font-size: 1.2rem; }

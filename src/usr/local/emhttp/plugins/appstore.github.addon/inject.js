@@ -189,16 +189,25 @@
     // a native <select> (inherits Unraid's dropdown theme) replacing CA's row
     // of Sort By links, which we hide rather than remove, since CA's own code
     // reads and writes their classes.
-    function addSortBar() {
-      var host = document.getElementById('sortIconArea');
-      if (!host || document.getElementById('asga-bar')) return;
-      host.classList.add('asga-sorthidden');
+    // Hide CA's own Sort By row. Separate from placing our control, because CA
+    // hides and shows #sortIconArea as a unit (clearSearchBox -> hideSortIcons),
+    // so anything we put INSIDE it disappears with it.
+    function hideNativeSortRow() {
+      var area = document.getElementById('sortIconArea');
+      if (!area || area.classList.contains('asga-sorthidden')) return;
+      area.classList.add('asga-sorthidden');
       // CA's "Sort By:" caption is a bare text node, so CSS can't hide it with
       // the anchors. Blank it here and let our own label stand in.
-      for (var n = 0; n < host.childNodes.length; n++) {
-        var node = host.childNodes[n];
+      for (var n = 0; n < area.childNodes.length; n++) {
+        var node = area.childNodes[n];
         if (node.nodeType === 3 && node.nodeValue && node.nodeValue.trim()) node.nodeValue = '';
       }
+    }
+
+    function addSortBar() {
+      // the toolbar row, which CA never hides
+      var host = document.getElementById('searchFilter');
+      if (!host || document.getElementById('asga-bar')) return;
       var opts = SORT_OPTS.map(function (o) { return '<option value="' + o.v + '">' + o.label + '</option>'; }).join('');
       var bar = document.createElement('span');
       bar.id = 'asga-bar';
@@ -334,6 +343,7 @@
       showWarningIfNeeded();
       addMenuItem();
       addSortBar();
+      hideNativeSortRow();
       hookUpdateDisplay();
       maybeDefaultOpen();
     }
