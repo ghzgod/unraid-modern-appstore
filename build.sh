@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.30m}"
+VERSION="${1:-2026.07.30n}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,13 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Tiles now show when an app was added to the App Store (date and time from CA's
+  own feed), in small text at the bottom right of the card.
+- Fix: the Details table text had no breathing room and Unraid's global table
+  background painted a lighter slab behind it, so the values looked clipped at
+  the card edge.
+- Fix: the drawer's X close glyph is centred in its circle (the shared button
+  gap was pushing it off centre).
 - Info drawer redesigned. The app header, description, Details and Maintainer
   now read as one modern card layout instead of stock CA styling:
   - CLOSE is a round X in a slim bar that stays pinned to the top while the

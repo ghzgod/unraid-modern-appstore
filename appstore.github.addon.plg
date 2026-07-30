@@ -2,14 +2,21 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "appstore.github.addon">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.07.30m">
+<!ENTITY version "2026.07.30n">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/appstore.github.addon.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/AppStoreGitHubAddon" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.07.30m
+##2026.07.30n
+- Tiles now show when an app was added to the App Store (date and time from CA's
+  own feed), in small text at the bottom right of the card.
+- Fix: the Details table text had no breathing room and Unraid's global table
+  background painted a lighter slab behind it, so the values looked clipped at
+  the card edge.
+- Fix: the drawer's X close glyph is centred in its circle (the shared button
+  gap was pushing it off centre).
 - Info drawer redesigned. The app header, description, Details and Maintainer
   now read as one modern card layout instead of stock CA styling:
   - CLOSE is a round X in a slim bar that stays pinned to the top while the
@@ -1377,7 +1384,28 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       if (a.su) btns.appendChild(mkBtn('Support', 'asga-support'));
       btns.appendChild(mkBtn('Install', 'asga-install'));
       tile.appendChild(btns);
+
+      // when CA's feed first saw this app, bottom-right of the card
+      var added = addedLabel(a.fs);
+      if (added) {
+        var ad = document.createElement('div');
+        ad.className = 'asga-tile-added';
+        ad.textContent = added;
+        tile.appendChild(ad);
+      }
       return tile;
+    }
+    // CA's FirstSeen is a unix timestamp, and it floors anything older than its
+    // own record-keeping to 1433000000 (Jun 2015) — for those the time of day is
+    // an artefact, so only the date is shown.
+    function addedLabel(fs) {
+      if (!fs) return '';
+      var d = new Date(fs * 1000);
+      if (isNaN(d.getTime())) return '';
+      var opts = { year: 'numeric', month: 'short', day: 'numeric' };
+      if (fs > 1433649600) { opts.hour = 'numeric'; opts.minute = '2-digit'; }
+      try { return 'Added ' + d.toLocaleString(undefined, opts); }
+      catch (e) { return 'Added ' + d.toDateString(); }
     }
     function mkBtn(label, cls) {
       var b = document.createElement('span');
@@ -1766,6 +1794,10 @@ body.asga-active .spinner.fixed { display: none !important; }
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
 }
 
+.asga-tile-added {
+  margin-top: 10px; text-align: right; font-size: 0.92rem; opacity: 0.55;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .asga-tile-btns { margin-top: auto; display: flex; flex-wrap: nowrap; gap: 5px; position: relative; }
 .asga-btn {
   cursor: pointer; user-select: none; white-space: nowrap;
@@ -1909,6 +1941,7 @@ body.asga-active #sidenavContent .caButton.ca_favouriteRepo.fav {
 body.asga-active #sidenavContent .popUpClose.caButton {
   display: flex; align-items: center; justify-content: center;
   width: 34px; height: 34px; padding: 0; margin: 0; border-radius: 50%;
+  gap: 0;   /* else the shared button gap offsets the glyph from centre */
   font-size: 0; line-height: 0;
   border: 1px solid var(--asga-line); background: var(--asga-surface);
   color: var(--asga-fg) !important;
@@ -1950,10 +1983,10 @@ body.asga-active .popupInfoSection {
 body.asga-active .popupInfoLeft {
   margin: 0; overflow: visible;
   background: var(--asga-surface); border: 1px solid var(--asga-line);
-  border-radius: 12px; padding: 16px 18px;
+  border-radius: 12px; padding: 18px 22px;
 }
 /* CA sets display:contents on .popupTable.contents, which drops the table box */
-body.asga-active .popupTable { display: table; width: 100%; table-layout: auto; border-collapse: collapse; margin: 0; }
+body.asga-active .popupTable { display: table; width: 100%; table-layout: auto; border-collapse: collapse; margin: 0; background: transparent; }
 body.asga-active .popupTable td {
   width: auto; padding: 9px 0; border-bottom: 1px solid var(--asga-line);
   font-size: 1.4rem; line-height: 1.45; vertical-align: top;

@@ -361,7 +361,28 @@
       if (a.su) btns.appendChild(mkBtn('Support', 'asga-support'));
       btns.appendChild(mkBtn('Install', 'asga-install'));
       tile.appendChild(btns);
+
+      // when CA's feed first saw this app, bottom-right of the card
+      var added = addedLabel(a.fs);
+      if (added) {
+        var ad = document.createElement('div');
+        ad.className = 'asga-tile-added';
+        ad.textContent = added;
+        tile.appendChild(ad);
+      }
       return tile;
+    }
+    // CA's FirstSeen is a unix timestamp, and it floors anything older than its
+    // own record-keeping to 1433000000 (Jun 2015) — for those the time of day is
+    // an artefact, so only the date is shown.
+    function addedLabel(fs) {
+      if (!fs) return '';
+      var d = new Date(fs * 1000);
+      if (isNaN(d.getTime())) return '';
+      var opts = { year: 'numeric', month: 'short', day: 'numeric' };
+      if (fs > 1433649600) { opts.hour = 'numeric'; opts.minute = '2-digit'; }
+      try { return 'Added ' + d.toLocaleString(undefined, opts); }
+      catch (e) { return 'Added ' + d.toDateString(); }
     }
     function mkBtn(label, cls) {
       var b = document.createElement('span');
