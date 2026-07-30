@@ -84,9 +84,35 @@
     function loadApps(cb) {
       fetch(PREFIX + 'applist.php?_=' + Date.now())
         .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (j) { APPS = (j && j.apps) || []; cb && cb(); })
+        .then(function (j) { APPS = dedupe((j && j.apps) || []); cb && cb(); })
         .catch(function () { APPS = APPS || []; cb && cb(); });
     }
+    // The feed carries the same app under multiple templates (e.g. a repo and a
+    // mirror), so the grid showed duplicates. Collapse by name+author, keeping
+    // the richer record (has an icon, then the longer description).
+    function dedupe(apps) {
+      var by = {}, order = [];
+      apps.forEach(function (a) {
+        var key = (a.n || '').toLowerCase().trim() + '|' + (a.au || '').toLowerCase().trim();
+        if (!by[key]) { by[key] = a; order.push(key); return; }
+        var cur = by[key];
+        var better = (!!a.ic && !cur.ic) || ((!!a.ic === !!cur.ic) && (a.de || '').length > (cur.de || '').length);
+        if (better) by[key] = a;
+      });
+      return order.map(function (k) { return by[k]; });
+    }
+
+    // ---- sort persistence: remember the last sort, but reset to Newest if it
+    // has been more than 20 minutes since the Apps page was last opened. ----
+    function initSort() {
+      try {
+        var ts = parseInt(localStorage.getItem('asga_visit_ts') || '0', 10);
+        var saved = localStorage.getItem('asga_sort');
+        if (saved && optFor(saved).v === saved && (Date.now() - ts) < 20 * 60 * 1000) view.sort = saved;
+        localStorage.setItem('asga_visit_ts', '' + Date.now());
+      } catch (e) {}
+    }
+    function saveSort() { try { localStorage.setItem('asga_sort', view.sort); localStorage.setItem('asga_visit_ts', '' + Date.now()); } catch (e) {} }
 
     // ---- filtering + sorting ----
     function catMatch(a, cat) {
@@ -138,9 +164,11 @@
         if (btn) {
           e.stopPropagation();
           if (btn.classList.contains('asga-install')) {
-            try { window.popupInstallXML(p, 'default', '', ''); } catch (err) {}
+            installApp(tile);
+          } else if (btn.classList.contains('asga-project')) {
+            openExt(tile.getAttribute('data-project'));
           } else if (btn.classList.contains('asga-support')) {
-            toggleSupportMenu(tile, btn);
+            openExt(tile.getAttribute('data-support'));
           } else if (btn.classList.contains('asga-pin')) {
             pinApp(tile, btn);
           } else { // Info
@@ -173,29 +201,19 @@
       } catch (e) {}
     }
 
-    // small self-contained Support menu (Project / Support), no CA dependency
-    function toggleSupportMenu(tile, btn) {
-      var existing = tile.querySelector('.asga-supmenu');
-      document.querySelectorAll('.asga-supmenu').forEach(function (m) { m.remove(); });
-      if (existing) return;
-      var pr = tile.getAttribute('data-project') || '', su = tile.getAttribute('data-support') || '';
-      if (!pr && !su) return;
-      var menu = document.createElement('div');
-      menu.className = 'asga-supmenu';
-      if (pr) menu.appendChild(supLink('Project', pr));
-      if (su) menu.appendChild(supLink('Support', su));
-      btn.parentNode.appendChild(menu);
-      setTimeout(function () {
-        document.addEventListener('click', function close(ev) {
-          if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('click', close, true); }
-        }, true);
-      }, 0);
-    }
-    function supLink(label, href) {
-      var a = document.createElement('a');
-      a.className = 'asga-suplink'; a.textContent = label; a.href = href; a.target = '_blank'; a.rel = 'noopener';
-      a.addEventListener('click', function (e) { e.stopPropagation(); });
-      return a;
+    function openExt(url) { if (url) try { window.open(url, '_blank', 'noopener'); } catch (e) {} }
+
+    // Install in a NEW tab. Docker apps open CA's template editor at
+    // /Apps/AddContainer; plugins open CA's plugin-install page. Same targets CA
+    // uses, just forced into a new tab.
+    function installApp(tile) {
+      var p = tile.getAttribute('data-apppath'), ty = tile.getAttribute('data-type'), pu = tile.getAttribute('data-plugurl');
+      if (ty === 'plugin') {
+        // plugins: let CA drive its own plugin install (its flow differs from docker)
+        try { window.showSidebarApp(p, tile.getAttribute('data-appname')); } catch (e) {}
+        return;
+      }
+      try { window.open('/Apps/AddContainer?xmlTemplate=default:' + encodeURIComponent(p), '_blank', 'noopener'); } catch (e) {}
     }
 
     function makeTile(a) {
@@ -206,6 +224,8 @@
       if (a.pr) tile.setAttribute('data-project', a.pr);
       if (a.su) tile.setAttribute('data-support', a.su);
       if (a.ri) { tile.setAttribute('data-pinrepo', a.ri); tile.setAttribute('data-pinname', a.pn || a.n); }
+      tile.setAttribute('data-type', a.ty || 'docker');
+      if (a.pu) tile.setAttribute('data-plugurl', a.pu);
       tile.title = a.n;
 
       // header: icon + name/author/category
@@ -258,12 +278,19 @@
         au.textContent = a.au;
         htext.appendChild(au);
       }
+      var metaRow = document.createElement('div');
+      metaRow.className = 'asga-tile-metarow';
+      var typ = document.createElement('span');
+      typ.className = 'asga-type asga-type-' + (a.ty || 'docker');
+      typ.textContent = (a.ty === 'plugin') ? 'Plugin' : 'Docker';
+      metaRow.appendChild(typ);
       if (a.ct) {
-        var cat = document.createElement('div');
+        var cat = document.createElement('span');
         cat.className = 'asga-tile-cat';
         cat.textContent = a.ct;
-        htext.appendChild(cat);
+        metaRow.appendChild(cat);
       }
+      htext.appendChild(metaRow);
       head.appendChild(htext);
       tile.appendChild(head);
 
@@ -275,7 +302,8 @@
         tile.appendChild(desc);
       }
 
-      // Info / Support / Install buttons
+      // Info / Pin / Project / Support / Install buttons (Project + Support are
+      // direct links, no submenu)
       var btns = document.createElement('div');
       btns.className = 'asga-tile-btns';
       btns.appendChild(mkBtn('Info', 'asga-info'));
@@ -285,7 +313,8 @@
         if (isPinned) pb.classList.add('asga-pinned');
         btns.appendChild(pb);
       }
-      if (a.pr || a.su) btns.appendChild(mkBtn('Support', 'asga-support'));
+      if (a.pr) btns.appendChild(mkBtn('Project', 'asga-project'));
+      if (a.su) btns.appendChild(mkBtn('Support', 'asga-support'));
       btns.appendChild(mkBtn('Install', 'asga-install'));
       tile.appendChild(btns);
       return tile;
@@ -377,7 +406,7 @@
       host.appendChild(bar);
       var sel = document.getElementById('asga-sortsel');
       sel.value = view.sort;
-      sel.addEventListener('change', function (e) { view.sort = e.target.value; view.page = 1; render(); });
+      sel.addEventListener('change', function (e) { view.sort = e.target.value; view.page = 1; saveSort(); render(); });
       document.getElementById('asga-refresh').addEventListener('click', onRefreshClick);
       var cb = document.getElementById('asga-toggle-cb');
       cb.checked = isOn();
@@ -428,7 +457,7 @@
       if (document.body.__asgaCatWired) return;
       document.body.__asgaCatWired = true;
       document.addEventListener('click', function (e) {
-        var item = e.target.closest ? e.target.closest('.caMenuItem[data-category]') : null;
+        var item = e.target.closest ? e.target.closest('.caMenuItem[data-category], .startupButton') : null;
         if (!item) return;
         var cat = item.getAttribute('data-category') || '';
         var label = (item.textContent || '').trim();
@@ -444,9 +473,10 @@
           // Previous Apps / Action Centre / Repositories: hand back to CA for now.
           caSpecial = true; applyViewMode(); return;
         }
-        // Home / All Apps / a category chip: our grid, filtered.
+        // Home (startup screens) and All Apps both mean the full catalog for us.
         caSpecial = false; view.special = '';
-        if (cat === 'All' || cat === 'New' || cat === '' || item.classList.contains('allApps')) { view.cat = ''; view.catLabel = 'All Apps'; }
+        var homeLike = item.classList.contains('startupButton') || /^(onlynew|spotlight|top_trending|home)$/.test(cat);
+        if (homeLike || cat === 'All' || cat === 'New' || cat === '' || item.classList.contains('allApps')) { view.cat = ''; view.catLabel = 'All Apps'; }
         else { view.cat = cat; view.catLabel = label || cat; }
         view.q = ''; if (box) box.value = '';
         view.page = 1;
@@ -534,16 +564,28 @@
     // ---- lifecycle ----
     // CA keeps re-rendering its own (now hidden) grid; re-attach our UI if CA
     // rebuilt the toolbar, but the grid itself only re-renders on user actions.
+    // CA opens an "Updating Content / Please Wait" modal on every Apps visit and
+    // relies on its own render finishing to close it. Our grid replaces CA's
+    // render, so that modal (and CA's spinner) can get stuck open. Close it.
+    function dismissCaLoading() {
+      if (!isOn()) return;
+      if (document.querySelector('.updateContent-swal')) {
+        try { if (typeof window.myCloseAlert === 'function') window.myCloseAlert(true); else if (window.swal && window.swal.close) window.swal.close(); } catch (e) {}
+      }
+    }
+
     function attachUI() {
       addSortBar();
       wireSearch();
       wireCategories();
       showWarningIfNeeded();
       applyViewMode();
+      dismissCaLoading();
       if (isOn() && !document.getElementById('asga-view')) render();
     }
 
     function start() {
+      initSort();    // restore last sort (or reset to Newest after 20 min)
       triggerNewScan();
       loadViews();   // pin/installed membership, so tiles show correct pin state
       loadApps(function () {

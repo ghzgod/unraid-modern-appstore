@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.30d}"
+VERSION="${1:-2026.07.30e}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,17 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Fix: CA's "Updating Content / Please Wait" modal and spinner no longer get
+  stuck open over the modern grid.
+- Home now shows All Apps in the modern grid (was empty); the empty-state message
+  is centered.
+- Tiles show whether an app is a Docker container or a Plugin, and duplicate
+  listings of the same app are collapsed.
+- Tiles now have direct Project and Support buttons (no submenu); Install opens
+  the template in a new tab.
+- The chosen sort persists across reloads, and resets to Newest after 20 minutes
+  away from the Apps page.
+- Higher-contrast buttons and description text in the modern Info drawer.
 - Pinned Apps and Installed Apps now render in the modern grid (with GitHub stars),
   because CA's own Pinned/Installed views are broken in its 2026.07 rewrite (they
   showed the home screen). Pin/Unpin works from the tiles and the drawer alike.

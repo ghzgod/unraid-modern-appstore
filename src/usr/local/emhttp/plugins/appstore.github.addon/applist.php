@@ -92,6 +92,8 @@ foreach ($tmpl as $t) {
         'ri'  => $t['Repository'] ?? '',                     // image ref, CA's pin key part 1
         'pn'  => $t['SortName'] ?? $name,                    // exact SortName, CA's pin key part 2
         'rp'  => $mine['rp'] ?? '',                          // owner/repo, for the icon fallback
+        'ty'  => !empty($t['Plugin']) ? 'plugin' : 'docker', // app type
+        'pu'  => $t['PluginURL'] ?? '',                      // plugin .plg url (plugins install differently)
         's'   => isset($mine['s']) ? $mine['s'] : null,
         'dl'  => $dl,
         'fs'  => (int)($t['FirstSeen'] ?? 0),

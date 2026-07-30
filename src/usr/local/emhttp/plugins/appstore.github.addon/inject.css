@@ -9,6 +9,8 @@ body.asga-active #maxPerPage { display: none !important; }
 /* CA writes the current view name (e.g. "Pinned Apps") into a toolbar category
    label; our own title covers that, so hide CA's to avoid a run-together line. */
 body.asga-active .categoryLine { display: none !important; }
+/* our grid replaces CA's render, so CA's page spinner has nothing to wait for */
+body.asga-active .spinner.fixed { display: none !important; }
 
 /* our toolbar row lives in CA's search row */
 #searchFilter { margin-top: 24px; }
@@ -19,7 +21,9 @@ body.asga-active .categoryLine { display: none !important; }
 }
 .asga-sortwrap { display: inline-flex; align-items: center; gap: 8px; }
 .asga-bar-label { white-space: nowrap; }
-.asga-sortsel { vertical-align: middle; font-size: 1.2rem; }
+/* the native select renders its glyphs higher inside its taller box than the
+   adjacent text labels, so nudge it down a hair to sit on the same line */
+.asga-sortsel { vertical-align: middle; font-size: 1.2rem; position: relative; top: 3px; }
 .asga-refreshlink { cursor: pointer; opacity: 0.8; font-size: 1.4rem; text-decoration: none; color: inherit; }
 .asga-refreshlink:hover { opacity: 1; }
 
@@ -43,7 +47,7 @@ body.asga-active .categoryLine { display: none !important; }
 .asga-count { margin: 6px 2px 16px; }
 .asga-count-title { font-size: 1.6rem; font-weight: 700; color: var(--text-color, inherit); }
 .asga-count-sub { font-size: 1.05rem; opacity: 0.55; }
-.asga-empty { padding: 40px 8px; font-size: 1.2rem; opacity: 0.7; text-align: center; }
+.asga-empty { grid-column: 1 / -1; padding: 80px 8px; font-size: 1.3rem; opacity: 0.7; text-align: center; }
 
 .asga-grid {
   display: grid;
@@ -72,7 +76,14 @@ body.asga-active .categoryLine { display: none !important; }
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 .asga-tile-author { font-size: 1rem; opacity: 0.7; margin-top: 2px; }
-.asga-tile-cat { font-size: 0.95rem; opacity: 0.55; margin-top: 1px; }
+.asga-tile-metarow { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
+.asga-tile-cat { font-size: 0.95rem; opacity: 0.55; }
+.asga-type {
+  font-size: 0.8rem; font-weight: 600; letter-spacing: 0.02em;
+  padding: 1px 7px; border-radius: 8px; white-space: nowrap;
+}
+.asga-type-docker { color: #6ab7ff; background: rgba(106,183,255,0.14); }
+.asga-type-plugin { color: #ff9d5c; background: rgba(255,140,47,0.16); }
 
 .asga-tile-desc {
   font-size: 1rem; line-height: 1.35; opacity: 0.85; margin: 10px 0 12px;
@@ -165,21 +176,23 @@ body.asga-active .popupIcon img { width: 96px; height: 96px; object-fit: contain
 body.asga-active .popupName { font-size: 1.9rem; font-weight: 800; line-height: 1.15; }
 body.asga-active .popupAuthorMain { font-size: 1.1rem; opacity: 0.6; margin: 2px 0 12px; }
 
-/* action buttons (Install / Support / Pin) as modern pills */
+/* action buttons (Install / Support / Pin) as modern pills, higher contrast so
+   they read clearly on the dark drawer */
 body.asga-active .popupInfo .caButton {
   display: inline-block; cursor: pointer;
   font-size: 1.05rem; padding: 6px 18px; margin: 0 8px 8px 0; border-radius: 22px;
-  border: 1px solid rgba(127,127,127,0.4); background: rgba(127,127,127,0.08); color: var(--text-color, inherit);
+  border: 1px solid rgba(200,200,200,0.55); background: rgba(255,255,255,0.09); color: #f2f2f2;
 }
-body.asga-active .popupInfo .caButton:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.14); }
+body.asga-active .popupInfo .caButton:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.2); color: #fff; }
 body.asga-active .popupInfo .caButton.actionsPopup { background: #ff8c2f; border-color: #ff8c2f; color: #fff; }
 body.asga-active .popupInfo .caButton.actionsPopup:hover { filter: brightness(1.08); }
 body.asga-active .popupInfo .caButton.pinPopup.pinned { border-color: #ff8c2f; color: #ff8c2f; background: rgba(255,140,47,0.2); }
 
-/* description block */
+/* description block, readable contrast */
 body.asga-active .popupDescription {
-  background: rgba(127,127,127,0.08); border: 1px solid rgba(127,127,127,0.2);
+  background: rgba(255,255,255,0.05); border: 1px solid rgba(127,127,127,0.25);
   border-radius: 10px; padding: 14px 16px; line-height: 1.5; font-size: 1.05rem; margin: 4px 0 20px;
+  color: #e8e8e8;
 }
 
 /* section titles + details table */
