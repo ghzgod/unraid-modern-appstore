@@ -1,10 +1,14 @@
 <CommunityApplications>
   <Profile>
-Unraid Modern App Store is a single plugin that restyles the Apps page into a modern, sortable grid and adds GitHub star counts, trending, and download figures to the Community Applications catalog.
+Unraid plugins by ghzgod.
 
-It never modifies Community Applications. Everything is layered on top and scoped to the plugin's own markup, so turning the modern view off, or uninstalling the plugin, returns the Apps page exactly to stock.
+**Unraid Modern App Store** restyles the Apps page into a modern, sortable grid and adds GitHub star counts, trending, and download figures to the Community Applications catalog. It never modifies Community Applications: everything is layered on top and scoped to its own markup, so turning the modern view off, or uninstalling, returns the Apps page to stock.
 
-Support and issues: https://github.com/ghzgod/unraid-modern-appstore/issues
+**Docker Page Speedup** makes the Docker page load faster on servers with a large number of containers, and cuts the CPU and GPU load the page generates while it is open. Its changes are made to the copy of the webGUI held in RAM, are verified before being kept, and are reverted on uninstall.
+
+Support and issues:
+https://github.com/ghzgod/unraid-modern-appstore/issues
+https://github.com/ghzgod/unraid-docker-page-speedup/issues
   </Profile>
   <WebPage>https://github.com/ghzgod/unraid-modern-appstore</WebPage>
 </CommunityApplications>

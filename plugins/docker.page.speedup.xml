@@ -1,0 +1,19 @@
+<Plugin>
+  <Name>Docker Page Speedup</Name>
+
+  <Overview>Makes the Docker page load faster on servers with many containers, and cuts the CPU and GPU load it generates while open. Unraid's Docker page calls getTemplateValue() around nine times per container, and each call re-parses every container template XML from the flash drive, so the work grows with containers multiplied by templates. This plugin adds two in-request caches to DockerClient.php so each template is read once per request, which on a server with well over a hundred containers took a cold page load from roughly 38 seconds to 4. It also lets you throttle the live stats refresh, which by default runs docker stats against every container once per second and repaints the whole table each time. Both changes are made to the copy of the webGUI that runs in RAM, never to the flash drive. The template patch only applies if four exact code anchors match, so it cleanly does nothing on an Unraid build it does not recognise, and the result is checked with php -l and rolled back automatically if it does not lint. A stock backup of each file is kept, the settings page can disable either change at any time, and uninstalling restores both files to stock.</Overview>
+
+  <PluginURL>https://raw.githubusercontent.com/ghzgod/unraid-docker-page-speedup/main/docker.page.speedup.plg</PluginURL>
+
+  <PluginAuthor>ghzgod</PluginAuthor>
+
+  <Project>https://github.com/ghzgod/unraid-docker-page-speedup</Project>
+
+  <ReadMe>https://raw.githubusercontent.com/ghzgod/unraid-docker-page-speedup/main/README.md</ReadMe>
+
+  <Category>Tools:Utilities</Category>
+
+  <IconFA>bolt</IconFA>
+
+  <License>MIT</License>
+</Plugin>
