@@ -1,9 +1,9 @@
 Menu="Utilities"
-Title="App Store GitHub Addon"
+Title="Unraid Modern Appstore"
 Icon="star"
 ---
 <?php
-/* App Store GitHub Addon: settings page (Settings -> Utilities -> App Store GitHub Addon). */
+/* Unraid Modern Appstore: settings page (Settings -> Utilities -> App Store GitHub Addon). */
 require_once "$docroot/plugins/dynamix/include/Wrappers.php";
 
 $gas_dir  = "/boot/config/plugins/appstore.github.addon";
@@ -65,7 +65,7 @@ $status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/appstore.gi
 
 <form markdown="1" method="POST" action="/Settings/AppStoreGitHubAddon">
 
-_(Enable App Store GitHub Addon)_:
+_(Enable Unraid Modern Appstore)_:
 : <select name="SERVICE" size="1">
     <?= mk_option($service, "enabled", "Yes") ?>
     <?= mk_option($service, "disabled", "No") ?>

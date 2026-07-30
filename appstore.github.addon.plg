@@ -2,14 +2,16 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "appstore.github.addon">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.07.30e">
+<!ENTITY version "2026.07.30f">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/appstore-github-addon/main/appstore.github.addon.plg">
 <!ENTITY support "https://github.com/ghzgod/appstore-github-addon">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/AppStoreGitHubAddon" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.07.30e
+##2026.07.30f
+- Renamed to "Unraid Modern Appstore" (settings page, in-app labels, README and the
+  GitHub page). The internal plugin id is unchanged, so no reinstall is required.
 - Fix: CA's "Updating Content / Please Wait" modal and spinner no longer get
   stuck open over the modern grid.
 - Home now shows All Apps in the modern grid (was empty); the empty-state message
@@ -986,7 +988,7 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
 <INLINE>
 <![CDATA[
 /*
- * Front-end for the App Store GitHub Addon.
+ * Front-end for Unraid Modern Appstore.
  *
  * Community Applications' 2026.07 rewrite made its client-side sort unreliable:
  * applying any sort collapses the All-Apps view to a ~36-app subset and orders
@@ -1482,9 +1484,9 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       var w = document.createElement('div');
       w.className = 'ghstars-warning';
       var msg = document.createElement('span');
-      msg.innerHTML = '⚠ <b>App Store GitHub Addon:</b> no GitHub personal access token configured, so ' +
+      msg.innerHTML = '⚠ <b>Unraid Modern Appstore:</b> no GitHub personal access token configured, so ' +
         'star counts are disabled. Add a token in <a href="' + (cfg.settingsUrl || '/Settings') +
-        '">Settings → App Store GitHub Addon</a>.';
+        '">Settings → Unraid Modern Appstore</a>.';
       var x = document.createElement('span');
       x.className = 'ghstars-warning-x'; x.title = 'Dismiss'; x.textContent = '✕';
       x.addEventListener('click', function () { w.parentNode && w.parentNode.removeChild(w); });
@@ -1827,11 +1829,11 @@ body.asga-active .popupAuthorIcon img { width: 40px; height: 40px; border-radius
 <INLINE>
 <![CDATA[
 Menu="Utilities"
-Title="App Store GitHub Addon"
+Title="Unraid Modern Appstore"
 Icon="star"
 ---
 <?php
-/* App Store GitHub Addon: settings page (Settings -> Utilities -> App Store GitHub Addon). */
+/* Unraid Modern Appstore: settings page (Settings -> Utilities -> App Store GitHub Addon). */
 require_once "$docroot/plugins/dynamix/include/Wrappers.php";
 
 $gas_dir  = "/boot/config/plugins/appstore.github.addon";
@@ -1893,7 +1895,7 @@ $status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/appstore.gi
 
 <form markdown="1" method="POST" action="/Settings/AppStoreGitHubAddon">
 
-_(Enable App Store GitHub Addon)_:
+_(Enable Unraid Modern Appstore)_:
 : <select name="SERVICE" size="1">
     <?= mk_option($service, "enabled", "Yes") ?>
     <?= mk_option($service, "disabled", "No") ?>
@@ -1949,7 +1951,7 @@ Menu="Buttons:99"
 Link="nav-user"
 ---
 <?php
-/* App Store GitHub Addon: global loader.
+/* Unraid Modern Appstore: global loader.
  * Rides the same "Buttons" hook the custom.css plugin uses: this page body is
  * emitted into the chrome of EVERY webGUI page. We output the inject script
  * (which self-limits to /Apps) plus a tiny config object so the front-end knows
@@ -1975,10 +1977,10 @@ if (($gas['SERVICE'] ?? 'disabled') === 'enabled') {
 <FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/README.md">
 <INLINE>
 <![CDATA[
-####App Store GitHub Addon###
+####Unraid Modern Appstore###
 Adds GitHub star counts to every Community Applications app tile, plus a sortable GitHub view of the whole catalog - by stars, trending (day/week/month/year), or newest to the App Store. It uses CA's own app page and never modifies the Community Applications plugin.
 
-Set your GitHub personal access token at **Settings → Utilities → App Store GitHub Addon**. Star data is cached in appdata and refreshed automatically.
+Set your GitHub personal access token at **Settings → Utilities → Unraid Modern Appstore**. Star data is cached in appdata and refreshed automatically.
 ]]>
 </INLINE>
 </FILE>

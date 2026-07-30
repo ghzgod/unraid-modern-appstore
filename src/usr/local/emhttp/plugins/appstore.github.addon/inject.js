@@ -1,5 +1,5 @@
 /*
- * Front-end for the App Store GitHub Addon.
+ * Front-end for Unraid Modern Appstore.
  *
  * Community Applications' 2026.07 rewrite made its client-side sort unreliable:
  * applying any sort collapses the All-Apps view to a ~36-app subset and orders
@@ -495,9 +495,9 @@
       var w = document.createElement('div');
       w.className = 'ghstars-warning';
       var msg = document.createElement('span');
-      msg.innerHTML = '⚠ <b>App Store GitHub Addon:</b> no GitHub personal access token configured, so ' +
+      msg.innerHTML = '⚠ <b>Unraid Modern Appstore:</b> no GitHub personal access token configured, so ' +
         'star counts are disabled. Add a token in <a href="' + (cfg.settingsUrl || '/Settings') +
-        '">Settings → App Store GitHub Addon</a>.';
+        '">Settings → Unraid Modern Appstore</a>.';
       var x = document.createElement('span');
       x.className = 'ghstars-warning-x'; x.title = 'Dismiss'; x.textContent = '✕';
       x.addEventListener('click', function () { w.parentNode && w.parentNode.removeChild(w); });
