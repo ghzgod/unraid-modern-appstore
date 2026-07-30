@@ -181,19 +181,24 @@ body.asga-active .popupAuthorMain { font-size: 1.1rem; opacity: 0.6; margin: 2px
 body.asga-active .popupInfo .caButton {
   display: inline-block; cursor: pointer;
   font-size: 1.05rem; padding: 6px 18px; margin: 0 8px 8px 0; border-radius: 22px;
-  border: 1px solid rgba(200,200,200,0.55); background: rgba(255,255,255,0.09); color: #f2f2f2;
+  border: 1px solid rgba(200,200,200,0.55); background: rgba(255,255,255,0.09); color: #f2f2f2 !important;
 }
+body.asga-active .popupInfo .caButton * { color: #f2f2f2 !important; }
+body.asga-active .popupInfo .caButton.actionsPopup, body.asga-active .popupInfo .caButton.actionsPopup * { color: #fff !important; }
 body.asga-active .popupInfo .caButton:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.2); color: #fff; }
 body.asga-active .popupInfo .caButton.actionsPopup { background: #ff8c2f; border-color: #ff8c2f; color: #fff; }
 body.asga-active .popupInfo .caButton.actionsPopup:hover { filter: brightness(1.08); }
 body.asga-active .popupInfo .caButton.pinPopup.pinned { border-color: #ff8c2f; color: #ff8c2f; background: rgba(255,140,47,0.2); }
 
-/* description block, readable contrast */
+/* description block, readable contrast. CA sets this text to black via a more
+   specific rule (.popupDescription.popup_readmore), so force light with !important. */
 body.asga-active .popupDescription {
   background: rgba(255,255,255,0.05); border: 1px solid rgba(127,127,127,0.25);
   border-radius: 10px; padding: 14px 16px; line-height: 1.5; font-size: 1.05rem; margin: 4px 0 20px;
-  color: #e8e8e8;
 }
+body.asga-active .popupDescription,
+body.asga-active .popupDescription * { color: #e8e8e8 !important; }
+body.asga-active .popupDescription a { color: #ff9d5c !important; }
 
 /* section titles + details table */
 body.asga-active .rightTitle, body.asga-active .popupAuthorTitle {

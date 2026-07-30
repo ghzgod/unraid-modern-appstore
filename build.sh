@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.30i}"
+VERSION="${1:-2026.07.30j}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,8 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Fix: the Info-drawer description text was black on the dark card (unreadable);
+  CA set it via a more specific rule, now forced to a light colour.
 - Fix: preview screenshots now open in a built-in lightbox. CA's own gallery closed
   the whole Info drawer when a preview opened and re-opened it on close, which
   flashed the drawer blank and could show two images overlaid. The drawer now stays
