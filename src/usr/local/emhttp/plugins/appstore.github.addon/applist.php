@@ -63,10 +63,15 @@ foreach ($tmpl as $t) {
     $name = $t['Name'] ?? ($mine['n'] ?? '');
     if ($name === '') continue;
 
-    // accurate Unraid download count comes straight from CA's catalog (the app
-    // feed populates it; ~3300 apps have it). This is the real DockerHub-pull
-    // number CA shows, not the per-repo template tally in repositoryList.
+    // Download count comes from CA's catalog (DockerHub pulls of the app's
+    // image). BUT apps built on an official base image (nginx, redis, postgres)
+    // reference it as a bare "name:tag" with no owner namespace, and then this
+    // number is the BASE image's global pulls (e.g. nginx = 13.2B), not the
+    // app's. That's misleading, so we drop it for those; real app images are
+    // "owner/name" and keep their genuine count.
     $dl = (int)($t['downloads'] ?? 0);
+    $imgName = explode(':', trim($t['Repository'] ?? ''))[0];
+    if ($imgName === '' || strpos($imgName, '/') === false) $dl = 0;
 
     // description: prefer our stored copy, fall back to CA's Overview; trim to a
     // card-sized blurb (tiles clamp it anyway) to keep the payload lean.
@@ -84,6 +89,8 @@ foreach ($tmpl as $t) {
         'de'  => $desc,
         'pr'  => $mine['pr'] ?? ($t['Project'] ?? ''),
         'su'  => $mine['su'] ?? ($t['Support'] ?? ''),
+        'rn'  => $t['RepoName'] ?? '',                       // pin key (repo display name)
+        'rp'  => $mine['rp'] ?? '',                          // owner/repo, for the icon fallback
         's'   => isset($mine['s']) ? $mine['s'] : null,
         'dl'  => $dl,
         'fs'  => (int)($t['FirstSeen'] ?? 0),

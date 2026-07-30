@@ -2,14 +2,26 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "appstore.github.addon">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.07.30">
+<!ENTITY version "2026.07.30b">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/appstore-github-addon/main/appstore.github.addon.plg">
 <!ENTITY support "https://github.com/ghzgod/appstore-github-addon">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/AppStoreGitHubAddon" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.07.30
+##2026.07.30b
+- Tiles: stars and Docker-pull count now sit inline in the top-right corner; a
+  Pin App button was added (pins via CA's own pinApp, same as the Info drawer);
+  the toggle is labelled "Modern view".
+- Icons: apps whose template ships no icon now fall back to the GitHub owner's
+  avatar instead of a blank question mark.
+- Downloads: the count is Docker image pulls (what CA reports). Apps built on an
+  official base image (e.g. nginx:alpine) inherited that base image's pull count
+  (nginx = billions), which is meaningless for the app, so those are dropped from
+  the count. Language packs are excluded from the grid.
+- The stock CA sort row and Results-Per-Page button are hidden while the modern
+  view is on (our grid has its own), and restored when it is off.
+- Accent colour matches the Unraid logo orange.
 - Rearchitected the GitHub view. Community Applications' 2026.07 rewrite broke its
   own client-side sort (any sort collapsed the list to ~36 apps). The addon now
   renders its own grid over the full catalog: reliable sorting by name, Unraid
@@ -847,10 +859,15 @@ foreach ($tmpl as $t) {
     $name = $t['Name'] ?? ($mine['n'] ?? '');
     if ($name === '') continue;
 
-    // accurate Unraid download count comes straight from CA's catalog (the app
-    // feed populates it; ~3300 apps have it). This is the real DockerHub-pull
-    // number CA shows, not the per-repo template tally in repositoryList.
+    // Download count comes from CA's catalog (DockerHub pulls of the app's
+    // image). BUT apps built on an official base image (nginx, redis, postgres)
+    // reference it as a bare "name:tag" with no owner namespace, and then this
+    // number is the BASE image's global pulls (e.g. nginx = 13.2B), not the
+    // app's. That's misleading, so we drop it for those; real app images are
+    // "owner/name" and keep their genuine count.
     $dl = (int)($t['downloads'] ?? 0);
+    $imgName = explode(':', trim($t['Repository'] ?? ''))[0];
+    if ($imgName === '' || strpos($imgName, '/') === false) $dl = 0;
 
     // description: prefer our stored copy, fall back to CA's Overview; trim to a
     // card-sized blurb (tiles clamp it anyway) to keep the payload lean.
@@ -868,6 +885,8 @@ foreach ($tmpl as $t) {
         'de'  => $desc,
         'pr'  => $mine['pr'] ?? ($t['Project'] ?? ''),
         'su'  => $mine['su'] ?? ($t['Support'] ?? ''),
+        'rn'  => $t['RepoName'] ?? '',                       // pin key (repo display name)
+        'rp'  => $mine['rp'] ?? '',                          // owner/repo, for the icon fallback
         's'   => isset($mine['s']) ? $mine['s'] : null,
         'dl'  => $dl,
         'fs'  => (int)($t['FirstSeen'] ?? 0),
@@ -1018,6 +1037,8 @@ echo json_encode(
             try { window.popupInstallXML(p, 'default', '', ''); } catch (err) {}
           } else if (btn.classList.contains('asga-support')) {
             toggleSupportMenu(tile, btn);
+          } else if (btn.classList.contains('asga-pin')) {
+            pinApp(tile, btn);
           } else { // Info
             try { window.showSidebarApp(p, n); } catch (err) {}
           }
@@ -1027,6 +1048,17 @@ echo json_encode(
         try { window.showSidebarApp(p, n); } catch (err) {}
       });
       return wrap;
+    }
+
+    // pin/unpin via CA's own pinApp action (keyed by RepoName & Name, exactly
+    // like CA's drawer button), and reflect the toggled state on our button.
+    function pinApp(tile, btn) {
+      var repo = tile.getAttribute('data-reponame') || '', name = tile.getAttribute('data-appname') || '';
+      if (!repo) return;
+      var willPin = btn.textContent !== 'Unpin';
+      btn.textContent = willPin ? 'Unpin' : 'Pin App';
+      btn.classList.toggle('asga-pinned', willPin);
+      try { window.post({ action: 'pinApp', repository: repo, name: name }, function () {}); } catch (e) {}
     }
 
     // small self-contained Support menu (Project / Support), no CA dependency
@@ -1061,6 +1093,7 @@ echo json_encode(
       tile.setAttribute('data-appname', a.n);
       if (a.pr) tile.setAttribute('data-project', a.pr);
       if (a.su) tile.setAttribute('data-support', a.su);
+      if (a.rn) tile.setAttribute('data-reponame', a.rn);
       tile.title = a.n;
 
       // header: icon + name/author/category
@@ -1071,24 +1104,35 @@ echo json_encode(
       iconWrap.className = 'asga-tile-icon';
       var img = document.createElement('img');
       var fallback = '/plugins/dynamix.docker.manager/images/question.png';
-      img.src = a.ic || fallback; img.loading = 'lazy'; img.alt = '';
-      img.onerror = function () { if (this.src.indexOf('question.png') < 0) this.src = fallback; };
+      // icon fallback chain: the app's own icon, else the GitHub owner's avatar
+      // (many templates ship no icon URL), else CA's question mark.
+      var ghAvatar = (a.rp && a.rp.indexOf('/') > 0) ? ('https://github.com/' + a.rp.split('/')[0] + '.png?size=128') : '';
+      img.src = a.ic || ghAvatar || fallback; img.loading = 'lazy'; img.alt = '';
+      img.onerror = function () {
+        if (ghAvatar && this.src !== ghAvatar && this.src.indexOf('github.com') < 0) { this.src = ghAvatar; return; }
+        if (this.src.indexOf('question.png') < 0) this.src = fallback;
+      };
       iconWrap.appendChild(img);
+      head.appendChild(iconWrap);
+
+      // stars + downloads sit inline in the tile's top-right corner
+      var badges = document.createElement('div');
+      badges.className = 'asga-tile-badges';
       if (a.s != null) {
         var badge = document.createElement('span');
         badge.className = 'ghstars-badge';
         badge.textContent = '★ ' + fmt(a.s);
         badge.title = a.s + ' GitHub stars';
-        iconWrap.appendChild(badge);
+        badges.appendChild(badge);
       }
       if (a.dl > 0) {
         var dlb = document.createElement('span');
         dlb.className = 'ghdl-badge';
         dlb.textContent = '⤓ ' + fmt(a.dl);
-        dlb.title = a.dl.toLocaleString() + ' Unraid downloads';
-        iconWrap.appendChild(dlb);
+        dlb.title = a.dl.toLocaleString() + ' Docker image pulls';
+        badges.appendChild(dlb);
       }
-      head.appendChild(iconWrap);
+      if (badges.children.length) tile.appendChild(badges);
 
       var htext = document.createElement('div');
       htext.className = 'asga-tile-htext';
@@ -1123,6 +1167,7 @@ echo json_encode(
       var btns = document.createElement('div');
       btns.className = 'asga-tile-btns';
       btns.appendChild(mkBtn('Info', 'asga-info'));
+      if (a.rn) btns.appendChild(mkBtn('Pin App', 'asga-pin'));
       if (a.pr || a.su) btns.appendChild(mkBtn('Support', 'asga-support'));
       btns.appendChild(mkBtn('Install', 'asga-install'));
       tile.appendChild(btns);
@@ -1190,9 +1235,9 @@ echo json_encode(
       bar.id = 'asga-bar';
       bar.className = 'asga-bar';
       bar.innerHTML =
-        '<label class="asga-toggle" title="Toggle between the GitHub view and the stock Community Applications view">' +
+        '<label class="asga-toggle" title="Toggle between the modern view and the stock Community Applications view">' +
           '<input type="checkbox" id="asga-toggle-cb"><span class="asga-toggle-track"><span class="asga-toggle-knob"></span></span>' +
-          '<span class="asga-toggle-lbl">GitHub view</span>' +
+          '<span class="asga-toggle-lbl">Modern view</span>' +
         '</label>' +
         '<span class="asga-sortwrap"><span class="asga-bar-label">Sort By:</span>' +
         '<select id="asga-sortsel" class="asga-sortsel">' + opts + '</select>' +
@@ -1376,8 +1421,12 @@ echo json_encode(
 <![CDATA[
 /* Injected styles for the App Store GitHub Addon. Scoped to .ghstars-* / .asga-* so it never touches CA. */
 
-/* When our own grid is active, hide CA's grid + its pager/count so only ours shows. */
+/* When our own grid is active, hide CA's grid + its own controls: its tile
+   area, its native "Sort By" row, and its "Results Per Page" button (our grid
+   has its own sort dropdown and pagination). They return when the view is off. */
 body.asga-active #templates_content { display: none !important; }
+body.asga-active #sortIconArea { display: none !important; }
+body.asga-active #maxPerPage { display: none !important; }
 
 /* our toolbar row lives in CA's search row */
 #searchFilter { margin-top: 24px; }
@@ -1453,6 +1502,7 @@ body.asga-active #templates_content { display: none !important; }
   background: rgba(127,127,127,0.08);
 }
 .asga-btn:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.14); }
+.asga-btn.asga-pinned { border-color: #ff8c2f; background: rgba(255,140,47,0.2); color: #ff8c2f; }
 
 /* support dropdown */
 .asga-supmenu {
@@ -1463,17 +1513,20 @@ body.asga-active #templates_content { display: none !important; }
 .asga-suplink { display: block; padding: 7px 12px; font-size: 1rem; color: var(--text-color, inherit); text-decoration: none; }
 .asga-suplink:hover { background: rgba(255,140,47,0.16); }
 
-/* star badge (top-right) + downloads badge (bottom-right) sit on the icon */
+/* stars + downloads inline in the tile's top-right corner */
+.asga-tile-badges {
+  position: absolute; top: 10px; right: 10px; z-index: 5;
+  display: flex; gap: 6px; align-items: center;
+}
 .ghstars-badge, .ghdl-badge {
-  position: absolute; z-index: 5;
   font-size: 11px; line-height: 1; font-weight: 600;
-  background: rgba(0, 0, 0, 0.8);
-  border: 1px solid rgba(127, 127, 127, 0.35);
-  padding: 3px 6px; border-radius: 10px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  padding: 3px 7px; border-radius: 10px;
   pointer-events: none; white-space: nowrap;
 }
-.ghstars-badge { top: -6px; right: -8px; color: #f0a500; }
-.ghdl-badge   { bottom: -6px; right: -8px; color: #4ab8c9; }
+.ghstars-badge { color: #f0a500; }
+.ghdl-badge   { color: #4ab8c9; }
 
 /* pager */
 .asga-pager { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; margin: 22px 0 8px; }

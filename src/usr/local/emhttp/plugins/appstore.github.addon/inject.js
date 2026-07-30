@@ -125,6 +125,8 @@
             try { window.popupInstallXML(p, 'default', '', ''); } catch (err) {}
           } else if (btn.classList.contains('asga-support')) {
             toggleSupportMenu(tile, btn);
+          } else if (btn.classList.contains('asga-pin')) {
+            pinApp(tile, btn);
           } else { // Info
             try { window.showSidebarApp(p, n); } catch (err) {}
           }
@@ -134,6 +136,17 @@
         try { window.showSidebarApp(p, n); } catch (err) {}
       });
       return wrap;
+    }
+
+    // pin/unpin via CA's own pinApp action (keyed by RepoName & Name, exactly
+    // like CA's drawer button), and reflect the toggled state on our button.
+    function pinApp(tile, btn) {
+      var repo = tile.getAttribute('data-reponame') || '', name = tile.getAttribute('data-appname') || '';
+      if (!repo) return;
+      var willPin = btn.textContent !== 'Unpin';
+      btn.textContent = willPin ? 'Unpin' : 'Pin App';
+      btn.classList.toggle('asga-pinned', willPin);
+      try { window.post({ action: 'pinApp', repository: repo, name: name }, function () {}); } catch (e) {}
     }
 
     // small self-contained Support menu (Project / Support), no CA dependency
@@ -168,6 +181,7 @@
       tile.setAttribute('data-appname', a.n);
       if (a.pr) tile.setAttribute('data-project', a.pr);
       if (a.su) tile.setAttribute('data-support', a.su);
+      if (a.rn) tile.setAttribute('data-reponame', a.rn);
       tile.title = a.n;
 
       // header: icon + name/author/category
@@ -178,24 +192,35 @@
       iconWrap.className = 'asga-tile-icon';
       var img = document.createElement('img');
       var fallback = '/plugins/dynamix.docker.manager/images/question.png';
-      img.src = a.ic || fallback; img.loading = 'lazy'; img.alt = '';
-      img.onerror = function () { if (this.src.indexOf('question.png') < 0) this.src = fallback; };
+      // icon fallback chain: the app's own icon, else the GitHub owner's avatar
+      // (many templates ship no icon URL), else CA's question mark.
+      var ghAvatar = (a.rp && a.rp.indexOf('/') > 0) ? ('https://github.com/' + a.rp.split('/')[0] + '.png?size=128') : '';
+      img.src = a.ic || ghAvatar || fallback; img.loading = 'lazy'; img.alt = '';
+      img.onerror = function () {
+        if (ghAvatar && this.src !== ghAvatar && this.src.indexOf('github.com') < 0) { this.src = ghAvatar; return; }
+        if (this.src.indexOf('question.png') < 0) this.src = fallback;
+      };
       iconWrap.appendChild(img);
+      head.appendChild(iconWrap);
+
+      // stars + downloads sit inline in the tile's top-right corner
+      var badges = document.createElement('div');
+      badges.className = 'asga-tile-badges';
       if (a.s != null) {
         var badge = document.createElement('span');
         badge.className = 'ghstars-badge';
         badge.textContent = '★ ' + fmt(a.s);
         badge.title = a.s + ' GitHub stars';
-        iconWrap.appendChild(badge);
+        badges.appendChild(badge);
       }
       if (a.dl > 0) {
         var dlb = document.createElement('span');
         dlb.className = 'ghdl-badge';
         dlb.textContent = '⤓ ' + fmt(a.dl);
-        dlb.title = a.dl.toLocaleString() + ' Unraid downloads';
-        iconWrap.appendChild(dlb);
+        dlb.title = a.dl.toLocaleString() + ' Docker image pulls';
+        badges.appendChild(dlb);
       }
-      head.appendChild(iconWrap);
+      if (badges.children.length) tile.appendChild(badges);
 
       var htext = document.createElement('div');
       htext.className = 'asga-tile-htext';
@@ -230,6 +255,7 @@
       var btns = document.createElement('div');
       btns.className = 'asga-tile-btns';
       btns.appendChild(mkBtn('Info', 'asga-info'));
+      if (a.rn) btns.appendChild(mkBtn('Pin App', 'asga-pin'));
       if (a.pr || a.su) btns.appendChild(mkBtn('Support', 'asga-support'));
       btns.appendChild(mkBtn('Install', 'asga-install'));
       tile.appendChild(btns);
@@ -297,9 +323,9 @@
       bar.id = 'asga-bar';
       bar.className = 'asga-bar';
       bar.innerHTML =
-        '<label class="asga-toggle" title="Toggle between the GitHub view and the stock Community Applications view">' +
+        '<label class="asga-toggle" title="Toggle between the modern view and the stock Community Applications view">' +
           '<input type="checkbox" id="asga-toggle-cb"><span class="asga-toggle-track"><span class="asga-toggle-knob"></span></span>' +
-          '<span class="asga-toggle-lbl">GitHub view</span>' +
+          '<span class="asga-toggle-lbl">Modern view</span>' +
         '</label>' +
         '<span class="asga-sortwrap"><span class="asga-bar-label">Sort By:</span>' +
         '<select id="asga-sortsel" class="asga-sortsel">' + opts + '</select>' +

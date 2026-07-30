@@ -1,7 +1,11 @@
 /* Injected styles for the App Store GitHub Addon. Scoped to .ghstars-* / .asga-* so it never touches CA. */
 
-/* When our own grid is active, hide CA's grid + its pager/count so only ours shows. */
+/* When our own grid is active, hide CA's grid + its own controls: its tile
+   area, its native "Sort By" row, and its "Results Per Page" button (our grid
+   has its own sort dropdown and pagination). They return when the view is off. */
 body.asga-active #templates_content { display: none !important; }
+body.asga-active #sortIconArea { display: none !important; }
+body.asga-active #maxPerPage { display: none !important; }
 
 /* our toolbar row lives in CA's search row */
 #searchFilter { margin-top: 24px; }
@@ -77,6 +81,7 @@ body.asga-active #templates_content { display: none !important; }
   background: rgba(127,127,127,0.08);
 }
 .asga-btn:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.14); }
+.asga-btn.asga-pinned { border-color: #ff8c2f; background: rgba(255,140,47,0.2); color: #ff8c2f; }
 
 /* support dropdown */
 .asga-supmenu {
@@ -87,17 +92,20 @@ body.asga-active #templates_content { display: none !important; }
 .asga-suplink { display: block; padding: 7px 12px; font-size: 1rem; color: var(--text-color, inherit); text-decoration: none; }
 .asga-suplink:hover { background: rgba(255,140,47,0.16); }
 
-/* star badge (top-right) + downloads badge (bottom-right) sit on the icon */
+/* stars + downloads inline in the tile's top-right corner */
+.asga-tile-badges {
+  position: absolute; top: 10px; right: 10px; z-index: 5;
+  display: flex; gap: 6px; align-items: center;
+}
 .ghstars-badge, .ghdl-badge {
-  position: absolute; z-index: 5;
   font-size: 11px; line-height: 1; font-weight: 600;
-  background: rgba(0, 0, 0, 0.8);
-  border: 1px solid rgba(127, 127, 127, 0.35);
-  padding: 3px 6px; border-radius: 10px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  padding: 3px 7px; border-radius: 10px;
   pointer-events: none; white-space: nowrap;
 }
-.ghstars-badge { top: -6px; right: -8px; color: #f0a500; }
-.ghdl-badge   { bottom: -6px; right: -8px; color: #4ab8c9; }
+.ghstars-badge { color: #f0a500; }
+.ghdl-badge   { color: #4ab8c9; }
 
 /* pager */
 .asga-pager { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; margin: 22px 0 8px; }

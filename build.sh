@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.30}"
+VERSION="${1:-2026.07.30b}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,18 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Tiles: stars and Docker-pull count now sit inline in the top-right corner; a
+  Pin App button was added (pins via CA's own pinApp, same as the Info drawer);
+  the toggle is labelled "Modern view".
+- Icons: apps whose template ships no icon now fall back to the GitHub owner's
+  avatar instead of a blank question mark.
+- Downloads: the count is Docker image pulls (what CA reports). Apps built on an
+  official base image (e.g. nginx:alpine) inherited that base image's pull count
+  (nginx = billions), which is meaningless for the app, so those are dropped from
+  the count. Language packs are excluded from the grid.
+- The stock CA sort row and Results-Per-Page button are hidden while the modern
+  view is on (our grid has its own), and restored when it is off.
+- Accent colour matches the Unraid logo orange.
 - Rearchitected the GitHub view. Community Applications' 2026.07 rewrite broke its
   own client-side sort (any sort collapsed the list to ~36 apps). The addon now
   renders its own grid over the full catalog: reliable sorting by name, Unraid
