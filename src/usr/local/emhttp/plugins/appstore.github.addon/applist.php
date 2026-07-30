@@ -19,6 +19,7 @@
  *   ic = icon URL              ct = category
  *   s  = GitHub stars (or null)  dl = Unraid downloads (or 0)
  *   fs = FirstSeen unix ts (date added; 0 if unknown)
+ *   sa = last star-fetch attempt for this app's repo (0 = never tried)
  *   t1/t7/t30/t365 = star trend deltas (day/week/month/year)
  */
 header('Content-Type: application/json');
@@ -44,6 +45,19 @@ foreach (($ours['apps'] ?? []) as $a) {
 
 // CA's master template list: name, FirstSeen, downloads, displayable flags
 $tmpl = read_json_ro("$caTmp/templates_new.json") ?: [];
+
+// When each repo was last tried for stars, so the grid can ask for a scan of
+// only the apps on screen that are missing or stale. Read-only; no DB is fine.
+$fetchedAt = [];
+if (class_exists('SQLite3') && is_file("$dataDir/stars.db")) {
+    try {
+        $sdb = new SQLite3("$dataDir/stars.db", SQLITE3_OPEN_READONLY);
+        $sdb->busyTimeout(2000);
+        $r = $sdb->query('SELECT repo, fetched_at FROM repos');
+        while ($row = $r->fetchArray(SQLITE3_ASSOC)) $fetchedAt[$row['repo']] = (int)$row['fetched_at'];
+        $sdb->close();
+    } catch (Throwable $e) { $fetchedAt = []; }
+}
 
 $out = [];
 foreach ($tmpl as $t) {
@@ -97,6 +111,7 @@ foreach ($tmpl as $t) {
         's'   => isset($mine['s']) ? $mine['s'] : null,
         'dl'  => $dl,
         'fs'  => (int)($t['FirstSeen'] ?? 0),
+        'sa'  => $fetchedAt[strtolower($mine['rp'] ?? '')] ?? 0,
         't1'  => $mine['t1'] ?? null,
         't7'  => $mine['t7'] ?? null,
         't30' => $mine['t30'] ?? null,

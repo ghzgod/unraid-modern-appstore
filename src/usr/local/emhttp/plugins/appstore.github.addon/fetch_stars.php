@@ -36,6 +36,8 @@ $defaults = [
     'manual'      => '0',  // 1 = invoked by the Refresh button (records manual time)
     'sg-limit'    => '0',  // cap repos for the stargazer-trend backfill (0 = all)
     'new-only'    => '0',  // 1 = only fetch repos not yet in the DB (newly-published apps)
+    'only-paths'  => '',   // file of CA template paths, one per line: scan only these apps
+    'stale-days'  => '0',  // with --only-paths: skip repos already tried within N days
     'trends-only' => '0',  // 1 = no network: recompute trend deltas from stored star history and rewrite JSON
 ];
 
@@ -171,7 +173,11 @@ function resolve_cdn_links(array $urls, int $concurrency, ?callable $onProgress 
             if ($meta) {
                 $final = (string)curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
                 $code  = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-                if ($final !== '' && $final !== $meta['url'] && $code > 0 && $code < 400) $out[$meta['url']] = $final;
+                // Cache on any real response, including a 404 destination: the
+                // redirect still told us where the link points, and a dead repo
+                // is better recorded than re-resolved on every scan. Only a
+                // transport failure (code 0) is left uncached, to retry later.
+                if ($final !== '' && $final !== $meta['url'] && $code > 0) $out[$meta['url']] = $final;
                 unset($active[(int)$ch]);
             }
             curl_multi_remove_handle($mh, $ch);
@@ -207,6 +213,23 @@ function derive_repo(array $app, array $cdnCache): ?array {
     return null;
 }
 
+// --only-paths restricts the whole run to the apps the grid is currently
+// showing, so browsing fills stars in where they are actually being read
+// instead of scanning the entire 3600-app catalog.
+$wantedPaths = null;
+if (trim($opt['only-paths']) !== '' && is_file($opt['only-paths'])) {
+    $wantedPaths = [];
+    foreach (file($opt['only-paths'], FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+        $line = trim($line);
+        if ($line !== '') $wantedPaths[$line] = 1;
+    }
+}
+function app_wanted(array $app, ?array $wantedPaths): bool {
+    if ($wantedPaths === null) return true;
+    $p = $app['Path'] ?? '';
+    return $p !== '' && isset($wantedPaths[$p]);
+}
+
 // resolve every unseen CDN Project link in one batched pass before deriving
 $cdnPath  = $dataDir . '/cdn_links.json';
 $cdnCache = @json_decode((string)@file_get_contents($cdnPath), true);
@@ -214,6 +237,7 @@ if (!is_array($cdnCache)) $cdnCache = [];
 $pending = [];
 foreach ($apps as $app) {
     if (!is_array($app)) continue;
+    if (!app_wanted($app, $wantedPaths)) continue;
     $u = $app['Project'] ?? '';
     if ($u && is_cdn_link($u) && !isset($cdnCache[$u])) $pending[$u] = $u;
 }
@@ -234,12 +258,16 @@ $status['cdn_cached'] = count($cdnCache);
 
 $repoMeta = [];      // full => ['owner','repo']
 $appRepoMap = [];    // app index => full
+$wantedRepos = $wantedPaths === null ? null : [];
 foreach ($apps as $idx => $app) {
     if (!is_array($app)) continue;
     $d = derive_repo($app, $cdnCache);
     if (!$d) continue;
     $repoMeta[$d['full']] = ['owner' => $d['owner'], 'repo' => $d['repo']];
     $appRepoMap[$idx] = $d['full'];
+    // note which repos the requested page needs; the map itself stays whole so
+    // the JSON export at the end still covers the entire catalog
+    if ($wantedRepos !== null && app_wanted($app, $wantedPaths)) $wantedRepos[$d['full']] = 1;
 }
 $status['repos_total'] = count($repoMeta);
 
@@ -305,6 +333,28 @@ if ($newOnly) {
         exit(0);
     }
     $newRepoSet = array_flip($queue);
+}
+
+// --only-paths: fetch stars for just the apps the grid is showing
+if ($wantedRepos !== null) {
+    $queue = array_values(array_filter($queue, function ($k) use ($wantedRepos) { return isset($wantedRepos[$k]); }));
+}
+
+// --stale-days: drop repos already tried inside the window, whatever the result.
+// Keying on fetched_at rather than stars means a 404 is not retried on every
+// page view, while a repo with no stars yet (never tried) always qualifies.
+$staleDays = (int)$opt['stale-days'];
+if ($staleDays > 0) {
+    $cut = time() - $staleDays * 86400;
+    $recent = [];
+    $rr = $db->query('SELECT repo FROM repos WHERE fetched_at > ' . (int)$cut);
+    while ($row = $rr->fetchArray(SQLITE3_ASSOC)) $recent[$row['repo']] = 1;
+    $queue = array_values(array_filter($queue, function ($k) use ($recent) { return !isset($recent[$k]); }));
+}
+if ($wantedPaths !== null && empty($queue)) {
+    write_progress($outDir, false, 0, 0, $status);
+    fwrite(STDERR, "fetch_stars: page scan, nothing due.\n");
+    exit(0);
 }
 
 if ($limit > 0) $queue = array_slice($queue, 0, $limit);

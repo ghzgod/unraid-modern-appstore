@@ -12,6 +12,16 @@ body.asga-active .categoryLine { display: none !important; }
 /* our grid replaces CA's render, so CA's page spinner has nothing to wait for */
 body.asga-active .spinner.fixed { display: none !important; }
 
+/* The rules above only take effect once inject.js has classed the body, by
+   which time CA's stock grid and controls have already painted and then
+   vanished. The loader sets .asga-pre on <html> inline, before any of CA's
+   markup is parsed, so the same things are hidden from the first frame. */
+html.asga-pre #templates_content,
+html.asga-pre #sortIconArea,
+html.asga-pre #maxPerPage,
+html.asga-pre .categoryLine,
+html.asga-pre .spinner.fixed { display: none !important; }
+
 /* our toolbar row lives in CA's search row */
 #searchFilter { margin-top: 24px; }
 .asga-bar {
@@ -26,6 +36,16 @@ body.asga-active .spinner.fixed { display: none !important; }
 .asga-sortsel { vertical-align: middle; font-size: 1.2rem; height: 1.7rem; line-height: 1.7rem; padding: 0 4px; }
 .asga-refreshlink { cursor: pointer; opacity: 0.8; font-size: 1.4rem; text-decoration: none; color: inherit; }
 .asga-refreshlink:hover { opacity: 1; }
+
+/* refresh menu (page vs everything) */
+.asga-sortwrap { position: relative; }
+.asga-refmenu {
+  position: absolute; top: 26px; right: 0; z-index: 30;
+  background: var(--background-color, #1c1c1c); border: 1px solid rgba(127,127,127,0.4);
+  border-radius: 8px; min-width: 170px; overflow: hidden; box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+}
+.asga-refitem { display: block; padding: 9px 14px; font-size: 1.15rem; white-space: nowrap; cursor: pointer; }
+.asga-refitem:hover { background: rgba(255,140,47,0.18); }
 
 /* GitHub-view on/off toggle */
 .asga-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }

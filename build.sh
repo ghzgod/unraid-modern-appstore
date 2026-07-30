@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.30o}"
+VERSION="${1:-2026.07.30p}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -16,7 +16,7 @@ PLUGIN_URL="https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main
 SUPPORT_URL="https://github.com/ghzgod/unraid-modern-appstore"
 
 # --- payload files (order: php, js, css, pages, readme) --------------------
-FILES=(fetch_stars.php refresh.php cancel.php sortinject.php newscan.php applist.php pinned.php inject.js inject.css AppStoreGitHubAddon.page AppStoreGitHubAddonLoader.page README.md)
+FILES=(fetch_stars.php refresh.php cancel.php sortinject.php newscan.php scanpage.php applist.php pinned.php inject.js inject.css AppStoreGitHubAddon.page AppStoreGitHubAddonLoader.page README.md)
 
 # guard: CDATA cannot contain ]]>
 for f in "${FILES[@]}"; do
@@ -44,6 +44,14 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Stars are now fetched for the apps on screen instead of the whole catalog.
+  Browsing to a page tops up whatever that page is missing, and an app is only
+  re-checked if it has never been tried or its last attempt is over a week old.
+- The refresh icon now offers "Refresh this page" (rescan what you are looking
+  at, ignoring the weekly window) or "Refresh everything" (the full catalog scan,
+  still limited to once every 3 days).
+- Fix: CA's stock grid, sort row and Results-Per-Page button no longer flash on
+  screen before the modern view takes over on a page load.
 - Fix: about half the catalog had no GitHub star count. CA stopped publishing
   most Project URLs directly and now hands out opaque ca.unraid.net/cdn/...
   redirectors, so there was no github.com link left to read. Those are resolved

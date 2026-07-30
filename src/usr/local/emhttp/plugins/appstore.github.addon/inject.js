@@ -26,6 +26,9 @@
     var APPS = [];
     var view = { sort: 'new', q: '', cat: '', catLabel: 'All Apps', special: '', page: 1, perPage: 96 };
     var polling = false, wasRunning = false;
+    var pageItemsNow = [];        // apps the grid is currently showing
+    var scanAsked = {};           // path -> 1, so a page is only auto-scanned once
+    var scanInFlight = false, scanPending = false, scanTimer = null;
     var pinnedSet = null, installedSet = null;
     // CA's Pinned/Installed views are broken in the 2026.07 rewrite (they render
     // the home screen), so the modern grid renders those itself (view.special).
@@ -428,7 +431,86 @@
       s.textContent = total ? ('  ' + from + '–' + to + ' of ' + total + ' ' + noun + (view.q ? ' matching "' + view.q + '"' : '')) : '';
       cnt.appendChild(h); cnt.appendChild(s);
       renderPager(pages);
+      pageItemsNow = pageItems;
+      queueScan();
       try { window.scrollTo(0, 0); } catch (e) {}
+    }
+
+    // Stars are fetched for the apps on screen rather than the whole 3600-app
+    // catalog: paging or filtering tops up whatever the new page is missing.
+    // Anything tried within the last week is left alone (the server enforces
+    // that too), and each path is only auto-requested once per page load.
+    function queueScan() {
+      clearTimeout(scanTimer);
+      scanTimer = setTimeout(function () { scanVisible(false); }, 400);
+    }
+    function scanVisible(force) {
+      if (!isOn()) return;
+      // a page turn while a scan is running would otherwise be dropped, so the
+      // new page is picked up as soon as the current request lands
+      if (scanInFlight) { scanPending = true; return; }
+      scanPending = false;
+      var now = Math.floor(Date.now() / 1000);
+      var want = [];
+      for (var i = 0; i < pageItemsNow.length; i++) {
+        var a = pageItemsNow[i];
+        if (!a || !a.p) continue;
+        var due = force || a.s == null || !a.sa || (now - a.sa) > 7 * 86400;
+        if (!due) continue;
+        if (!force && scanAsked[a.p]) continue;
+        want.push(a.p);
+      }
+      if (!want.length) return;
+      want.forEach(function (p) { scanAsked[p] = 1; });
+      scanInFlight = true;
+      fetch(PREFIX + 'scanpage.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paths: want, force: !!force })
+      })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .catch(function () { return null; })
+        .then(function (j) {
+          scanInFlight = false;
+          if (scanPending) queueScan();
+          var stars = (j && j.stars) || {};
+          var byPath = {};
+          for (var i = 0; i < APPS.length; i++) byPath[APPS[i].p] = APPS[i];
+          want.forEach(function (p) {
+            var a = byPath[p];
+            if (!a) return;
+            a.sa = now;                                    // tried; don't ask again this week
+            if (Object.prototype.hasOwnProperty.call(stars, p)) a.s = stars[p];
+          });
+          paintStars(stars);
+        });
+    }
+    // Repaint badges in place. A full render() would jump the page back to the
+    // top under the user while they are reading.
+    function paintStars(stars) {
+      var grid = document.getElementById('asga-grid');
+      if (!grid) return;
+      var tiles = grid.querySelectorAll('.asga-tile');
+      for (var i = 0; i < tiles.length; i++) {
+        var t = tiles[i];
+        var p = t.getAttribute('data-apppath');
+        var v = stars[p];
+        if (v == null) continue;
+        var wrap = t.querySelector('.asga-tile-badges');
+        if (!wrap) {
+          wrap = document.createElement('div');
+          wrap.className = 'asga-tile-badges';
+          t.appendChild(wrap);
+        }
+        var b = wrap.querySelector('.ghstars-badge');
+        if (!b) {
+          b = document.createElement('span');
+          b.className = 'ghstars-badge';
+          wrap.insertBefore(b, wrap.firstChild);
+        }
+        b.textContent = '\u2605 ' + fmt(v);
+        b.title = v + ' GitHub stars';
+      }
     }
 
     function renderPager(pages) {
@@ -467,7 +549,7 @@
         '</label>' +
         '<span class="asga-sortwrap"><span class="asga-bar-label">Sort By:</span>' +
         '<select id="asga-sortsel" class="asga-sortsel">' + opts + '</select>' +
-        '<a id="asga-refresh" class="asga-refreshlink" title="Fetch the latest GitHub data (once every 3 days)">↻</a></span>';
+        '<a id="asga-refresh" class="asga-refreshlink" title="Refresh GitHub star data">↻</a></span>';
       host.appendChild(bar);
       var sel = document.getElementById('asga-sortsel');
       sel.value = view.sort;
@@ -495,6 +577,9 @@
       var persisted = isOn();
       var showOurs = persisted && !caSpecial;   // a CA special view temporarily wins
       document.body.classList.toggle('asga-active', showOurs);   // CSS hides CA's grid only when ours shows
+      // the loader sets this on <html> before CA's markup is parsed, so its
+      // stock controls never flash; keep the two in step when toggling live
+      document.documentElement.classList.toggle('asga-pre', showOurs);
       var v = document.getElementById('asga-view'); if (v) v.style.display = showOurs ? '' : 'none';
       var sw = document.querySelector('.asga-sortwrap'); if (sw) sw.style.display = showOurs ? '' : 'none';
       var cb = document.getElementById('asga-toggle-cb'); if (cb) cb.checked = persisted;   // toggle reflects the persisted choice
@@ -571,9 +656,36 @@
     }
 
     // ---- refresh + progress (thin top bar) ----
+    // The icon offers the cheap option first: rescan what is on screen. A full
+    // catalog scan is still there, with its own 3-day cooldown.
     function onRefreshClick(e) {
-      if (e) e.stopPropagation();
-      if (!window.confirm('Fetch the latest GitHub star data now? Allowed once every 3 days.')) return;
+      if (e) { e.stopPropagation(); e.preventDefault(); }
+      var host = document.getElementById('asga-refresh');
+      if (!host) return;
+      var open = document.querySelector('.asga-refmenu');
+      if (open) { open.remove(); return; }
+      var menu = document.createElement('div');
+      menu.className = 'asga-refmenu';
+      menu.innerHTML = '<span class="asga-refitem" data-act="page">Refresh this page</span>' +
+                       '<span class="asga-refitem" data-act="all">Refresh everything</span>';
+      host.parentNode.insertBefore(menu, host.nextSibling);
+      menu.addEventListener('click', function (ev) {
+        var item = ev.target.closest ? ev.target.closest('.asga-refitem') : null;
+        if (!item) return;
+        menu.remove();
+        if (item.getAttribute('data-act') === 'page') scanVisible(true);
+        else refreshAll();
+      });
+      setTimeout(function () {
+        document.addEventListener('click', function close(ev) {
+          if (menu.contains(ev.target)) return;
+          menu.remove();
+          document.removeEventListener('click', close, true);
+        }, true);
+      }, 0);
+    }
+    function refreshAll() {
+      if (!window.confirm('Fetch the latest GitHub star data for every app now? Allowed once every 3 days.')) return;
       fetch(PREFIX + 'refresh.php?_=' + Date.now()).then(function (r) { return r.ok ? r.json() : null; })
         .catch(function () { return null; })
         .then(function (res) {

@@ -2,14 +2,22 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "appstore.github.addon">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.07.30o">
+<!ENTITY version "2026.07.30p">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/appstore.github.addon.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/AppStoreGitHubAddon" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.07.30o
+##2026.07.30p
+- Stars are now fetched for the apps on screen instead of the whole catalog.
+  Browsing to a page tops up whatever that page is missing, and an app is only
+  re-checked if it has never been tried or its last attempt is over a week old.
+- The refresh icon now offers "Refresh this page" (rescan what you are looking
+  at, ignoring the weekly window) or "Refresh everything" (the full catalog scan,
+  still limited to once every 3 days).
+- Fix: CA's stock grid, sort row and Results-Per-Page button no longer flash on
+  screen before the modern view takes over on a page load.
 - Fix: about half the catalog had no GitHub star count. CA stopped publishing
   most Project URLs directly and now hands out opaque ca.unraid.net/cdn/...
   redirectors, so there was no github.com link left to read. Those are resolved
@@ -215,6 +223,8 @@ $defaults = [
     'manual'      => '0',  // 1 = invoked by the Refresh button (records manual time)
     'sg-limit'    => '0',  // cap repos for the stargazer-trend backfill (0 = all)
     'new-only'    => '0',  // 1 = only fetch repos not yet in the DB (newly-published apps)
+    'only-paths'  => '',   // file of CA template paths, one per line: scan only these apps
+    'stale-days'  => '0',  // with --only-paths: skip repos already tried within N days
     'trends-only' => '0',  // 1 = no network: recompute trend deltas from stored star history and rewrite JSON
 ];
 
@@ -350,7 +360,11 @@ function resolve_cdn_links(array $urls, int $concurrency, ?callable $onProgress 
             if ($meta) {
                 $final = (string)curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
                 $code  = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-                if ($final !== '' && $final !== $meta['url'] && $code > 0 && $code < 400) $out[$meta['url']] = $final;
+                // Cache on any real response, including a 404 destination: the
+                // redirect still told us where the link points, and a dead repo
+                // is better recorded than re-resolved on every scan. Only a
+                // transport failure (code 0) is left uncached, to retry later.
+                if ($final !== '' && $final !== $meta['url'] && $code > 0) $out[$meta['url']] = $final;
                 unset($active[(int)$ch]);
             }
             curl_multi_remove_handle($mh, $ch);
@@ -386,6 +400,23 @@ function derive_repo(array $app, array $cdnCache): ?array {
     return null;
 }
 
+// --only-paths restricts the whole run to the apps the grid is currently
+// showing, so browsing fills stars in where they are actually being read
+// instead of scanning the entire 3600-app catalog.
+$wantedPaths = null;
+if (trim($opt['only-paths']) !== '' && is_file($opt['only-paths'])) {
+    $wantedPaths = [];
+    foreach (file($opt['only-paths'], FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES) as $line) {
+        $line = trim($line);
+        if ($line !== '') $wantedPaths[$line] = 1;
+    }
+}
+function app_wanted(array $app, ?array $wantedPaths): bool {
+    if ($wantedPaths === null) return true;
+    $p = $app['Path'] ?? '';
+    return $p !== '' && isset($wantedPaths[$p]);
+}
+
 // resolve every unseen CDN Project link in one batched pass before deriving
 $cdnPath  = $dataDir . '/cdn_links.json';
 $cdnCache = @json_decode((string)@file_get_contents($cdnPath), true);
@@ -393,6 +424,7 @@ if (!is_array($cdnCache)) $cdnCache = [];
 $pending = [];
 foreach ($apps as $app) {
     if (!is_array($app)) continue;
+    if (!app_wanted($app, $wantedPaths)) continue;
     $u = $app['Project'] ?? '';
     if ($u && is_cdn_link($u) && !isset($cdnCache[$u])) $pending[$u] = $u;
 }
@@ -413,12 +445,16 @@ $status['cdn_cached'] = count($cdnCache);
 
 $repoMeta = [];      // full => ['owner','repo']
 $appRepoMap = [];    // app index => full
+$wantedRepos = $wantedPaths === null ? null : [];
 foreach ($apps as $idx => $app) {
     if (!is_array($app)) continue;
     $d = derive_repo($app, $cdnCache);
     if (!$d) continue;
     $repoMeta[$d['full']] = ['owner' => $d['owner'], 'repo' => $d['repo']];
     $appRepoMap[$idx] = $d['full'];
+    // note which repos the requested page needs; the map itself stays whole so
+    // the JSON export at the end still covers the entire catalog
+    if ($wantedRepos !== null && app_wanted($app, $wantedPaths)) $wantedRepos[$d['full']] = 1;
 }
 $status['repos_total'] = count($repoMeta);
 
@@ -484,6 +520,28 @@ if ($newOnly) {
         exit(0);
     }
     $newRepoSet = array_flip($queue);
+}
+
+// --only-paths: fetch stars for just the apps the grid is showing
+if ($wantedRepos !== null) {
+    $queue = array_values(array_filter($queue, function ($k) use ($wantedRepos) { return isset($wantedRepos[$k]); }));
+}
+
+// --stale-days: drop repos already tried inside the window, whatever the result.
+// Keying on fetched_at rather than stars means a 404 is not retried on every
+// page view, while a repo with no stars yet (never tried) always qualifies.
+$staleDays = (int)$opt['stale-days'];
+if ($staleDays > 0) {
+    $cut = time() - $staleDays * 86400;
+    $recent = [];
+    $rr = $db->query('SELECT repo FROM repos WHERE fetched_at > ' . (int)$cut);
+    while ($row = $rr->fetchArray(SQLITE3_ASSOC)) $recent[$row['repo']] = 1;
+    $queue = array_values(array_filter($queue, function ($k) use ($recent) { return !isset($recent[$k]); }));
+}
+if ($wantedPaths !== null && empty($queue)) {
+    write_progress($outDir, false, 0, 0, $status);
+    fwrite(STDERR, "fetch_stars: page scan, nothing due.\n");
+    exit(0);
 }
 
 if ($limit > 0) $queue = array_slice($queue, 0, $limit);
@@ -957,6 +1015,80 @@ echo json_encode(['started' => true]);
 </INLINE>
 </FILE>
 
+<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/scanpage.php">
+<INLINE>
+<![CDATA[
+<?php
+/**
+ * Unraid Modern Appstore: star scan for the apps currently on screen.
+ *
+ * The grid posts the template paths it is displaying; this fetches stars for
+ * just those, so browsing fills the catalog in where it is actually being read
+ * instead of scanning all ~3600 apps up front. Only apps that have never been
+ * tried, or whose last attempt is older than the staleness window, are fetched
+ * (fetch_stars.php --only-paths --stale-days does that filtering).
+ *
+ * Input : POST JSON { "paths": [...], "force": 0|1 }
+ * Output: { "scanned": <n requested>, "stars": { "<path>": <stars|null> } }
+ *
+ * force=1 comes from the Refresh menu's "this page" option and ignores the
+ * staleness window. It never bypasses the fetcher's own single-instance lock.
+ *
+ * Paths are validated against CA's catalog and only ever written to a temp
+ * file; nothing from the request reaches a shell.
+ */
+header('Content-Type: application/json');
+
+const MAX_PATHS  = 200;          // a grid page is 96; leave headroom, refuse floods
+const STALE_DAYS = 7;            // re-check an app at most once a week
+const RUN_CAP    = 240;          // seconds a page scan may take before we answer anyway
+
+$base    = '/usr/local/emhttp/plugins/appstore.github.addon';
+$fetcher = $base . '/fetch_stars.php';
+$caCache = '/tmp/community.applications/tempFiles/templates_new.json';
+$cfg     = @parse_ini_file('/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg') ?: [];
+$dataDir = rtrim(trim($cfg['DATA_DIR'] ?? '') ?: '/boot/config/plugins/appstore.github.addon', '/');
+
+$raw = file_get_contents('php://input');
+$req = json_decode($raw ?: '[]', true);
+$paths = is_array($req['paths'] ?? null) ? $req['paths'] : [];
+$force = !empty($req['force']);
+
+// keep only real catalog paths, so nothing invented by the caller is written out
+$valid = [];
+$apps = @unserialize(@file_get_contents($caCache));
+if (is_array($apps)) {
+    $known = [];
+    foreach ($apps as $a) { if (is_array($a) && !empty($a['Path'])) $known[$a['Path']] = 1; }
+    foreach ($paths as $p) {
+        if (!is_string($p) || $p === '') continue;
+        if (isset($known[$p])) $valid[$p] = 1;
+        if (count($valid) >= MAX_PATHS) break;
+    }
+}
+if (!$valid) { echo json_encode(['scanned' => 0, 'stars' => (object)[]]); exit; }
+
+$listFile = tempnam(sys_get_temp_dir(), 'asga_paths_');
+@file_put_contents($listFile, implode("\n", array_keys($valid)));
+
+$cmd = 'php ' . escapeshellarg($fetcher)
+     . ' --only-paths ' . escapeshellarg($listFile)
+     . ' --stale-days ' . ($force ? '0' : (string)STALE_DAYS);
+@exec('timeout ' . RUN_CAP . ' ' . $cmd . ' >/dev/null 2>&1');
+@unlink($listFile);
+
+// answer from the catalog the fetcher just rewrote, so the grid can repaint the
+// badges in place rather than re-downloading the whole app list
+$out = [];
+$mine = @json_decode((string)@file_get_contents($dataDir . '/apps.json'), true);
+foreach (($mine['apps'] ?? []) as $a) {
+    if (!empty($a['p']) && isset($valid[$a['p']])) $out[$a['p']] = isset($a['s']) ? $a['s'] : null;
+}
+echo json_encode(['scanned' => count($valid), 'stars' => $out ?: (object)[]], JSON_UNESCAPED_SLASHES);
+]]>
+</INLINE>
+</FILE>
+
 <FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/applist.php">
 <INLINE>
 <![CDATA[
@@ -981,6 +1113,7 @@ echo json_encode(['started' => true]);
  *   ic = icon URL              ct = category
  *   s  = GitHub stars (or null)  dl = Unraid downloads (or 0)
  *   fs = FirstSeen unix ts (date added; 0 if unknown)
+ *   sa = last star-fetch attempt for this app's repo (0 = never tried)
  *   t1/t7/t30/t365 = star trend deltas (day/week/month/year)
  */
 header('Content-Type: application/json');
@@ -1006,6 +1139,19 @@ foreach (($ours['apps'] ?? []) as $a) {
 
 // CA's master template list: name, FirstSeen, downloads, displayable flags
 $tmpl = read_json_ro("$caTmp/templates_new.json") ?: [];
+
+// When each repo was last tried for stars, so the grid can ask for a scan of
+// only the apps on screen that are missing or stale. Read-only; no DB is fine.
+$fetchedAt = [];
+if (class_exists('SQLite3') && is_file("$dataDir/stars.db")) {
+    try {
+        $sdb = new SQLite3("$dataDir/stars.db", SQLITE3_OPEN_READONLY);
+        $sdb->busyTimeout(2000);
+        $r = $sdb->query('SELECT repo, fetched_at FROM repos');
+        while ($row = $r->fetchArray(SQLITE3_ASSOC)) $fetchedAt[$row['repo']] = (int)$row['fetched_at'];
+        $sdb->close();
+    } catch (Throwable $e) { $fetchedAt = []; }
+}
 
 $out = [];
 foreach ($tmpl as $t) {
@@ -1059,6 +1205,7 @@ foreach ($tmpl as $t) {
         's'   => isset($mine['s']) ? $mine['s'] : null,
         'dl'  => $dl,
         'fs'  => (int)($t['FirstSeen'] ?? 0),
+        'sa'  => $fetchedAt[strtolower($mine['rp'] ?? '')] ?? 0,
         't1'  => $mine['t1'] ?? null,
         't7'  => $mine['t7'] ?? null,
         't30' => $mine['t30'] ?? null,
@@ -1152,6 +1299,9 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
     var APPS = [];
     var view = { sort: 'new', q: '', cat: '', catLabel: 'All Apps', special: '', page: 1, perPage: 96 };
     var polling = false, wasRunning = false;
+    var pageItemsNow = [];        // apps the grid is currently showing
+    var scanAsked = {};           // path -> 1, so a page is only auto-scanned once
+    var scanInFlight = false, scanPending = false, scanTimer = null;
     var pinnedSet = null, installedSet = null;
     // CA's Pinned/Installed views are broken in the 2026.07 rewrite (they render
     // the home screen), so the modern grid renders those itself (view.special).
@@ -1554,7 +1704,86 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       s.textContent = total ? ('  ' + from + '–' + to + ' of ' + total + ' ' + noun + (view.q ? ' matching "' + view.q + '"' : '')) : '';
       cnt.appendChild(h); cnt.appendChild(s);
       renderPager(pages);
+      pageItemsNow = pageItems;
+      queueScan();
       try { window.scrollTo(0, 0); } catch (e) {}
+    }
+
+    // Stars are fetched for the apps on screen rather than the whole 3600-app
+    // catalog: paging or filtering tops up whatever the new page is missing.
+    // Anything tried within the last week is left alone (the server enforces
+    // that too), and each path is only auto-requested once per page load.
+    function queueScan() {
+      clearTimeout(scanTimer);
+      scanTimer = setTimeout(function () { scanVisible(false); }, 400);
+    }
+    function scanVisible(force) {
+      if (!isOn()) return;
+      // a page turn while a scan is running would otherwise be dropped, so the
+      // new page is picked up as soon as the current request lands
+      if (scanInFlight) { scanPending = true; return; }
+      scanPending = false;
+      var now = Math.floor(Date.now() / 1000);
+      var want = [];
+      for (var i = 0; i < pageItemsNow.length; i++) {
+        var a = pageItemsNow[i];
+        if (!a || !a.p) continue;
+        var due = force || a.s == null || !a.sa || (now - a.sa) > 7 * 86400;
+        if (!due) continue;
+        if (!force && scanAsked[a.p]) continue;
+        want.push(a.p);
+      }
+      if (!want.length) return;
+      want.forEach(function (p) { scanAsked[p] = 1; });
+      scanInFlight = true;
+      fetch(PREFIX + 'scanpage.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paths: want, force: !!force })
+      })
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .catch(function () { return null; })
+        .then(function (j) {
+          scanInFlight = false;
+          if (scanPending) queueScan();
+          var stars = (j && j.stars) || {};
+          var byPath = {};
+          for (var i = 0; i < APPS.length; i++) byPath[APPS[i].p] = APPS[i];
+          want.forEach(function (p) {
+            var a = byPath[p];
+            if (!a) return;
+            a.sa = now;                                    // tried; don't ask again this week
+            if (Object.prototype.hasOwnProperty.call(stars, p)) a.s = stars[p];
+          });
+          paintStars(stars);
+        });
+    }
+    // Repaint badges in place. A full render() would jump the page back to the
+    // top under the user while they are reading.
+    function paintStars(stars) {
+      var grid = document.getElementById('asga-grid');
+      if (!grid) return;
+      var tiles = grid.querySelectorAll('.asga-tile');
+      for (var i = 0; i < tiles.length; i++) {
+        var t = tiles[i];
+        var p = t.getAttribute('data-apppath');
+        var v = stars[p];
+        if (v == null) continue;
+        var wrap = t.querySelector('.asga-tile-badges');
+        if (!wrap) {
+          wrap = document.createElement('div');
+          wrap.className = 'asga-tile-badges';
+          t.appendChild(wrap);
+        }
+        var b = wrap.querySelector('.ghstars-badge');
+        if (!b) {
+          b = document.createElement('span');
+          b.className = 'ghstars-badge';
+          wrap.insertBefore(b, wrap.firstChild);
+        }
+        b.textContent = '\u2605 ' + fmt(v);
+        b.title = v + ' GitHub stars';
+      }
     }
 
     function renderPager(pages) {
@@ -1593,7 +1822,7 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
         '</label>' +
         '<span class="asga-sortwrap"><span class="asga-bar-label">Sort By:</span>' +
         '<select id="asga-sortsel" class="asga-sortsel">' + opts + '</select>' +
-        '<a id="asga-refresh" class="asga-refreshlink" title="Fetch the latest GitHub data (once every 3 days)">↻</a></span>';
+        '<a id="asga-refresh" class="asga-refreshlink" title="Refresh GitHub star data">↻</a></span>';
       host.appendChild(bar);
       var sel = document.getElementById('asga-sortsel');
       sel.value = view.sort;
@@ -1621,6 +1850,9 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       var persisted = isOn();
       var showOurs = persisted && !caSpecial;   // a CA special view temporarily wins
       document.body.classList.toggle('asga-active', showOurs);   // CSS hides CA's grid only when ours shows
+      // the loader sets this on <html> before CA's markup is parsed, so its
+      // stock controls never flash; keep the two in step when toggling live
+      document.documentElement.classList.toggle('asga-pre', showOurs);
       var v = document.getElementById('asga-view'); if (v) v.style.display = showOurs ? '' : 'none';
       var sw = document.querySelector('.asga-sortwrap'); if (sw) sw.style.display = showOurs ? '' : 'none';
       var cb = document.getElementById('asga-toggle-cb'); if (cb) cb.checked = persisted;   // toggle reflects the persisted choice
@@ -1697,9 +1929,36 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
     }
 
     // ---- refresh + progress (thin top bar) ----
+    // The icon offers the cheap option first: rescan what is on screen. A full
+    // catalog scan is still there, with its own 3-day cooldown.
     function onRefreshClick(e) {
-      if (e) e.stopPropagation();
-      if (!window.confirm('Fetch the latest GitHub star data now? Allowed once every 3 days.')) return;
+      if (e) { e.stopPropagation(); e.preventDefault(); }
+      var host = document.getElementById('asga-refresh');
+      if (!host) return;
+      var open = document.querySelector('.asga-refmenu');
+      if (open) { open.remove(); return; }
+      var menu = document.createElement('div');
+      menu.className = 'asga-refmenu';
+      menu.innerHTML = '<span class="asga-refitem" data-act="page">Refresh this page</span>' +
+                       '<span class="asga-refitem" data-act="all">Refresh everything</span>';
+      host.parentNode.insertBefore(menu, host.nextSibling);
+      menu.addEventListener('click', function (ev) {
+        var item = ev.target.closest ? ev.target.closest('.asga-refitem') : null;
+        if (!item) return;
+        menu.remove();
+        if (item.getAttribute('data-act') === 'page') scanVisible(true);
+        else refreshAll();
+      });
+      setTimeout(function () {
+        document.addEventListener('click', function close(ev) {
+          if (menu.contains(ev.target)) return;
+          menu.remove();
+          document.removeEventListener('click', close, true);
+        }, true);
+      }, 0);
+    }
+    function refreshAll() {
+      if (!window.confirm('Fetch the latest GitHub star data for every app now? Allowed once every 3 days.')) return;
       fetch(PREFIX + 'refresh.php?_=' + Date.now()).then(function (r) { return r.ok ? r.json() : null; })
         .catch(function () { return null; })
         .then(function (res) {
@@ -1822,6 +2081,16 @@ body.asga-active .categoryLine { display: none !important; }
 /* our grid replaces CA's render, so CA's page spinner has nothing to wait for */
 body.asga-active .spinner.fixed { display: none !important; }
 
+/* The rules above only take effect once inject.js has classed the body, by
+   which time CA's stock grid and controls have already painted and then
+   vanished. The loader sets .asga-pre on <html> inline, before any of CA's
+   markup is parsed, so the same things are hidden from the first frame. */
+html.asga-pre #templates_content,
+html.asga-pre #sortIconArea,
+html.asga-pre #maxPerPage,
+html.asga-pre .categoryLine,
+html.asga-pre .spinner.fixed { display: none !important; }
+
 /* our toolbar row lives in CA's search row */
 #searchFilter { margin-top: 24px; }
 .asga-bar {
@@ -1836,6 +2105,16 @@ body.asga-active .spinner.fixed { display: none !important; }
 .asga-sortsel { vertical-align: middle; font-size: 1.2rem; height: 1.7rem; line-height: 1.7rem; padding: 0 4px; }
 .asga-refreshlink { cursor: pointer; opacity: 0.8; font-size: 1.4rem; text-decoration: none; color: inherit; }
 .asga-refreshlink:hover { opacity: 1; }
+
+/* refresh menu (page vs everything) */
+.asga-sortwrap { position: relative; }
+.asga-refmenu {
+  position: absolute; top: 26px; right: 0; z-index: 30;
+  background: var(--background-color, #1c1c1c); border: 1px solid rgba(127,127,127,0.4);
+  border-radius: 8px; min-width: 170px; overflow: hidden; box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+}
+.asga-refitem { display: block; padding: 9px 14px; font-size: 1.15rem; white-space: nowrap; cursor: pointer; }
+.asga-refitem:hover { background: rgba(255,140,47,0.18); }
 
 /* GitHub-view on/off toggle */
 .asga-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
@@ -2347,6 +2626,11 @@ if (($gas['SERVICE'] ?? 'disabled') === 'enabled') {
     $gas_has  = !empty(trim($gas['TOKEN'] ?? '')) ? 'true' : 'false';
     echo "<script>window.__appStoreGhAddon={hasToken:$gas_has,settingsUrl:'/Settings/AppStoreGitHubAddon'};</script>\n";
     echo "<link rel='stylesheet' type='text/css' href='/plugins/appstore.github.addon/inject.css?v=$gas_cssv'>\n";
+    /* Class <html> inline, before CA's markup is parsed, so its stock grid,
+       sort row and Results-Per-Page button never paint and then disappear.
+       inject.js keeps this in step when the modern view is toggled off. */
+    echo "<script>try{if(location.pathname.indexOf('/Apps')===0&&localStorage.getItem('asga_view_off')!=='1')"
+       . "document.documentElement.classList.add('asga-pre');}catch(e){}</script>\n";
     echo "<script src='/plugins/appstore.github.addon/inject.js?v=$gas_jsv'></script>\n";
 }
 ?>
