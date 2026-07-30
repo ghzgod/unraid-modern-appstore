@@ -315,4 +315,18 @@ rm -rf /boot/config/plugins/modern.appstore
 POSTINSTALL
 } > "$OUT"
 
-echo "Built $OUT ($VERSION), token-free, ${#FILES[@]} files embedded."
+# Hard gate, not a promise: the installer is published to a public repo, so it
+# must never carry a credential. An early build of the pre-rename artifact did,
+# which is why this check exists rather than a comment saying it cannot happen.
+if grep -qaE 'gh[pousr]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{20,}' "$OUT"; then
+  echo "ERROR: $OUT contains something shaped like a GitHub token. Refusing to ship it." >&2
+  rm -f "$OUT"
+  exit 1
+fi
+if grep -qaE '^TOKEN="[^"]+"' "$OUT"; then
+  echo "ERROR: $OUT ships a non-empty TOKEN= line. Refusing to ship it." >&2
+  rm -f "$OUT"
+  exit 1
+fi
+
+echo "Built $OUT ($VERSION), token-free (verified), ${#FILES[@]} files embedded."

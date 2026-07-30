@@ -1,4 +1,16 @@
-appstore.github.addon.cfg
+# never commit secrets
 *.env
+**/*.cfg
+
+# The published installer (modern.appstore.plg) is committed on purpose: it is
+# what users install from. build.sh refuses to emit it if it contains anything
+# token-shaped. The old artifact below predates that check and did carry a PAT.
+appstore.github.addon.plg
 .DS_Store
 **/.DS_Store
+*.png
+docs/superpowers/
+.playwright-mcp/
+
+# obsolete build artifact from the pre-rename plugin id
+github.app.stars.plg
