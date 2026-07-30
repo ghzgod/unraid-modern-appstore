@@ -373,7 +373,7 @@
       return tile;
     }
     // CA's FirstSeen is a unix timestamp, and it floors anything older than its
-    // own record-keeping to 1433000000 (Jun 2015) — for those the time of day is
+    // own record-keeping to 1433000000 (Jun 2015). For those the time of day is
     // an artefact, so only the date is shown.
     function addedLabel(fs) {
       if (!fs) return '';
