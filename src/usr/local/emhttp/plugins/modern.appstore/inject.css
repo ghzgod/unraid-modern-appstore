@@ -1,4 +1,4 @@
-/* Injected styles for the App Store GitHub Addon. Scoped to .ghstars-* / .asga-* so it never touches CA. */
+/* Injected styles for the Unraid Modern App Store. Scoped to .ghstars-* / .asga-* so it never touches CA. */
 
 /* When our own grid is active, hide CA's grid + its own controls: its tile
    area, its native "Sort By" row, and its "Results Per Page" button (our grid

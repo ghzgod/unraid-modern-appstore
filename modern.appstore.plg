@@ -1,15 +1,21 @@
 <?xml version='1.0' standalone='yes'?>
 <!DOCTYPE PLUGIN [
-<!ENTITY name    "appstore.github.addon">
+<!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.07.30q">
-<!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/appstore.github.addon.plg">
+<!ENTITY version "2026.07.31">
+<!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
-<PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/AppStoreGitHubAddon" min="6.12" icon="star" support="&support;">
+<PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.07.30q
+##2026.07.31
+- Renamed to "Unraid Modern App Store" throughout, and the plugin id is now
+  modern.appstore: its folders are /usr/local/emhttp/plugins/modern.appstore and
+  /boot/config/plugins/modern.appstore, and the settings page moved to
+  Settings -> Utilities -> Unraid Modern App Store. Installing this version
+  migrates the GitHub token and the whole star history from the old id and
+  removes the old plugin, so nothing has to be set up again.
 - Fix: templates with no author showed a raw ca.unraid.net link across the card
   (CA leaves Author empty for most plugins and puts the .plg URL in its place).
   The repository owner's name is used instead, and a URL is never shown as an
@@ -168,7 +174,7 @@
   github.com/immich-app/immich), which mis-attributed that repo's ~108k stars to
   unrelated components (immich-postgres, immich-redis, etc.). Also ignores GitHub
   non-repo paths (issues/discussions/org pages).
-- Fix (critical): store data on the flash (/boot/config/plugins/appstore.github.addon)
+- Fix (critical): store data on the flash (/boot/config/plugins/modern.appstore)
   instead of /mnt/user/appdata. The install hook created its data dir under
   /mnt/user before the array mounted, which made Unraid's shfs refuse to mount
   /mnt/user and hid every user share. Existing installs are migrated automatically.
@@ -188,18 +194,18 @@
 <FILE Run="/bin/bash">
 <INLINE>
 <![CDATA[
-mkdir -p /usr/local/emhttp/plugins/appstore.github.addon
-mkdir -p /boot/config/plugins/appstore.github.addon
+mkdir -p /usr/local/emhttp/plugins/modern.appstore
+mkdir -p /boot/config/plugins/modern.appstore
 ]]>
 </INLINE>
 </FILE>
 
-<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php">
+<FILE Name="/usr/local/emhttp/plugins/modern.appstore/fetch_stars.php">
 <INLINE>
 <![CDATA[
 <?php
 /**
- * App Store GitHub Addon: star fetcher.
+ * Unraid Modern App Store: star fetcher.
  *
  * Reads the Community Applications catalog cache READ-ONLY, derives owner/repo
  * from each app's Project GitHub URL, queries the GitHub API (token +
@@ -220,7 +226,7 @@ mkdir -p /boot/config/plugins/appstore.github.addon
 error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
 
 const UA = 'unraid-app-stars/1.0 (+https://example.com)';
-const PLUGIN = 'appstore.github.addon';
+const PLUGIN = 'modern.appstore';
 
 $cfgPath = '/boot/config/plugins/' . PLUGIN . '/' . PLUGIN . '.cfg';
 
@@ -263,7 +269,7 @@ $cfg = is_file($opt['cfg']) ? @parse_ini_file($opt['cfg']) : [];
 $token = trim($cfg['TOKEN'] ?? '');
 $cfgDataDir = trim($cfg['DATA_DIR'] ?? '');
 
-$appdataDefault = '/boot/config/plugins/appstore.github.addon';
+$appdataDefault = '/boot/config/plugins/modern.appstore';
 $dataDir = $opt['data-dir'] !== '' ? $opt['data-dir'] : ($cfgDataDir !== '' ? $cfgDataDir : $appdataDefault);
 $dataDir = rtrim($dataDir, '/');
 $db_path = $opt['db'] !== '' ? $opt['db'] : ($dataDir . '/stars.db');
@@ -848,12 +854,12 @@ exit(0);
 </INLINE>
 </FILE>
 
-<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/refresh.php">
+<FILE Name="/usr/local/emhttp/plugins/modern.appstore/refresh.php">
 <INLINE>
 <![CDATA[
 <?php
 /**
- * App Store GitHub Addon: manual refresh trigger.
+ * Unraid Modern App Store: manual refresh trigger.
  *
  * Launches the fetcher in the background (with --manual so its time is
  * recorded) and returns JSON. Enforces a 3-day cooldown between MANUAL
@@ -864,10 +870,10 @@ exit(0);
 header('Content-Type: application/json');
 
 const COOLDOWN = 3 * 86400;
-$base = '/usr/local/emhttp/plugins/appstore.github.addon';
+$base = '/usr/local/emhttp/plugins/modern.appstore';
 $php  = $base . '/fetch_stars.php';
-$cfg  = @parse_ini_file('/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg') ?: [];
-$dataDir = trim($cfg['DATA_DIR'] ?? '') ?: '/boot/config/plugins/appstore.github.addon';
+$cfg  = @parse_ini_file('/boot/config/plugins/modern.appstore/modern.appstore.cfg') ?: [];
+$dataDir = trim($cfg['DATA_DIR'] ?? '') ?: '/boot/config/plugins/modern.appstore';
 
 $now = time();
 $lm  = @json_decode(@file_get_contents($dataDir . '/last_manual.json'), true);
@@ -893,17 +899,17 @@ echo json_encode(['started' => true, 'running' => true]);
 </INLINE>
 </FILE>
 
-<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/cancel.php">
+<FILE Name="/usr/local/emhttp/plugins/modern.appstore/cancel.php">
 <INLINE>
 <![CDATA[
 <?php
 /**
- * App Store GitHub Addon: cancel a running scan.
+ * Unraid Modern App Store: cancel a running scan.
  * Kills the fetcher and marks progress.json as not running.
  */
 header('Content-Type: application/json');
 
-$base = '/usr/local/emhttp/plugins/appstore.github.addon';
+$base = '/usr/local/emhttp/plugins/modern.appstore';
 @exec("pkill -f 'fetch_stars\\.php' 2>/dev/null");
 
 $p = @json_decode(@file_get_contents($base . '/progress.json'), true) ?: [];
@@ -916,12 +922,12 @@ echo json_encode(['canceled' => true]);
 </INLINE>
 </FILE>
 
-<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/newscan.php">
+<FILE Name="/usr/local/emhttp/plugins/modern.appstore/newscan.php">
 <INLINE>
 <![CDATA[
 <?php
 /**
- * App Store GitHub Addon: on-demand new-repo check.
+ * Unraid Modern App Store: on-demand new-repo check.
  *
  * Called by inject.js when the Apps page loads. Launches a lightweight
  * --new-only scan (fetches stars only for repos not yet in the DB), so newly
@@ -931,10 +937,10 @@ echo json_encode(['canceled' => true]);
 header('Content-Type: application/json');
 
 const THROTTLE = 180;   // at most one on-demand check every 3 minutes
-$base = '/usr/local/emhttp/plugins/appstore.github.addon';
+$base = '/usr/local/emhttp/plugins/modern.appstore';
 $php  = $base . '/fetch_stars.php';
-$cfg  = @parse_ini_file('/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg') ?: [];
-$dataDir = trim($cfg['DATA_DIR'] ?? '') ?: '/boot/config/plugins/appstore.github.addon';
+$cfg  = @parse_ini_file('/boot/config/plugins/modern.appstore/modern.appstore.cfg') ?: [];
+$dataDir = trim($cfg['DATA_DIR'] ?? '') ?: '/boot/config/plugins/modern.appstore';
 
 $now = time();
 $f = $dataDir . '/last_newscan.json';
@@ -949,12 +955,12 @@ echo json_encode(['started' => true]);
 </INLINE>
 </FILE>
 
-<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/scanpage.php">
+<FILE Name="/usr/local/emhttp/plugins/modern.appstore/scanpage.php">
 <INLINE>
 <![CDATA[
 <?php
 /**
- * Unraid Modern Appstore: star scan for the apps currently on screen.
+ * Unraid Modern App Store: star scan for the apps currently on screen.
  *
  * The grid posts the template paths it is displaying; this fetches stars for
  * just those, so browsing fills the catalog in where it is actually being read
@@ -977,11 +983,11 @@ const MAX_PATHS  = 200;          // a grid page is 96; leave headroom, refuse fl
 const STALE_DAYS = 7;            // re-check an app at most once a week
 const RUN_CAP    = 240;          // seconds a page scan may take before we answer anyway
 
-$base    = '/usr/local/emhttp/plugins/appstore.github.addon';
+$base    = '/usr/local/emhttp/plugins/modern.appstore';
 $fetcher = $base . '/fetch_stars.php';
 $caCache = '/tmp/community.applications/tempFiles/templates_new.json';
-$cfg     = @parse_ini_file('/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg') ?: [];
-$dataDir = rtrim(trim($cfg['DATA_DIR'] ?? '') ?: '/boot/config/plugins/appstore.github.addon', '/');
+$cfg     = @parse_ini_file('/boot/config/plugins/modern.appstore/modern.appstore.cfg') ?: [];
+$dataDir = rtrim(trim($cfg['DATA_DIR'] ?? '') ?: '/boot/config/plugins/modern.appstore', '/');
 
 $raw = file_get_contents('php://input');
 $req = json_decode($raw ?: '[]', true);
@@ -1023,12 +1029,12 @@ echo json_encode(['scanned' => count($valid), 'stars' => $out ?: (object)[]], JS
 </INLINE>
 </FILE>
 
-<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/applist.php">
+<FILE Name="/usr/local/emhttp/plugins/modern.appstore/applist.php">
 <INLINE>
 <![CDATA[
 <?php
 /**
- * App list endpoint for the App Store GitHub Addon's own grid.
+ * App list endpoint for the Unraid Modern App Store's own grid.
  *
  * Community Applications' 2026.07 rewrite made its client-side sort unreliable
  * (it collapses the All-Apps view to a ~36-app subset and sorts only those).
@@ -1052,7 +1058,7 @@ echo json_encode(['scanned' => count($valid), 'stars' => $out ?: (object)[]], JS
  */
 header('Content-Type: application/json');
 
-$dataDir = '/boot/config/plugins/appstore.github.addon';
+$dataDir = '/boot/config/plugins/modern.appstore';
 $caTmp   = '/tmp/community.applications/tempFiles';
 
 // An author line is a person or org, never a URL. CA leaves Author empty for
@@ -1179,7 +1185,7 @@ echo json_encode(
 </INLINE>
 </FILE>
 
-<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/pinned.php">
+<FILE Name="/usr/local/emhttp/plugins/modern.appstore/pinned.php">
 <INLINE>
 <![CDATA[
 <?php
@@ -1224,11 +1230,11 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
 </INLINE>
 </FILE>
 
-<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/inject.js">
+<FILE Name="/usr/local/emhttp/plugins/modern.appstore/inject.js">
 <INLINE>
 <![CDATA[
 /*
- * Front-end for Unraid Modern Appstore.
+ * Front-end for Unraid Modern App Store.
  *
  * Community Applications' 2026.07 rewrite made its client-side sort unreliable:
  * applying any sort collapses the All-Apps view to a ~36-app subset and orders
@@ -1253,7 +1259,7 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
     // tells the loader's failsafe that this script is alive, so it leaves the
     // pre-paint class (which hides CA's own grid) in place
     window.__asgaAlive = 1;
-    var PREFIX = '/plugins/appstore.github.addon/';
+    var PREFIX = '/plugins/modern.appstore/';
 
     var APPS = [];
     var view = { sort: 'new', q: '', cat: '', catLabel: 'All Apps', special: '', page: 1, perPage: 96 };
@@ -1870,7 +1876,7 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
 
     // ---- no-token warning ----
     function showWarningIfNeeded() {
-      var cfg = window.__appStoreGhAddon || {};
+      var cfg = window.__modernAppStore || {};
       if (cfg.hasToken) return;
       if (document.querySelector('.ghstars-warning')) return;
       var main = document.querySelector('.mainArea');
@@ -1878,9 +1884,9 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       var w = document.createElement('div');
       w.className = 'ghstars-warning';
       var msg = document.createElement('span');
-      msg.innerHTML = '⚠ <b>Unraid Modern Appstore:</b> no GitHub personal access token configured, so ' +
+      msg.innerHTML = '⚠ <b>Unraid Modern App Store:</b> no GitHub personal access token configured, so ' +
         'star counts are disabled. Add a token in <a href="' + (cfg.settingsUrl || '/Settings') +
-        '">Settings → Unraid Modern Appstore</a>.';
+        '">Settings → Unraid Modern App Store</a>.';
       var x = document.createElement('span');
       x.className = 'ghstars-warning-x'; x.title = 'Dismiss'; x.textContent = '✕';
       x.addEventListener('click', function () { w.parentNode && w.parentNode.removeChild(w); });
@@ -2024,10 +2030,10 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
 </INLINE>
 </FILE>
 
-<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/inject.css">
+<FILE Name="/usr/local/emhttp/plugins/modern.appstore/inject.css">
 <INLINE>
 <![CDATA[
-/* Injected styles for the App Store GitHub Addon. Scoped to .ghstars-* / .asga-* so it never touches CA. */
+/* Injected styles for the Unraid Modern App Store. Scoped to .ghstars-* / .asga-* so it never touches CA. */
 
 /* When our own grid is active, hide CA's grid + its own controls: its tile
    area, its native "Sort By" row, and its "Results Per Page" button (our grid
@@ -2460,21 +2466,21 @@ body.asga-active .ca_note.ca_bold { font-weight: 400; }
 </INLINE>
 </FILE>
 
-<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/AppStoreGitHubAddon.page">
+<FILE Name="/usr/local/emhttp/plugins/modern.appstore/ModernAppStore.page">
 <INLINE>
 <![CDATA[
 Menu="Utilities"
-Title="Unraid Modern Appstore"
+Title="Unraid Modern App Store"
 Icon="star"
 ---
 <?php
-/* Unraid Modern Appstore: settings page (Settings -> Utilities -> App Store GitHub Addon). */
+/* Unraid Modern App Store: settings page (Settings -> Utilities -> Unraid Modern App Store). */
 require_once "$docroot/plugins/dynamix/include/Wrappers.php";
 
-$gas_dir  = "/boot/config/plugins/appstore.github.addon";
-$gas_cfg  = "$gas_dir/appstore.github.addon.cfg";
-$gas_cron = "$gas_dir/appstore.github.addon.cron";
-$gas_php  = "/usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php";
+$gas_dir  = "/boot/config/plugins/modern.appstore";
+$gas_cfg  = "$gas_dir/modern.appstore.cfg";
+$gas_cron = "$gas_dir/modern.appstore.cron";
+$gas_php  = "/usr/local/emhttp/plugins/modern.appstore/fetch_stars.php";
 $gas_msg  = "";
 
 if (!is_dir($gas_dir)) @mkdir($gas_dir, 0755, true);
@@ -2482,7 +2488,7 @@ if (!is_dir($gas_dir)) @mkdir($gas_dir, 0755, true);
 function gas_write_cfg($path, $token, $service, $datadir) {
     $token   = str_replace(["\"", "\n", "\r"], "", $token);
     $datadir = rtrim(str_replace(["\"", "\n", "\r"], "", $datadir), '/');
-    if ($datadir === '') $datadir = '/boot/config/plugins/appstore.github.addon';
+    if ($datadir === '') $datadir = '/boot/config/plugins/modern.appstore';
     $service = ($service === 'enabled') ? 'enabled' : 'disabled';
     $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nDATA_DIR=\"$datadir\"\n";
     file_put_contents($path, $out);
@@ -2491,7 +2497,7 @@ function gas_write_cfg($path, $token, $service, $datadir) {
 }
 
 function gas_write_cron($path) {
-    $php = "php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php";
+    $php = "php /usr/local/emhttp/plugins/modern.appstore/fetch_stars.php";
     // full scan every 3 days + an hourly check that pulls only NEWLY published
     // app-store repos (bypasses the manual-refresh cooldown)
     $lines = "0 4 */3 * * $php >/dev/null 2>&1\n23 * * * * $php --new-only 1 >/dev/null 2>&1\n";
@@ -2517,9 +2523,9 @@ if ($_POST) {
 $cfg = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
 $token    = $cfg['TOKEN'] ?? '';
 $service  = $cfg['SERVICE'] ?? 'enabled';
-$datadir  = $cfg['DATA_DIR'] ?? '/boot/config/plugins/appstore.github.addon';
+$datadir  = $cfg['DATA_DIR'] ?? '/boot/config/plugins/modern.appstore';
 
-$status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/appstore.github.addon/status.json"), true) ?: [];
+$status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/modern.appstore/status.json"), true) ?: [];
 ?>
 
 <div markdown="1">
@@ -2528,9 +2534,9 @@ $status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/appstore.gi
 <?php endif; ?>
 </div>
 
-<form markdown="1" method="POST" action="/Settings/AppStoreGitHubAddon">
+<form markdown="1" method="POST" action="/Settings/ModernAppStore">
 
-_(Enable Unraid Modern Appstore)_:
+_(Enable Unraid Modern App Store)_:
 : <select name="SERVICE" size="1">
     <?= mk_option($service, "enabled", "Yes") ?>
     <?= mk_option($service, "disabled", "No") ?>
@@ -2579,29 +2585,29 @@ _(Database directory)_:
 </INLINE>
 </FILE>
 
-<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/AppStoreGitHubAddonLoader.page">
+<FILE Name="/usr/local/emhttp/plugins/modern.appstore/ModernAppStoreLoader.page">
 <INLINE>
 <![CDATA[
 Menu="Buttons:99"
 Link="nav-user"
 ---
 <?php
-/* Unraid Modern Appstore: global loader.
+/* Unraid Modern App Store: global loader.
  * Rides the same "Buttons" hook the custom.css plugin uses: this page body is
  * emitted into the chrome of EVERY webGUI page. We output the inject script
  * (which self-limits to /Apps) plus a tiny config object so the front-end knows
  * whether a token is configured (drives the yellow no-token warning). Emits
  * nothing when the plugin is disabled.
  */
-$gas_cfg = "/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg";
+$gas_cfg = "/boot/config/plugins/modern.appstore/modern.appstore.cfg";
 $gas = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
 if (($gas['SERVICE'] ?? 'disabled') === 'enabled') {
-    $gas_base = '/usr/local/emhttp/plugins/appstore.github.addon';
+    $gas_base = '/usr/local/emhttp/plugins/modern.appstore';
     $gas_jsv  = @filemtime("$gas_base/inject.js")  ?: time();
     $gas_cssv = @filemtime("$gas_base/inject.css") ?: time();
     $gas_has  = !empty(trim($gas['TOKEN'] ?? '')) ? 'true' : 'false';
-    echo "<script>window.__appStoreGhAddon={hasToken:$gas_has,settingsUrl:'/Settings/AppStoreGitHubAddon'};</script>\n";
-    echo "<link rel='stylesheet' type='text/css' href='/plugins/appstore.github.addon/inject.css?v=$gas_cssv'>\n";
+    echo "<script>window.__modernAppStore={hasToken:$gas_has,settingsUrl:'/Settings/ModernAppStore'};</script>\n";
+    echo "<link rel='stylesheet' type='text/css' href='/plugins/modern.appstore/inject.css?v=$gas_cssv'>\n";
     /* Class <html> inline, before CA's markup is parsed, so its stock grid,
        sort row and Results-Per-Page button never paint and then disappear.
        inject.js keeps this in step when the modern view is toggled off. */
@@ -2611,20 +2617,20 @@ if (($gas['SERVICE'] ?? 'disabled') === 'enabled') {
           class must not leave CA's own grid hidden behind nothing */
        . "setTimeout(function(){if(!window.__asgaAlive)document.documentElement.classList.remove('asga-pre');},5000);"
        . "}}catch(e){}</script>\n";
-    echo "<script src='/plugins/appstore.github.addon/inject.js?v=$gas_jsv'></script>\n";
+    echo "<script src='/plugins/modern.appstore/inject.js?v=$gas_jsv'></script>\n";
 }
 ?>
 ]]>
 </INLINE>
 </FILE>
 
-<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/README.md">
+<FILE Name="/usr/local/emhttp/plugins/modern.appstore/README.md">
 <INLINE>
 <![CDATA[
-####Unraid Modern Appstore###
+####Unraid Modern App Store###
 Adds GitHub star counts to every Community Applications app tile, plus a sortable GitHub view of the whole catalog - by stars, trending (day/week/month/year), or newest to the App Store. It uses CA's own app page and never modifies the Community Applications plugin.
 
-Set your GitHub personal access token at **Settings → Utilities → Unraid Modern Appstore**. Star data is cached in appdata and refreshed automatically.
+Set your GitHub personal access token at **Settings → Utilities → Unraid Modern App Store**. Star data is cached in appdata and refreshed automatically.
 ]]>
 </INLINE>
 </FILE>
@@ -2636,13 +2642,32 @@ Set your GitHub personal access token at **Settings → Utilities → Unraid Mod
 # array mounts. A directory created under /mnt/user at plugin-install time (which
 # runs early in boot, before the array) leaves /mnt/user non-empty and makes shfs
 # refuse to mount it, hiding every user share. Never write to /mnt/user here.
-APPDATA=/boot/config/plugins/appstore.github.addon
+APPDATA=/boot/config/plugins/modern.appstore
+OLD_ID=appstore.github.addon
+OLDDATA=/boot/config/plugins/$OLD_ID
 mkdir -p "$APPDATA"
-# Retired file from the pre-grid design: it was the only code that wrote into
-# Community Applications' cache files. An upgrade leaves it behind otherwise,
-# since the payload only overwrites what it ships.
-rm -f /usr/local/emhttp/plugins/appstore.github.addon/sortinject.php
-CFG=/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg
+
+# One-time migration from the plugin's former id. Carries the GitHub token, the
+# star database and its history across, then retires the old install so it stops
+# running its cron and stops showing up on the Plugins page. Guarded on the old
+# directory existing and being a different path, so a reinstall of THIS plugin
+# can never delete its own data.
+if [ -d "$OLDDATA" ] && [ "$OLDDATA" != "$APPDATA" ]; then
+  if [ ! -f "$APPDATA/stars.db" ]; then
+    cp -a "$OLDDATA/." "$APPDATA/" 2>/dev/null
+    mv -f "$APPDATA/$OLD_ID.cfg" "$APPDATA/modern.appstore.cfg" 2>/dev/null
+    rm -f "$APPDATA/$OLD_ID.cron"
+    sed -i "s#$OLD_ID#modern.appstore#g" "$APPDATA/modern.appstore.cfg" 2>/dev/null
+    echo " Migrated settings and star history from the previous plugin id."
+  fi
+  rm -f "$OLDDATA/$OLD_ID.cron"
+  rm -f "/boot/config/plugins/$OLD_ID.plg"
+  rm -rf "/usr/local/emhttp/plugins/$OLD_ID"
+  rm -rf "$OLDDATA"
+  /usr/local/sbin/update_cron 2>/dev/null
+fi
+
+CFG=/boot/config/plugins/modern.appstore/modern.appstore.cfg
 # seed an EMPTY token only if no config exists yet (preserves an existing token)
 if [ ! -f "$CFG" ]; then
   printf 'TOKEN=""\nSERVICE="enabled"\nDATA_DIR="%s"\n' "$APPDATA" > "$CFG"
@@ -2652,20 +2677,20 @@ fi
 if grep -q 'DATA_DIR="/mnt/user' "$CFG" 2>/dev/null; then
   sed -i 's#^DATA_DIR=.*#DATA_DIR="'"$APPDATA"'"#' "$CFG"
 fi
-CRON=/boot/config/plugins/appstore.github.addon/appstore.github.addon.cron
+CRON=/boot/config/plugins/modern.appstore/modern.appstore.cron
 # full scan every 3 days; hourly check that only pulls NEWLY published repos
 {
-  echo '0 4 */3 * * php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php >/dev/null 2>&1'
-  echo '23 * * * * php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php --new-only 1 >/dev/null 2>&1'
+  echo '0 4 */3 * * php /usr/local/emhttp/plugins/modern.appstore/fetch_stars.php >/dev/null 2>&1'
+  echo '23 * * * * php /usr/local/emhttp/plugins/modern.appstore/fetch_stars.php --new-only 1 >/dev/null 2>&1'
 } > "$CRON"
 /usr/local/sbin/update_cron 2>/dev/null
 # restore persisted star data into the tmpfs webroot so badges work after a reboot
-cp -f "$APPDATA/stars.json"  /usr/local/emhttp/plugins/appstore.github.addon/ 2>/dev/null
-cp -f "$APPDATA/apps.json"   /usr/local/emhttp/plugins/appstore.github.addon/ 2>/dev/null
-cp -f "$APPDATA/status.json" /usr/local/emhttp/plugins/appstore.github.addon/ 2>/dev/null
+cp -f "$APPDATA/stars.json"  /usr/local/emhttp/plugins/modern.appstore/ 2>/dev/null
+cp -f "$APPDATA/apps.json"   /usr/local/emhttp/plugins/modern.appstore/ 2>/dev/null
+cp -f "$APPDATA/status.json" /usr/local/emhttp/plugins/modern.appstore/ 2>/dev/null
 echo "----------------------------------------------------"
-echo " App Store GitHub Addon installed."
-echo " Set your GitHub token: Settings -> Utilities -> App Store GitHub Addon"
+echo " Unraid Modern App Store installed."
+echo " Set your GitHub token: Settings -> Utilities -> Unraid Modern App Store"
 echo "----------------------------------------------------"
 ]]>
 </INLINE>
@@ -2674,10 +2699,10 @@ echo "----------------------------------------------------"
 <FILE Run="/bin/bash" Method="remove">
 <INLINE>
 <![CDATA[
-rm -f /boot/config/plugins/appstore.github.addon/appstore.github.addon.cron
+rm -f /boot/config/plugins/modern.appstore/modern.appstore.cron
 /usr/local/sbin/update_cron 2>/dev/null
-rm -rf /usr/local/emhttp/plugins/appstore.github.addon
-rm -rf /boot/config/plugins/appstore.github.addon
+rm -rf /usr/local/emhttp/plugins/modern.appstore
+rm -rf /boot/config/plugins/modern.appstore
 ]]>
 </INLINE>
 </FILE>

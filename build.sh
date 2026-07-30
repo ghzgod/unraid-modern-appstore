@@ -1,22 +1,22 @@
 #!/bin/bash
-# Build a self-contained, SHAREABLE appstore.github.addon.plg from src/.
+# Build a self-contained, SHAREABLE modern.appstore.plg from src/.
 # Embeds every src file inline (CDATA) plus install/remove scripts.
 # Contains NO secrets. The GitHub token is left empty and each user sets their
-# own at Settings -> Utilities -> App Store GitHub Addon. Safe to publish.
+# own at Settings -> Utilities -> Unraid Modern App Store. Safe to publish.
 #
 # Usage: ./build.sh [version]   (default version below)
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.30q}"
-NAME="appstore.github.addon"
+VERSION="${1:-2026.07.31}"
+NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
-PLUGIN_URL="https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/appstore.github.addon.plg"
+PLUGIN_URL="https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg"
 SUPPORT_URL="https://github.com/ghzgod/unraid-modern-appstore"
 
 # --- payload files (order: php, js, css, pages, readme) --------------------
-FILES=(fetch_stars.php refresh.php cancel.php newscan.php scanpage.php applist.php pinned.php inject.js inject.css AppStoreGitHubAddon.page AppStoreGitHubAddonLoader.page README.md)
+FILES=(fetch_stars.php refresh.php cancel.php newscan.php scanpage.php applist.php pinned.php inject.js inject.css ModernAppStore.page ModernAppStoreLoader.page README.md)
 
 # guard: CDATA cannot contain ]]>
 for f in "${FILES[@]}"; do
@@ -40,10 +40,16 @@ cat <<XMLHEAD
 <!ENTITY plugin  "$PLUGIN_URL">
 <!ENTITY support "$SUPPORT_URL">
 ]>
-<PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/AppStoreGitHubAddon" min="6.12" icon="star" support="&support;">
+<PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
 ##$VERSION
+- Renamed to "Unraid Modern App Store" throughout, and the plugin id is now
+  modern.appstore: its folders are /usr/local/emhttp/plugins/modern.appstore and
+  /boot/config/plugins/modern.appstore, and the settings page moved to
+  Settings -> Utilities -> Unraid Modern App Store. Installing this version
+  migrates the GitHub token and the whole star history from the old id and
+  removes the old plugin, so nothing has to be set up again.
 - Fix: templates with no author showed a raw ca.unraid.net link across the card
   (CA leaves Author empty for most plugins and puts the .plg URL in its place).
   The repository owner's name is used instead, and a URL is never shown as an
@@ -202,7 +208,7 @@ cat <<XMLHEAD
   github.com/immich-app/immich), which mis-attributed that repo's ~108k stars to
   unrelated components (immich-postgres, immich-redis, etc.). Also ignores GitHub
   non-repo paths (issues/discussions/org pages).
-- Fix (critical): store data on the flash (/boot/config/plugins/appstore.github.addon)
+- Fix (critical): store data on the flash (/boot/config/plugins/modern.appstore)
   instead of /mnt/user/appdata. The install hook created its data dir under
   /mnt/user before the array mounted, which made Unraid's shfs refuse to mount
   /mnt/user and hid every user share. Existing installs are migrated automatically.
@@ -240,13 +246,32 @@ cat <<'POSTINSTALL'
 # array mounts. A directory created under /mnt/user at plugin-install time (which
 # runs early in boot, before the array) leaves /mnt/user non-empty and makes shfs
 # refuse to mount it, hiding every user share. Never write to /mnt/user here.
-APPDATA=/boot/config/plugins/appstore.github.addon
+APPDATA=/boot/config/plugins/modern.appstore
+OLD_ID=appstore.github.addon
+OLDDATA=/boot/config/plugins/$OLD_ID
 mkdir -p "$APPDATA"
-# Retired file from the pre-grid design: it was the only code that wrote into
-# Community Applications' cache files. An upgrade leaves it behind otherwise,
-# since the payload only overwrites what it ships.
-rm -f /usr/local/emhttp/plugins/appstore.github.addon/sortinject.php
-CFG=/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg
+
+# One-time migration from the plugin's former id. Carries the GitHub token, the
+# star database and its history across, then retires the old install so it stops
+# running its cron and stops showing up on the Plugins page. Guarded on the old
+# directory existing and being a different path, so a reinstall of THIS plugin
+# can never delete its own data.
+if [ -d "$OLDDATA" ] && [ "$OLDDATA" != "$APPDATA" ]; then
+  if [ ! -f "$APPDATA/stars.db" ]; then
+    cp -a "$OLDDATA/." "$APPDATA/" 2>/dev/null
+    mv -f "$APPDATA/$OLD_ID.cfg" "$APPDATA/modern.appstore.cfg" 2>/dev/null
+    rm -f "$APPDATA/$OLD_ID.cron"
+    sed -i "s#$OLD_ID#modern.appstore#g" "$APPDATA/modern.appstore.cfg" 2>/dev/null
+    echo " Migrated settings and star history from the previous plugin id."
+  fi
+  rm -f "$OLDDATA/$OLD_ID.cron"
+  rm -f "/boot/config/plugins/$OLD_ID.plg"
+  rm -rf "/usr/local/emhttp/plugins/$OLD_ID"
+  rm -rf "$OLDDATA"
+  /usr/local/sbin/update_cron 2>/dev/null
+fi
+
+CFG=/boot/config/plugins/modern.appstore/modern.appstore.cfg
 # seed an EMPTY token only if no config exists yet (preserves an existing token)
 if [ ! -f "$CFG" ]; then
   printf 'TOKEN=""\nSERVICE="enabled"\nDATA_DIR="%s"\n' "$APPDATA" > "$CFG"
@@ -256,20 +281,20 @@ fi
 if grep -q 'DATA_DIR="/mnt/user' "$CFG" 2>/dev/null; then
   sed -i 's#^DATA_DIR=.*#DATA_DIR="'"$APPDATA"'"#' "$CFG"
 fi
-CRON=/boot/config/plugins/appstore.github.addon/appstore.github.addon.cron
+CRON=/boot/config/plugins/modern.appstore/modern.appstore.cron
 # full scan every 3 days; hourly check that only pulls NEWLY published repos
 {
-  echo '0 4 */3 * * php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php >/dev/null 2>&1'
-  echo '23 * * * * php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php --new-only 1 >/dev/null 2>&1'
+  echo '0 4 */3 * * php /usr/local/emhttp/plugins/modern.appstore/fetch_stars.php >/dev/null 2>&1'
+  echo '23 * * * * php /usr/local/emhttp/plugins/modern.appstore/fetch_stars.php --new-only 1 >/dev/null 2>&1'
 } > "$CRON"
 /usr/local/sbin/update_cron 2>/dev/null
 # restore persisted star data into the tmpfs webroot so badges work after a reboot
-cp -f "$APPDATA/stars.json"  /usr/local/emhttp/plugins/appstore.github.addon/ 2>/dev/null
-cp -f "$APPDATA/apps.json"   /usr/local/emhttp/plugins/appstore.github.addon/ 2>/dev/null
-cp -f "$APPDATA/status.json" /usr/local/emhttp/plugins/appstore.github.addon/ 2>/dev/null
+cp -f "$APPDATA/stars.json"  /usr/local/emhttp/plugins/modern.appstore/ 2>/dev/null
+cp -f "$APPDATA/apps.json"   /usr/local/emhttp/plugins/modern.appstore/ 2>/dev/null
+cp -f "$APPDATA/status.json" /usr/local/emhttp/plugins/modern.appstore/ 2>/dev/null
 echo "----------------------------------------------------"
-echo " App Store GitHub Addon installed."
-echo " Set your GitHub token: Settings -> Utilities -> App Store GitHub Addon"
+echo " Unraid Modern App Store installed."
+echo " Set your GitHub token: Settings -> Utilities -> Unraid Modern App Store"
 echo "----------------------------------------------------"
 ]]>
 </INLINE>
@@ -278,10 +303,10 @@ echo "----------------------------------------------------"
 <FILE Run="/bin/bash" Method="remove">
 <INLINE>
 <![CDATA[
-rm -f /boot/config/plugins/appstore.github.addon/appstore.github.addon.cron
+rm -f /boot/config/plugins/modern.appstore/modern.appstore.cron
 /usr/local/sbin/update_cron 2>/dev/null
-rm -rf /usr/local/emhttp/plugins/appstore.github.addon
-rm -rf /boot/config/plugins/appstore.github.addon
+rm -rf /usr/local/emhttp/plugins/modern.appstore
+rm -rf /boot/config/plugins/modern.appstore
 ]]>
 </INLINE>
 </FILE>

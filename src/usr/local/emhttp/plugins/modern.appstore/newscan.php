@@ -1,6 +1,6 @@
 <?php
 /**
- * App Store GitHub Addon: on-demand new-repo check.
+ * Unraid Modern App Store: on-demand new-repo check.
  *
  * Called by inject.js when the Apps page loads. Launches a lightweight
  * --new-only scan (fetches stars only for repos not yet in the DB), so newly
@@ -10,10 +10,10 @@
 header('Content-Type: application/json');
 
 const THROTTLE = 180;   // at most one on-demand check every 3 minutes
-$base = '/usr/local/emhttp/plugins/appstore.github.addon';
+$base = '/usr/local/emhttp/plugins/modern.appstore';
 $php  = $base . '/fetch_stars.php';
-$cfg  = @parse_ini_file('/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg') ?: [];
-$dataDir = trim($cfg['DATA_DIR'] ?? '') ?: '/boot/config/plugins/appstore.github.addon';
+$cfg  = @parse_ini_file('/boot/config/plugins/modern.appstore/modern.appstore.cfg') ?: [];
+$dataDir = trim($cfg['DATA_DIR'] ?? '') ?: '/boot/config/plugins/modern.appstore';
 
 $now = time();
 $f = $dataDir . '/last_newscan.json';

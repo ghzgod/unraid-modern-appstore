@@ -1,6 +1,6 @@
 <?php
 /**
- * App Store GitHub Addon: manual refresh trigger.
+ * Unraid Modern App Store: manual refresh trigger.
  *
  * Launches the fetcher in the background (with --manual so its time is
  * recorded) and returns JSON. Enforces a 3-day cooldown between MANUAL
@@ -11,10 +11,10 @@
 header('Content-Type: application/json');
 
 const COOLDOWN = 3 * 86400;
-$base = '/usr/local/emhttp/plugins/appstore.github.addon';
+$base = '/usr/local/emhttp/plugins/modern.appstore';
 $php  = $base . '/fetch_stars.php';
-$cfg  = @parse_ini_file('/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg') ?: [];
-$dataDir = trim($cfg['DATA_DIR'] ?? '') ?: '/boot/config/plugins/appstore.github.addon';
+$cfg  = @parse_ini_file('/boot/config/plugins/modern.appstore/modern.appstore.cfg') ?: [];
+$dataDir = trim($cfg['DATA_DIR'] ?? '') ?: '/boot/config/plugins/modern.appstore';
 
 $now = time();
 $lm  = @json_decode(@file_get_contents($dataDir . '/last_manual.json'), true);

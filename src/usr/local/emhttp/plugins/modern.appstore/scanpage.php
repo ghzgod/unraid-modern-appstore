@@ -1,6 +1,6 @@
 <?php
 /**
- * Unraid Modern Appstore: star scan for the apps currently on screen.
+ * Unraid Modern App Store: star scan for the apps currently on screen.
  *
  * The grid posts the template paths it is displaying; this fetches stars for
  * just those, so browsing fills the catalog in where it is actually being read
@@ -23,11 +23,11 @@ const MAX_PATHS  = 200;          // a grid page is 96; leave headroom, refuse fl
 const STALE_DAYS = 7;            // re-check an app at most once a week
 const RUN_CAP    = 240;          // seconds a page scan may take before we answer anyway
 
-$base    = '/usr/local/emhttp/plugins/appstore.github.addon';
+$base    = '/usr/local/emhttp/plugins/modern.appstore';
 $fetcher = $base . '/fetch_stars.php';
 $caCache = '/tmp/community.applications/tempFiles/templates_new.json';
-$cfg     = @parse_ini_file('/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg') ?: [];
-$dataDir = rtrim(trim($cfg['DATA_DIR'] ?? '') ?: '/boot/config/plugins/appstore.github.addon', '/');
+$cfg     = @parse_ini_file('/boot/config/plugins/modern.appstore/modern.appstore.cfg') ?: [];
+$dataDir = rtrim(trim($cfg['DATA_DIR'] ?? '') ?: '/boot/config/plugins/modern.appstore', '/');
 
 $raw = file_get_contents('php://input');
 $req = json_decode($raw ?: '[]', true);

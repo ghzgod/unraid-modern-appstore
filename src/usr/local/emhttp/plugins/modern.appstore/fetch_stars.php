@@ -1,6 +1,6 @@
 <?php
 /**
- * App Store GitHub Addon: star fetcher.
+ * Unraid Modern App Store: star fetcher.
  *
  * Reads the Community Applications catalog cache READ-ONLY, derives owner/repo
  * from each app's Project GitHub URL, queries the GitHub API (token +
@@ -21,7 +21,7 @@
 error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
 
 const UA = 'unraid-app-stars/1.0 (+https://example.com)';
-const PLUGIN = 'appstore.github.addon';
+const PLUGIN = 'modern.appstore';
 
 $cfgPath = '/boot/config/plugins/' . PLUGIN . '/' . PLUGIN . '.cfg';
 
@@ -64,7 +64,7 @@ $cfg = is_file($opt['cfg']) ? @parse_ini_file($opt['cfg']) : [];
 $token = trim($cfg['TOKEN'] ?? '');
 $cfgDataDir = trim($cfg['DATA_DIR'] ?? '');
 
-$appdataDefault = '/boot/config/plugins/appstore.github.addon';
+$appdataDefault = '/boot/config/plugins/modern.appstore';
 $dataDir = $opt['data-dir'] !== '' ? $opt['data-dir'] : ($cfgDataDir !== '' ? $cfgDataDir : $appdataDefault);
 $dataDir = rtrim($dataDir, '/');
 $db_path = $opt['db'] !== '' ? $opt['db'] : ($dataDir . '/stars.db');

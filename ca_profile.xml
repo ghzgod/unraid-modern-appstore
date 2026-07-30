@@ -1,0 +1,10 @@
+<CommunityApplications>
+  <Profile>
+Unraid Modern App Store is a single plugin that restyles the Apps page into a modern, sortable grid and adds GitHub star counts, trending, and download figures to the Community Applications catalog.
+
+It never modifies Community Applications. Everything is layered on top and scoped to the plugin's own markup, so turning the modern view off, or uninstalling the plugin, returns the Apps page exactly to stock.
+
+Support and issues: https://github.com/ghzgod/unraid-modern-appstore/issues
+  </Profile>
+  <WebPage>https://github.com/ghzgod/unraid-modern-appstore</WebPage>
+</CommunityApplications>

@@ -1,11 +1,11 @@
 <?php
 /**
- * App Store GitHub Addon: cancel a running scan.
+ * Unraid Modern App Store: cancel a running scan.
  * Kills the fetcher and marks progress.json as not running.
  */
 header('Content-Type: application/json');
 
-$base = '/usr/local/emhttp/plugins/appstore.github.addon';
+$base = '/usr/local/emhttp/plugins/modern.appstore';
 @exec("pkill -f 'fetch_stars\\.php' 2>/dev/null");
 
 $p = @json_decode(@file_get_contents($base . '/progress.json'), true) ?: [];

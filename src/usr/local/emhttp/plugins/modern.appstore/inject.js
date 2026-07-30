@@ -1,5 +1,5 @@
 /*
- * Front-end for Unraid Modern Appstore.
+ * Front-end for Unraid Modern App Store.
  *
  * Community Applications' 2026.07 rewrite made its client-side sort unreliable:
  * applying any sort collapses the All-Apps view to a ~36-app subset and orders
@@ -24,7 +24,7 @@
     // tells the loader's failsafe that this script is alive, so it leaves the
     // pre-paint class (which hides CA's own grid) in place
     window.__asgaAlive = 1;
-    var PREFIX = '/plugins/appstore.github.addon/';
+    var PREFIX = '/plugins/modern.appstore/';
 
     var APPS = [];
     var view = { sort: 'new', q: '', cat: '', catLabel: 'All Apps', special: '', page: 1, perPage: 96 };
@@ -641,7 +641,7 @@
 
     // ---- no-token warning ----
     function showWarningIfNeeded() {
-      var cfg = window.__appStoreGhAddon || {};
+      var cfg = window.__modernAppStore || {};
       if (cfg.hasToken) return;
       if (document.querySelector('.ghstars-warning')) return;
       var main = document.querySelector('.mainArea');
@@ -649,9 +649,9 @@
       var w = document.createElement('div');
       w.className = 'ghstars-warning';
       var msg = document.createElement('span');
-      msg.innerHTML = '⚠ <b>Unraid Modern Appstore:</b> no GitHub personal access token configured, so ' +
+      msg.innerHTML = '⚠ <b>Unraid Modern App Store:</b> no GitHub personal access token configured, so ' +
         'star counts are disabled. Add a token in <a href="' + (cfg.settingsUrl || '/Settings') +
-        '">Settings → Unraid Modern Appstore</a>.';
+        '">Settings → Unraid Modern App Store</a>.';
       var x = document.createElement('span');
       x.className = 'ghstars-warning-x'; x.title = 'Dismiss'; x.textContent = '✕';
       x.addEventListener('click', function () { w.parentNode && w.parentNode.removeChild(w); });

@@ -1,0 +1,19 @@
+<Plugin>
+  <Name>Unraid Modern App Store</Name>
+
+  <Overview>A modern front-end for the Apps page. Replaces the app grid with a responsive card layout and adds sorting Community Applications cannot do on its own: by GitHub stars, by trending (stars gained today, this week or this month), by Unraid download count, by newest to the App Store, or by name. Cards show the app icon, author, category, a Docker/Plugin tag, a description, a GitHub star badge, a Docker pull count, and when the app was added to the store, with Info, Pin, Project, Support and Install buttons. The Info drawer is restyled to match, and Pinned Apps and Installed Apps are rendered by the plugin. Star counts are read from the public GitHub API using a personal access token you supply, and are fetched only for the apps on screen, so browsing fills the catalog in gradually rather than hammering the API. A toggle in the toolbar switches back to the stock Community Applications view at any time, and uninstalling the plugin restores the Apps page exactly as it was.</Overview>
+
+  <PluginURL>https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg</PluginURL>
+
+  <PluginAuthor>ghzgod</PluginAuthor>
+
+  <Project>https://github.com/ghzgod/unraid-modern-appstore</Project>
+
+  <ReadMe>https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/README.md</ReadMe>
+
+  <Category>Tools:Utilities</Category>
+
+  <IconFA>star</IconFA>
+
+  <License>MIT</License>
+</Plugin>

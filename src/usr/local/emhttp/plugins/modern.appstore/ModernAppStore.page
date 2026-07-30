@@ -1,15 +1,15 @@
 Menu="Utilities"
-Title="Unraid Modern Appstore"
+Title="Unraid Modern App Store"
 Icon="star"
 ---
 <?php
-/* Unraid Modern Appstore: settings page (Settings -> Utilities -> App Store GitHub Addon). */
+/* Unraid Modern App Store: settings page (Settings -> Utilities -> Unraid Modern App Store). */
 require_once "$docroot/plugins/dynamix/include/Wrappers.php";
 
-$gas_dir  = "/boot/config/plugins/appstore.github.addon";
-$gas_cfg  = "$gas_dir/appstore.github.addon.cfg";
-$gas_cron = "$gas_dir/appstore.github.addon.cron";
-$gas_php  = "/usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php";
+$gas_dir  = "/boot/config/plugins/modern.appstore";
+$gas_cfg  = "$gas_dir/modern.appstore.cfg";
+$gas_cron = "$gas_dir/modern.appstore.cron";
+$gas_php  = "/usr/local/emhttp/plugins/modern.appstore/fetch_stars.php";
 $gas_msg  = "";
 
 if (!is_dir($gas_dir)) @mkdir($gas_dir, 0755, true);
@@ -17,7 +17,7 @@ if (!is_dir($gas_dir)) @mkdir($gas_dir, 0755, true);
 function gas_write_cfg($path, $token, $service, $datadir) {
     $token   = str_replace(["\"", "\n", "\r"], "", $token);
     $datadir = rtrim(str_replace(["\"", "\n", "\r"], "", $datadir), '/');
-    if ($datadir === '') $datadir = '/boot/config/plugins/appstore.github.addon';
+    if ($datadir === '') $datadir = '/boot/config/plugins/modern.appstore';
     $service = ($service === 'enabled') ? 'enabled' : 'disabled';
     $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nDATA_DIR=\"$datadir\"\n";
     file_put_contents($path, $out);
@@ -26,7 +26,7 @@ function gas_write_cfg($path, $token, $service, $datadir) {
 }
 
 function gas_write_cron($path) {
-    $php = "php /usr/local/emhttp/plugins/appstore.github.addon/fetch_stars.php";
+    $php = "php /usr/local/emhttp/plugins/modern.appstore/fetch_stars.php";
     // full scan every 3 days + an hourly check that pulls only NEWLY published
     // app-store repos (bypasses the manual-refresh cooldown)
     $lines = "0 4 */3 * * $php >/dev/null 2>&1\n23 * * * * $php --new-only 1 >/dev/null 2>&1\n";
@@ -52,9 +52,9 @@ if ($_POST) {
 $cfg = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
 $token    = $cfg['TOKEN'] ?? '';
 $service  = $cfg['SERVICE'] ?? 'enabled';
-$datadir  = $cfg['DATA_DIR'] ?? '/boot/config/plugins/appstore.github.addon';
+$datadir  = $cfg['DATA_DIR'] ?? '/boot/config/plugins/modern.appstore';
 
-$status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/appstore.github.addon/status.json"), true) ?: [];
+$status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/modern.appstore/status.json"), true) ?: [];
 ?>
 
 <div markdown="1">
@@ -63,9 +63,9 @@ $status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/appstore.gi
 <?php endif; ?>
 </div>
 
-<form markdown="1" method="POST" action="/Settings/AppStoreGitHubAddon">
+<form markdown="1" method="POST" action="/Settings/ModernAppStore">
 
-_(Enable Unraid Modern Appstore)_:
+_(Enable Unraid Modern App Store)_:
 : <select name="SERVICE" size="1">
     <?= mk_option($service, "enabled", "Yes") ?>
     <?= mk_option($service, "disabled", "No") ?>

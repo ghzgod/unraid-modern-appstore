@@ -1,6 +1,6 @@
 <?php
 /**
- * App list endpoint for the App Store GitHub Addon's own grid.
+ * App list endpoint for the Unraid Modern App Store's own grid.
  *
  * Community Applications' 2026.07 rewrite made its client-side sort unreliable
  * (it collapses the All-Apps view to a ~36-app subset and sorts only those).
@@ -24,7 +24,7 @@
  */
 header('Content-Type: application/json');
 
-$dataDir = '/boot/config/plugins/appstore.github.addon';
+$dataDir = '/boot/config/plugins/modern.appstore';
 $caTmp   = '/tmp/community.applications/tempFiles';
 
 // An author line is a person or org, never a URL. CA leaves Author empty for
