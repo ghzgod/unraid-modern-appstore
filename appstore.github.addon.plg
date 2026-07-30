@@ -2,14 +2,15 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "appstore.github.addon">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.07.30g">
-<!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/appstore-github-addon/main/appstore.github.addon.plg">
-<!ENTITY support "https://github.com/ghzgod/appstore-github-addon">
+<!ENTITY version "2026.07.30h">
+<!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/appstore.github.addon.plg">
+<!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/AppStoreGitHubAddon" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.07.30g
+##2026.07.30h
+- Repo renamed to unraid-modern-appstore; the plugin update URL now points there.
 - Fix: the Sort By dropdown is vertically aligned with the toolbar labels.
 - Renamed to "Unraid Modern Appstore" (settings page, in-app labels, README and the
   GitHub page). The internal plugin id is unchanged, so no reinstall is required.

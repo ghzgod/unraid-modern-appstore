@@ -8,12 +8,12 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.30g}"
+VERSION="${1:-2026.07.30h}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
-PLUGIN_URL="https://raw.githubusercontent.com/ghzgod/appstore-github-addon/main/appstore.github.addon.plg"
-SUPPORT_URL="https://github.com/ghzgod/appstore-github-addon"
+PLUGIN_URL="https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/appstore.github.addon.plg"
+SUPPORT_URL="https://github.com/ghzgod/unraid-modern-appstore"
 
 # --- payload files (order: php, js, css, pages, readme) --------------------
 FILES=(fetch_stars.php refresh.php cancel.php sortinject.php newscan.php applist.php pinned.php inject.js inject.css AppStoreGitHubAddon.page AppStoreGitHubAddonLoader.page README.md)
@@ -44,6 +44,7 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Repo renamed to unraid-modern-appstore; the plugin update URL now points there.
 - Fix: the Sort By dropdown is vertically aligned with the toolbar labels.
 - Renamed to "Unraid Modern Appstore" (settings page, in-app labels, README and the
   GitHub page). The internal plugin id is unchanged, so no reinstall is required.
