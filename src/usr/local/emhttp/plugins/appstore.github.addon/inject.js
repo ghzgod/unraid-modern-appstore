@@ -21,6 +21,9 @@
   'use strict';
   try {
     if (location.pathname.indexOf('/Apps') !== 0) return;
+    // tells the loader's failsafe that this script is alive, so it leaves the
+    // pre-paint class (which hides CA's own grid) in place
+    window.__asgaAlive = 1;
     var PREFIX = '/plugins/appstore.github.addon/';
 
     var APPS = [];
@@ -311,7 +314,7 @@
         dlb.title = a.dl.toLocaleString() + ' Docker image pulls';
         badges.appendChild(dlb);
       }
-      if (badges.children.length) tile.appendChild(badges);
+      if (badges.children.length) { tile.appendChild(badges); tile.classList.add('asga-has-badges'); }
 
       var htext = document.createElement('div');
       htext.className = 'asga-tile-htext';
@@ -502,6 +505,7 @@
           wrap.className = 'asga-tile-badges';
           t.appendChild(wrap);
         }
+        t.classList.add('asga-has-badges');   // reserves title space for the badges
         var b = wrap.querySelector('.ghstars-badge');
         if (!b) {
           b = document.createElement('span');

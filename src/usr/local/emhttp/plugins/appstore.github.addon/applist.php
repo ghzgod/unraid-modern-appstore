@@ -27,6 +27,28 @@ header('Content-Type: application/json');
 $dataDir = '/boot/config/plugins/appstore.github.addon';
 $caTmp   = '/tmp/community.applications/tempFiles';
 
+// An author line is a person or org, never a URL. CA leaves Author empty for
+// most plugins and puts the .plg URL (cdn-wrapped) in Repository, so a stored or
+// feed value that is a link is dropped in favour of the repository owner's name.
+// Long values are trimmed here too, so one bad record cannot dominate a card.
+function display_author($stored, array $t) {
+    foreach ([$stored, $t['Author'] ?? ''] as $cand) {
+        $cand = trim((string)$cand);
+        if ($cand !== '' && !preg_match('~^https?://~i', $cand)) return clip($cand, 60);
+    }
+    $rn = trim((string)($t['RepoName'] ?? $t['Repo'] ?? ''));
+    $rn = trim(preg_replace('~[\x27\x{2019}]s Repository$~ui', '', $rn));
+    if ($rn !== '' && !preg_match('~^https?://~i', $rn)) return clip($rn, 60);
+    return '';
+}
+// Hard cap on any single-line field the grid renders, so a malformed template
+// cannot blow out a card. The CSS wraps too; this keeps the payload sane.
+function clip($s, $max) {
+    $s = trim((string)$s);
+    if (function_exists('mb_strlen')) return mb_strlen($s) > $max ? mb_substr($s, 0, $max - 1) . '…' : $s;
+    return strlen($s) > $max ? substr($s, 0, $max - 1) . '…' : $s;
+}
+
 function read_json_ro($path) {
     if (!is_file($path)) return null;
     $raw = @file_get_contents($path);
@@ -98,8 +120,8 @@ foreach ($tmpl as $t) {
         'n'   => $name,
         'sn'  => strtolower($t['SortName'] ?? $name),
         'ic'  => $mine['ic'] ?? ($t['Icon'] ?? ''),
-        'ct'  => $mine['ct'] ?? ($t['Category'] ?? ''),
-        'au'  => $mine['au'] ?? ($t['Author'] ?? ''),
+        'ct'  => clip($mine['ct'] ?? ($t['Category'] ?? ''), 48),
+        'au'  => display_author($mine['au'] ?? '', $t),
         'de'  => $desc,
         'pr'  => $mine['pr'] ?? ($t['Project'] ?? ''),
         'su'  => $mine['su'] ?? ($t['Support'] ?? ''),

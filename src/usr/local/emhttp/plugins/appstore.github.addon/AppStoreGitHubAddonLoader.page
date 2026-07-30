@@ -21,8 +21,12 @@ if (($gas['SERVICE'] ?? 'disabled') === 'enabled') {
     /* Class <html> inline, before CA's markup is parsed, so its stock grid,
        sort row and Results-Per-Page button never paint and then disappear.
        inject.js keeps this in step when the modern view is toggled off. */
-    echo "<script>try{if(location.pathname.indexOf('/Apps')===0&&localStorage.getItem('asga_view_off')!=='1')"
-       . "document.documentElement.classList.add('asga-pre');}catch(e){}</script>\n";
+    echo "<script>try{if(location.pathname.indexOf('/Apps')===0&&localStorage.getItem('asga_view_off')!=='1'){"
+       . "document.documentElement.classList.add('asga-pre');"
+       /* failsafe: if inject.js never runs (404, parse error, disabled JS) the
+          class must not leave CA's own grid hidden behind nothing */
+       . "setTimeout(function(){if(!window.__asgaAlive)document.documentElement.classList.remove('asga-pre');},5000);"
+       . "}}catch(e){}</script>\n";
     echo "<script src='/plugins/appstore.github.addon/inject.js?v=$gas_jsv'></script>\n";
 }
 ?>

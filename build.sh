@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.30p}"
+VERSION="${1:-2026.07.30q}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -16,7 +16,7 @@ PLUGIN_URL="https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main
 SUPPORT_URL="https://github.com/ghzgod/unraid-modern-appstore"
 
 # --- payload files (order: php, js, css, pages, readme) --------------------
-FILES=(fetch_stars.php refresh.php cancel.php sortinject.php newscan.php scanpage.php applist.php pinned.php inject.js inject.css AppStoreGitHubAddon.page AppStoreGitHubAddonLoader.page README.md)
+FILES=(fetch_stars.php refresh.php cancel.php newscan.php scanpage.php applist.php pinned.php inject.js inject.css AppStoreGitHubAddon.page AppStoreGitHubAddonLoader.page README.md)
 
 # guard: CDATA cannot contain ]]>
 for f in "${FILES[@]}"; do
@@ -44,6 +44,18 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Fix: templates with no author showed a raw ca.unraid.net link across the card
+  (CA leaves Author empty for most plugins and puts the .plg URL in its place).
+  The repository owner's name is used instead, and a URL is never shown as an
+  author.
+- Cards can no longer be pushed out of shape by a template: long names, authors
+  and categories wrap or ellipsise inside the card, and a long title stops short
+  of the star badges instead of running under them.
+- Removed sortinject.php. It was left over from the old design and was the only
+  code that wrote into Community Applications' own cache files; the modern grid
+  has not used it since. The plugin now writes nothing outside its own folders.
+- If inject.js ever fails to load, the page no longer stays blank: CA's stock
+  view is restored after 5 seconds.
 - Stars are now fetched for the apps on screen instead of the whole catalog.
   Browsing to a page tops up whatever that page is missing, and an app is only
   re-checked if it has never been tried or its last attempt is over a week old.
@@ -230,6 +242,10 @@ cat <<'POSTINSTALL'
 # refuse to mount it, hiding every user share. Never write to /mnt/user here.
 APPDATA=/boot/config/plugins/appstore.github.addon
 mkdir -p "$APPDATA"
+# Retired file from the pre-grid design: it was the only code that wrote into
+# Community Applications' cache files. An upgrade leaves it behind otherwise,
+# since the payload only overwrites what it ships.
+rm -f /usr/local/emhttp/plugins/appstore.github.addon/sortinject.php
 CFG=/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg
 # seed an EMPTY token only if no config exists yet (preserves an existing token)
 if [ ! -f "$CFG" ]; then

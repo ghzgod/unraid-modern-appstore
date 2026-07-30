@@ -2,14 +2,26 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "appstore.github.addon">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.07.30p">
+<!ENTITY version "2026.07.30q">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/appstore.github.addon.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/AppStoreGitHubAddon" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.07.30p
+##2026.07.30q
+- Fix: templates with no author showed a raw ca.unraid.net link across the card
+  (CA leaves Author empty for most plugins and puts the .plg URL in its place).
+  The repository owner's name is used instead, and a URL is never shown as an
+  author.
+- Cards can no longer be pushed out of shape by a template: long names, authors
+  and categories wrap or ellipsise inside the card, and a long title stops short
+  of the star badges instead of running under them.
+- Removed sortinject.php. It was left over from the old design and was the only
+  code that wrote into Community Applications' own cache files; the modern grid
+  has not used it since. The plugin now writes nothing outside its own folders.
+- If inject.js ever fails to load, the page no longer stays blank: CA's stock
+  view is restored after 5 seconds.
 - Stars are now fetched for the apps on screen instead of the whole catalog.
   Browsing to a page tops up whatever that page is missing, and an app is only
   re-checked if it has never been tried or its last attempt is over a week old.
@@ -376,6 +388,20 @@ function resolve_cdn_links(array $urls, int $concurrency, ?callable $onProgress 
     } while ($running > 0 || $active || $queue);
     curl_multi_close($mh);
     return $out;
+}
+
+// An author line is a person or org, never a URL. CA leaves Author empty for
+// most plugins and puts the .plg URL (cdn-wrapped) in Repository, so falling
+// back to that printed a link across the card. Prefer the repository owner's
+// name, then the GitHub owner, then nothing at all.
+function display_author(array $app, string $repoFull = ''): string {
+    $au = trim((string)($app['Author'] ?? ''));
+    if ($au !== '' && !preg_match('~^https?://~i', $au)) return $au;
+    $rn = trim((string)($app['RepoName'] ?? $app['Repo'] ?? ''));
+    $rn = trim(preg_replace('~[\x27\x{2019}]s Repository$~ui', '', $rn));
+    if ($rn !== '' && !preg_match('~^https?://~i', $rn)) return $rn;
+    if ($repoFull !== '' && strpos($repoFull, '/') !== false) return explode('/', $repoFull)[0];
+    return '';
 }
 
 function derive_repo(array $app, array $cdnCache): ?array {
@@ -792,7 +818,7 @@ foreach ($apps as $idx => $app) {
         'n'  => $name,
         'p'  => $app['Path'] ?? '',
         'ic' => $app['Icon'] ?? '',
-        'au' => $app['Author'] ?? ($app['Repository'] ?? ''),
+        'au' => display_author($app, $full),
         'ct' => $cat,
         'de' => $desc,
         'pr' => $app['Project'] ?? '',
@@ -886,98 +912,6 @@ $p['updated_at'] = time();
 @file_put_contents($base . '/progress.json', json_encode($p, JSON_UNESCAPED_SLASHES));
 
 echo json_encode(['canceled' => true]);
-]]>
-</INLINE>
-</FILE>
-
-<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/sortinject.php">
-<INLINE>
-<![CDATA[
-<?php
-/**
- * Sort augmentation for the App Store GitHub Addon.
- *
- * Injects our GitHub metrics (ghstars + trend deltas) into Community
- * Applications' OWN transient view caches, keyed by unique template Path. CA's
- * native changeSortOrder() then sorts and renders its REAL tiles by those keys,
- * so the GitHub view is literally CA's app page, just orderable by
- * stars/trending. We only ADD numeric fields; CA rebuilds these caches on the
- * next navigation, so nothing is permanently changed.
- *
- * CA 2026.07.21 sorts THREE caches in changeSortOrder(): displayed.json plus
- * allSearchResults.json and catSearchResults.json. A search rebuilds all of
- * them from the raw feed, which drops our fields, so every one has to be
- * (re-)injected, and inject.js re-runs this after each CA render.
- */
-header('Content-Type: application/json');
-
-$dir = '/tmp/community.applications/tempFiles';
-$targets = [
-    "$dir/displayed.json",
-    "$dir/allSearchResults.json",
-    "$dir/catSearchResults.json",
-];
-// If a future build ever appends a per-tab suffix to displayed.json, pick those up too.
-foreach (glob("$dir/displayed*.json") ?: [] as $f) {
-    if (!in_array($f, $targets, true)) $targets[] = $f;
-}
-$base = '/usr/local/emhttp/plugins/appstore.github.addon';
-
-$apps = @json_decode(@file_get_contents($base . '/apps.json'), true);
-$map = [];   // keyed by unique template path (names are NOT unique)
-if ($apps && isset($apps['apps'])) {
-    foreach ($apps['apps'] as $a) {
-        $p = $a['p'] ?? '';
-        if ($p === '') continue;
-        $map[$p] = $a;
-    }
-}
-
-function gi($m, $k) { return ($m && $m[$k] !== null) ? (int)$m[$k] : -1; }
-
-// Relative growth for a window, in basis points (0.01%) so CA sorts it as an
-// integer. delta / (stars at the window's start). A 10-star baseline floor keeps
-// trivial repos (2->4 stars = "+100%") from dominating the percent sort.
-function gp($m, $k) {
-    if (!$m || $m[$k] === null || $m['s'] === null) return -1;
-    $d = (int)$m[$k]; $base = (int)$m['s'] - $d;
-    if ($base < 10) return -1;
-    return (int)round($d / $base * 10000);
-}
-
-$total = 0;
-$files = [];
-foreach ($targets as $file) {
-    if (!is_file($file)) continue;
-    $d = @unserialize(@file_get_contents($file));
-    if (!is_array($d) || !isset($d['community']) || !is_array($d['community'])) continue;
-
-    $n = 0;
-    foreach ($d['community'] as &$app) {
-        if (!is_array($app)) continue;
-        $m = $map[$app['Path'] ?? ''] ?? null;
-        $app['ghstars'] = ($m && $m['s'] !== null) ? (int)$m['s'] : -1;
-        $app['ght1']    = gi($m, 't1');
-        $app['ght7']    = gi($m, 't7');
-        $app['ght30']   = gi($m, 't30');
-        $app['ght365']  = gi($m, 't365');
-        $app['ghp1']    = gp($m, 't1');
-        $app['ghp7']    = gp($m, 't7');
-        $app['ghp30']   = gp($m, 't30');
-        $app['ghp365']  = gp($m, 't365');
-        $n++;
-    }
-    unset($app);
-
-    @file_put_contents($file, serialize($d));
-    $files[basename($file)] = $n;
-    // 'count' stays the displayed.json tally: inject.js uses it to detect when
-    // CA has finished building the full app list.
-    if (basename($file) === 'displayed.json') $total = $n;
-}
-
-if (!$files) { echo json_encode(['ok' => false, 'err' => 'no CA view cache']); exit; }
-echo json_encode(['ok' => true, 'count' => $total, 'files' => $files]);
 ]]>
 </INLINE>
 </FILE>
@@ -1121,6 +1055,28 @@ header('Content-Type: application/json');
 $dataDir = '/boot/config/plugins/appstore.github.addon';
 $caTmp   = '/tmp/community.applications/tempFiles';
 
+// An author line is a person or org, never a URL. CA leaves Author empty for
+// most plugins and puts the .plg URL (cdn-wrapped) in Repository, so a stored or
+// feed value that is a link is dropped in favour of the repository owner's name.
+// Long values are trimmed here too, so one bad record cannot dominate a card.
+function display_author($stored, array $t) {
+    foreach ([$stored, $t['Author'] ?? ''] as $cand) {
+        $cand = trim((string)$cand);
+        if ($cand !== '' && !preg_match('~^https?://~i', $cand)) return clip($cand, 60);
+    }
+    $rn = trim((string)($t['RepoName'] ?? $t['Repo'] ?? ''));
+    $rn = trim(preg_replace('~[\x27\x{2019}]s Repository$~ui', '', $rn));
+    if ($rn !== '' && !preg_match('~^https?://~i', $rn)) return clip($rn, 60);
+    return '';
+}
+// Hard cap on any single-line field the grid renders, so a malformed template
+// cannot blow out a card. The CSS wraps too; this keeps the payload sane.
+function clip($s, $max) {
+    $s = trim((string)$s);
+    if (function_exists('mb_strlen')) return mb_strlen($s) > $max ? mb_substr($s, 0, $max - 1) . '…' : $s;
+    return strlen($s) > $max ? substr($s, 0, $max - 1) . '…' : $s;
+}
+
 function read_json_ro($path) {
     if (!is_file($path)) return null;
     $raw = @file_get_contents($path);
@@ -1192,8 +1148,8 @@ foreach ($tmpl as $t) {
         'n'   => $name,
         'sn'  => strtolower($t['SortName'] ?? $name),
         'ic'  => $mine['ic'] ?? ($t['Icon'] ?? ''),
-        'ct'  => $mine['ct'] ?? ($t['Category'] ?? ''),
-        'au'  => $mine['au'] ?? ($t['Author'] ?? ''),
+        'ct'  => clip($mine['ct'] ?? ($t['Category'] ?? ''), 48),
+        'au'  => display_author($mine['au'] ?? '', $t),
         'de'  => $desc,
         'pr'  => $mine['pr'] ?? ($t['Project'] ?? ''),
         'su'  => $mine['su'] ?? ($t['Support'] ?? ''),
@@ -1294,6 +1250,9 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
   'use strict';
   try {
     if (location.pathname.indexOf('/Apps') !== 0) return;
+    // tells the loader's failsafe that this script is alive, so it leaves the
+    // pre-paint class (which hides CA's own grid) in place
+    window.__asgaAlive = 1;
     var PREFIX = '/plugins/appstore.github.addon/';
 
     var APPS = [];
@@ -1584,7 +1543,7 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
         dlb.title = a.dl.toLocaleString() + ' Docker image pulls';
         badges.appendChild(dlb);
       }
-      if (badges.children.length) tile.appendChild(badges);
+      if (badges.children.length) { tile.appendChild(badges); tile.classList.add('asga-has-badges'); }
 
       var htext = document.createElement('div');
       htext.className = 'asga-tile-htext';
@@ -1775,6 +1734,7 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
           wrap.className = 'asga-tile-badges';
           t.appendChild(wrap);
         }
+        t.classList.add('asga-has-badges');   // reserves title space for the badges
         var b = wrap.querySelector('.ghstars-badge');
         if (!b) {
           b = document.createElement('span');
@@ -2152,21 +2112,34 @@ html.asga-pre .spinner.fixed { display: none !important; }
   display: flex; flex-direction: column;
   transition: border-color 0.15s ease;
   cursor: pointer;
+  /* Templates come from a public feed: names, authors and categories can be
+     absurdly long or a single unbreakable token (a URL). Break anywhere rather
+     than let a card spill over its neighbour, and clip as a last resort. */
+  overflow: hidden;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
+.asga-tile > *, .asga-tile-head > *, .asga-tile-htext > * { min-width: 0; max-width: 100%; }
 .asga-tile:hover { border-color: #ff8c2f; }
 
 .asga-tile-head { display: flex; gap: 12px; align-items: flex-start; }
 .asga-tile-icon { position: relative; width: 64px; height: 64px; flex: 0 0 64px; }
 .asga-tile-icon img { width: 64px; height: 64px; object-fit: contain; border-radius: 10px; }
 .asga-tile-htext { min-width: 0; flex: 1; }
+/* the badges float over the top-right corner, so a long title has to stop
+   short of them instead of running underneath */
+.asga-has-badges .asga-tile-name { padding-right: 104px; }
 .asga-tile-name {
   font-size: 1.25rem; font-weight: 700; line-height: 1.2;
   color: var(--text-color, inherit);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-.asga-tile-author { font-size: 1rem; opacity: 0.7; margin-top: 2px; }
+.asga-tile-author {
+  font-size: 1rem; opacity: 0.7; margin-top: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
 .asga-tile-metarow { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
-.asga-tile-cat { font-size: 0.95rem; opacity: 0.55; }
+.asga-tile-cat { font-size: 0.95rem; opacity: 0.55; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .asga-type {
   font-size: 0.8rem; font-weight: 600; letter-spacing: 0.02em;
   padding: 1px 7px; border-radius: 8px; white-space: nowrap;
@@ -2291,7 +2264,10 @@ body.asga-active .popupInfo { position: static; flex: 1 1 auto; min-width: 0; }
 body.asga-active .popupName { font-size: 2.6rem; font-weight: 700; line-height: 1.2; max-height: none; }
 body.asga-active .popupAuthorMain {
   font-size: 1.5rem; line-height: 1.4; margin: 5px 0 16px; color: var(--asga-muted);
+  overflow-wrap: break-word; word-break: break-word;
 }
+/* nothing from a template may push the drawer sideways either */
+body.asga-active #sidenavContent { overflow-wrap: break-word; word-break: break-word; }
 
 /* action pills (Install / Support / Pin) and every other CA button in the
    drawer, including the Maintainer row, share one look */
@@ -2629,8 +2605,12 @@ if (($gas['SERVICE'] ?? 'disabled') === 'enabled') {
     /* Class <html> inline, before CA's markup is parsed, so its stock grid,
        sort row and Results-Per-Page button never paint and then disappear.
        inject.js keeps this in step when the modern view is toggled off. */
-    echo "<script>try{if(location.pathname.indexOf('/Apps')===0&&localStorage.getItem('asga_view_off')!=='1')"
-       . "document.documentElement.classList.add('asga-pre');}catch(e){}</script>\n";
+    echo "<script>try{if(location.pathname.indexOf('/Apps')===0&&localStorage.getItem('asga_view_off')!=='1'){"
+       . "document.documentElement.classList.add('asga-pre');"
+       /* failsafe: if inject.js never runs (404, parse error, disabled JS) the
+          class must not leave CA's own grid hidden behind nothing */
+       . "setTimeout(function(){if(!window.__asgaAlive)document.documentElement.classList.remove('asga-pre');},5000);"
+       . "}}catch(e){}</script>\n";
     echo "<script src='/plugins/appstore.github.addon/inject.js?v=$gas_jsv'></script>\n";
 }
 ?>
@@ -2658,6 +2638,10 @@ Set your GitHub personal access token at **Settings → Utilities → Unraid Mod
 # refuse to mount it, hiding every user share. Never write to /mnt/user here.
 APPDATA=/boot/config/plugins/appstore.github.addon
 mkdir -p "$APPDATA"
+# Retired file from the pre-grid design: it was the only code that wrote into
+# Community Applications' cache files. An upgrade leaves it behind otherwise,
+# since the payload only overwrites what it ships.
+rm -f /usr/local/emhttp/plugins/appstore.github.addon/sortinject.php
 CFG=/boot/config/plugins/appstore.github.addon/appstore.github.addon.cfg
 # seed an EMPTY token only if no config exists yet (preserves an existing token)
 if [ ! -f "$CFG" ]; then

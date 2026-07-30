@@ -191,6 +191,20 @@ function resolve_cdn_links(array $urls, int $concurrency, ?callable $onProgress 
     return $out;
 }
 
+// An author line is a person or org, never a URL. CA leaves Author empty for
+// most plugins and puts the .plg URL (cdn-wrapped) in Repository, so falling
+// back to that printed a link across the card. Prefer the repository owner's
+// name, then the GitHub owner, then nothing at all.
+function display_author(array $app, string $repoFull = ''): string {
+    $au = trim((string)($app['Author'] ?? ''));
+    if ($au !== '' && !preg_match('~^https?://~i', $au)) return $au;
+    $rn = trim((string)($app['RepoName'] ?? $app['Repo'] ?? ''));
+    $rn = trim(preg_replace('~[\x27\x{2019}]s Repository$~ui', '', $rn));
+    if ($rn !== '' && !preg_match('~^https?://~i', $rn)) return $rn;
+    if ($repoFull !== '' && strpos($repoFull, '/') !== false) return explode('/', $repoFull)[0];
+    return '';
+}
+
 function derive_repo(array $app, array $cdnCache): ?array {
     $url = $app['Project'] ?? '';
     if (!$url) return null;
@@ -605,7 +619,7 @@ foreach ($apps as $idx => $app) {
         'n'  => $name,
         'p'  => $app['Path'] ?? '',
         'ic' => $app['Icon'] ?? '',
-        'au' => $app['Author'] ?? ($app['Repository'] ?? ''),
+        'au' => display_author($app, $full),
         'ct' => $cat,
         'de' => $desc,
         'pr' => $app['Project'] ?? '',
