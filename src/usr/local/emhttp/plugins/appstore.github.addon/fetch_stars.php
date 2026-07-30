@@ -79,9 +79,9 @@ function write_status(array $status, string $outDir, string $dataDir): void {
     @file_put_contents($outDir . '/status.json', $json);
     @file_put_contents($dataDir . '/status.json', $json);
 }
-function write_progress(string $outDir, bool $running, int $done, int $total, array $status): void {
+function write_progress(string $outDir, bool $running, int $done, int $total, array $status, string $phase = 'stars'): void {
     @file_put_contents($outDir . '/progress.json', json_encode([
-        'running' => $running, 'done' => $done, 'total' => $total,
+        'running' => $running, 'done' => $done, 'total' => $total, 'phase' => $phase,
         'ok' => $status['ok'], 'not_modified' => $status['not_modified'],
         'missing' => $status['missing'], 'errors' => count($status['errors']),
         'updated_at' => time(),
@@ -126,8 +126,69 @@ if (!is_array($apps)) {
 // github.com/immich-app/immich), which would mis-attribute that project's star
 // count to unrelated components (postgres, redis, ...). Derive from Project
 // only, and ignore GitHub non-repo paths (issues/discussions/org pages/etc).
-function derive_repo(array $app): ?array {
+//
+// CA no longer publishes most Project URLs directly: it hands out opaque
+// https://ca.unraid.net/cdn/<blob> redirectors that 302 to the real link. Those
+// carry no "github.com" for the regex to find, which is why roughly half the
+// catalog had no star count. Those links are resolved once and cached in
+// cdn_links.json, so a rescan costs nothing for links already seen.
+const CDN_PREFIX = 'https://ca.unraid.net/cdn/';
+
+function is_cdn_link(string $url): bool { return strncmp($url, CDN_PREFIX, strlen(CDN_PREFIX)) === 0; }
+
+// HEAD each link, following redirects, and record where it lands. Failures are
+// deliberately NOT cached, so a transient outage retries on the next scan.
+function resolve_cdn_links(array $urls, int $concurrency, ?callable $onProgress = null): array {
+    $out = [];
+    $total = count($urls);
+    $done = 0;
+    $queue = array_values($urls);
+    $mh = curl_multi_init();
+    $active = [];
+    $spawn = function () use (&$queue, &$active, $mh) {
+        if (!$queue) return;
+        $url = array_shift($queue);
+        $ch = curl_init($url);
+        curl_setopt_array($ch, [
+            CURLOPT_NOBODY         => true,     // HEAD: we only want the destination
+            CURLOPT_FOLLOWLOCATION => true,
+            CURLOPT_MAXREDIRS      => 4,
+            CURLOPT_TIMEOUT        => 8,
+            CURLOPT_CONNECTTIMEOUT => 5,
+            CURLOPT_USERAGENT      => UA,
+            CURLOPT_RETURNTRANSFER => true,
+        ]);
+        curl_multi_add_handle($mh, $ch);
+        $active[(int)$ch] = ['h' => $ch, 'url' => $url];
+    };
+    for ($i = 0; $i < $concurrency; $i++) $spawn();
+    do {
+        curl_multi_exec($mh, $running);
+        curl_multi_select($mh, 0.5);
+        while ($info = curl_multi_info_read($mh)) {
+            $ch = $info['handle'];
+            $meta = $active[(int)$ch] ?? null;
+            if ($meta) {
+                $final = (string)curl_getinfo($ch, CURLINFO_EFFECTIVE_URL);
+                $code  = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                if ($final !== '' && $final !== $meta['url'] && $code > 0 && $code < 400) $out[$meta['url']] = $final;
+                unset($active[(int)$ch]);
+            }
+            curl_multi_remove_handle($mh, $ch);
+            curl_close($ch);
+            $done++;
+            if ($onProgress && $done % 25 === 0) $onProgress($done, $total);
+            $spawn();
+        }
+    } while ($running > 0 || $active || $queue);
+    curl_multi_close($mh);
+    return $out;
+}
+
+function derive_repo(array $app, array $cdnCache): ?array {
     $url = $app['Project'] ?? '';
+    if (!$url) return null;
+    if (is_cdn_link($url)) $url = $cdnCache[$url] ?? '';
     if (!$url) return null;
     if (preg_match('~github\.com/([^/]+)/([^/#?\s]+)~i', $url, $m)) {
         $owner = strtolower($m[1]);
@@ -136,14 +197,46 @@ function derive_repo(array $app): ?array {
         if (in_array(strtolower($repo), ['issues','discussions','wiki','pulls','releases'], true)) return null;
         return ['owner' => $m[1], 'repo' => $repo, 'full' => strtolower($m[1] . '/' . $repo)];
     }
+    // GitHub Pages: owner.github.io/repo is that repo's site; owner.github.io on
+    // its own is the user-pages repo, which is literally named owner.github.io.
+    if (preg_match('~^https?://([^./]+)\.github\.io(?:/([^/#?\s]+))?~i', $url, $m)) {
+        $owner = $m[1];
+        $repo  = ($m[2] ?? '') !== '' ? $m[2] : ($owner . '.github.io');
+        return ['owner' => $owner, 'repo' => $repo, 'full' => strtolower($owner . '/' . $repo)];
+    }
     return null;
 }
+
+// resolve every unseen CDN Project link in one batched pass before deriving
+$cdnPath  = $dataDir . '/cdn_links.json';
+$cdnCache = @json_decode((string)@file_get_contents($cdnPath), true);
+if (!is_array($cdnCache)) $cdnCache = [];
+$pending = [];
+foreach ($apps as $app) {
+    if (!is_array($app)) continue;
+    $u = $app['Project'] ?? '';
+    if ($u && is_cdn_link($u) && !isset($cdnCache[$u])) $pending[$u] = $u;
+}
+if ($pending && !$trendsOnly) {
+    fwrite(STDERR, 'fetch_stars: resolving ' . count($pending) . " CA cdn links...\n");
+    write_progress($outDir, true, 0, count($pending), $status, 'links');
+    $resolved = resolve_cdn_links($pending, $concurrency, function ($done, $total) use ($outDir, $status) {
+        write_progress($outDir, true, $done, $total, $status, 'links');
+    });
+    if ($resolved) {
+        $cdnCache = $resolved + $cdnCache;
+        @file_put_contents($cdnPath, json_encode($cdnCache, JSON_UNESCAPED_SLASHES));
+    }
+    $status['cdn_resolved'] = count($resolved);
+    $status['cdn_pending']  = count($pending) - count($resolved);
+}
+$status['cdn_cached'] = count($cdnCache);
 
 $repoMeta = [];      // full => ['owner','repo']
 $appRepoMap = [];    // app index => full
 foreach ($apps as $idx => $app) {
     if (!is_array($app)) continue;
-    $d = derive_repo($app);
+    $d = derive_repo($app, $cdnCache);
     if (!$d) continue;
     $repoMeta[$d['full']] = ['owner' => $d['owner'], 'repo' => $d['repo']];
     $appRepoMap[$idx] = $d['full'];

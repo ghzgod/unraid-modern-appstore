@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.30n}"
+VERSION="${1:-2026.07.30o}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,16 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Fix: about half the catalog had no GitHub star count. CA stopped publishing
+  most Project URLs directly and now hands out opaque ca.unraid.net/cdn/...
+  redirectors, so there was no github.com link left to read. Those are resolved
+  once and cached, and GitHub Pages URLs (owner.github.io/repo) now map to their
+  repo too. Apps whose project link is a plain homepage still have no stars,
+  because there is no repository to count.
+- The progress bar names the link-resolution pass, which runs before the star
+  fetch on the first scan after this update.
+- Info drawer: Description, Details and Maintainer are now one full-width column
+  of equal-width cards, with Maintainer compressed to two rows.
 - Tiles now show when an app was added to the App Store (date and time from CA's
   own feed), in small text at the bottom right of the card.
 - Fix: the Details table text had no breathing room and Unraid's global table

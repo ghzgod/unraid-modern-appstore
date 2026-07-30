@@ -609,7 +609,10 @@
             bar.style.display = '';
             var pct = p.total > 0 ? Math.min(100, Math.round(p.done / p.total * 100)) : 3;
             bar.querySelector('.ghstars-topbar-fill').style.width = pct + '%';
-            bar.querySelector('.ghstars-topbar-label').textContent = 'Pulling GitHub stars… ' + (p.total > 0 ? (p.done + '/' + p.total) : 'starting…');
+            // a scan opens with a link-resolution pass (CA hides most project
+            // URLs behind redirectors), which is slow enough to need its own label
+            var what = p.phase === 'links' ? 'Resolving app links… ' : 'Pulling GitHub stars… ';
+            bar.querySelector('.ghstars-topbar-label').textContent = what + (p.total > 0 ? (p.done + '/' + p.total) : 'starting…');
             setTimeout(pollProgress, 1200);
           } else {
             bar.style.display = 'none';
