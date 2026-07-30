@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.30l}"
+VERSION="${1:-2026.07.30m}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,19 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Info drawer redesigned. The app header, description, Details and Maintainer
+  now read as one modern card layout instead of stock CA styling:
+  - CLOSE is a round X in a slim bar that stays pinned to the top while the
+    drawer scrolls, rather than a pill floating in the corner.
+  - Details labels are legible (they were near-invisible dark grey), values are
+    right-aligned, and long repository names no longer get clipped.
+  - Details and Maintainer sit side by side in cards, and stack on a phone.
+  - The Maintainer's All Apps / Profile / Favourite buttons match the rest of
+    the drawer instead of being stock white App Store pills.
+  - Section headings, screenshots, spotlight, moderator notes and the change log
+    all follow the same type scale and card treatment.
+  - Colours now derive from the active Unraid theme, so the drawer is readable on
+    the white themes too.
 - Fix: the drawer CLOSE button text is now light (was black on dark, invisible
   until hovered).
 - Fix: tile buttons no longer wrap to two lines ("Pin App" stayed on one line and

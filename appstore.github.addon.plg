@@ -2,14 +2,27 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "appstore.github.addon">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.07.30l">
+<!ENTITY version "2026.07.30m">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/appstore.github.addon.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/AppStoreGitHubAddon" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.07.30l
+##2026.07.30m
+- Info drawer redesigned. The app header, description, Details and Maintainer
+  now read as one modern card layout instead of stock CA styling:
+  - CLOSE is a round X in a slim bar that stays pinned to the top while the
+    drawer scrolls, rather than a pill floating in the corner.
+  - Details labels are legible (they were near-invisible dark grey), values are
+    right-aligned, and long repository names no longer get clipped.
+  - Details and Maintainer sit side by side in cards, and stack on a phone.
+  - The Maintainer's All Apps / Profile / Favourite buttons match the rest of
+    the drawer instead of being stock white App Store pills.
+  - Section headings, screenshots, spotlight, moderator notes and the change log
+    all follow the same type scale and card treatment.
+  - Colours now derive from the active Unraid theme, so the drawer is readable on
+    the white themes too.
 - Fix: the drawer CLOSE button text is now light (was black on dark, invisible
   until hovered).
 - Fix: tile buttons no longer wrap to two lines ("Pin App" stayed on one line and
@@ -1812,66 +1825,207 @@ body.asga-active .spinner.fixed { display: none !important; }
    CA populates its own right-slide sidebar (#sidenavContent) when a tile is
    clicked. We restyle it here, scoped to body.asga-active, so it matches the
    modern grid; with the Modern view toggled off none of this applies and CA's
-   stock drawer styling returns. We only override styles, never CA markup. */
+   stock drawer styling returns. We only override styles, never CA markup.
+
+   Colours derive from --sidebar-text (the theme's own drawer foreground) via
+   color-mix rather than hardcoded greys, so the drawer stays legible on the
+   white themes too. CA hardcodes near-black text on several of these blocks
+   (.popupDescription, every .caButton) with !important, so those need
+   !important back. --asga-* tokens keep the mixes in one place. */
 body.asga-active .sidenav {
-  background: var(--background-color, #1b1b1b);
-  border-left: 1px solid rgba(255, 140, 47, 0.35);
+  --asga-fg: var(--sidebar-text, #f2f2f2);
+  --asga-muted: color-mix(in srgb, var(--asga-fg) 72%, transparent);
+  --asga-line: color-mix(in srgb, var(--asga-fg) 16%, transparent);
+  --asga-surface: color-mix(in srgb, var(--asga-fg) 7%, transparent);
+  --asga-accent: #ff8c2f;
+  background: var(--sidebar-background, #1b1b1b);
+  border-left: 1px solid color-mix(in srgb, var(--asga-accent) 40%, transparent);
   box-shadow: -12px 0 40px rgba(0, 0, 0, 0.45);
   padding-top: 0 !important;   /* CA adds 40px of blank at the top */
 }
-body.asga-active #sidenavContent { padding: 16px 20px 40px; position: relative; }
+body.asga-active #sidenavContent { padding: 0 0 48px; position: relative; }
+body.asga-active .popup { margin: 0; padding: 0 24px; }
 
-/* close button floats top-right, in line with the app title (no blank bar/row) */
+/* Close: a slim bar that sticks to the top of the scroll area, holding a round
+   ✕. CA renders the word "CLOSE" in this span; we swap the glyph in CSS so the
+   button reads the same in every language. */
 body.asga-active .popupCloseArea {
-  position: absolute; top: 16px; right: 18px; z-index: 20;
-  margin: 0; padding: 0; background: transparent; border: none; text-align: right;
+  position: sticky; top: 0; z-index: 20;
+  display: flex; justify-content: flex-end; align-items: center;
+  height: 46px; margin: 0; padding: 0 24px; width: auto;
+  background: var(--sidebar-background, #1b1b1b);
+  border-bottom: 1px solid var(--asga-line);
 }
-body.asga-active .popUpClose.caButton {
-  display: inline-block; cursor: pointer;
-  font-size: 1rem; padding: 5px 16px; border-radius: 20px;
-  border: 1px solid rgba(200,200,200,0.55); background: rgba(255,255,255,0.09); color: #f2f2f2 !important;
+
+/* header: icon + name + author + action pills, all on one row */
+body.asga-active .ca_popupIconArea {
+  display: flex; gap: 20px; align-items: flex-start;
+  position: static; top: auto; height: auto;   /* CA pins it to 15.5rem */
+  padding: 22px 0 22px; margin: 0; border-bottom: 1px solid var(--asga-line);
 }
-body.asga-active .popUpClose.caButton * { color: #f2f2f2 !important; }
-body.asga-active .popUpClose.caButton:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.2); color: #fff !important; }
-
-/* header: icon + name + actions */
-body.asga-active .ca_popupIconArea { display: flex; gap: 18px; align-items: flex-start; margin: 4px 0 18px; }
-body.asga-active .popupIcon img { width: 96px; height: 96px; object-fit: contain; border-radius: 16px; }
-body.asga-active .popupName { font-size: 1.9rem; font-weight: 800; line-height: 1.15; }
-body.asga-active .popupAuthorMain { font-size: 1.1rem; opacity: 0.6; margin: 2px 0 12px; }
-
-/* action buttons (Install / Support / Pin) as modern pills, higher contrast so
-   they read clearly on the dark drawer */
-body.asga-active .popupInfo .caButton {
-  display: inline-block; cursor: pointer;
-  font-size: 1.05rem; padding: 6px 18px; margin: 0 8px 8px 0; border-radius: 22px;
-  border: 1px solid rgba(200,200,200,0.55); background: rgba(255,255,255,0.09); color: #f2f2f2 !important;
+body.asga-active .popupIcon { flex: 0 0 auto; }
+body.asga-active .popupIcon img {
+  width: 88px; height: 88px; margin: 0; padding: 0; object-fit: contain;
+  border-radius: 18px; background: color-mix(in srgb, var(--asga-fg) 20%, transparent); border: 1px solid var(--asga-line);
 }
-body.asga-active .popupInfo .caButton * { color: #f2f2f2 !important; }
-body.asga-active .popupInfo .caButton.actionsPopup, body.asga-active .popupInfo .caButton.actionsPopup * { color: #fff !important; }
-body.asga-active .popupInfo .caButton:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.2); color: #fff; }
-body.asga-active .popupInfo .caButton.actionsPopup { background: #ff8c2f; border-color: #ff8c2f; color: #fff; }
-body.asga-active .popupInfo .caButton.actionsPopup:hover { filter: brightness(1.08); }
-body.asga-active .popupInfo .caButton.pinPopup.pinned { border-color: #ff8c2f; color: #ff8c2f; background: rgba(255,140,47,0.2); }
+body.asga-active .popupIcon i { padding: 0; font-size: 8rem; }
+/* CA absolutely positions .popupInfo at a fixed offset; put it back in flow */
+body.asga-active .popupInfo { position: static; flex: 1 1 auto; min-width: 0; }
+body.asga-active .popupName { font-size: 2.6rem; font-weight: 700; line-height: 1.2; max-height: none; }
+body.asga-active .popupAuthorMain {
+  font-size: 1.5rem; line-height: 1.4; margin: 5px 0 16px; color: var(--asga-muted);
+}
 
-/* description block, readable contrast. CA sets this text to black via a more
-   specific rule (.popupDescription.popup_readmore), so force light with !important. */
+/* action pills (Install / Support / Pin) and every other CA button in the
+   drawer, including the Maintainer row, share one look */
+body.asga-active #sidenavContent .caButton {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer; box-sizing: border-box;
+  font-size: 1.4rem; line-height: 1.2; padding: 9px 20px; margin: 0 8px 8px 0;
+  border-radius: 999px; border: 1px solid var(--asga-line);
+  background: var(--asga-surface); color: var(--asga-fg) !important;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+body.asga-active #sidenavContent .caButton * { color: inherit !important; text-decoration: none; }
+body.asga-active #sidenavContent .caButton:hover {
+  border-color: var(--asga-accent); background: color-mix(in srgb, var(--asga-accent) 20%, transparent);
+  color: var(--asga-accent) !important;
+}
+/* primary action (Install / Actions) is the one solid button */
+body.asga-active #sidenavContent .caButton.actionsPopup {
+  background: var(--asga-accent); border-color: var(--asga-accent); color: #16130f !important; font-weight: 600;
+}
+body.asga-active #sidenavContent .caButton.actionsPopup:hover { filter: brightness(1.1); color: #16130f !important; }
+/* toggled-on states: pinned app, favourited repo */
+body.asga-active #sidenavContent .caButton.pinPopup.pinned,
+body.asga-active #sidenavContent .caButton.ca_favouriteRepo.fav {
+  border-color: var(--asga-accent); color: var(--asga-accent) !important;
+  background: color-mix(in srgb, var(--asga-accent) 18%, transparent);
+}
+
+/* the close control itself: a round ✕. CA renders the word "CLOSE" inside the
+   span, so the glyph is swapped in CSS and the label hidden, which keeps the
+   button identical in every language. Selector carries #sidenavContent so it
+   outranks the shared .caButton rule above. */
+body.asga-active #sidenavContent .popUpClose.caButton {
+  display: flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; padding: 0; margin: 0; border-radius: 50%;
+  font-size: 0; line-height: 0;
+  border: 1px solid var(--asga-line); background: var(--asga-surface);
+  color: var(--asga-fg) !important;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+body.asga-active #sidenavContent .popUpClose.caButton::before { content: '\2715'; font-size: 15px; line-height: 1; }
+body.asga-active #sidenavContent .popUpClose.caButton:hover {
+  border-color: var(--asga-accent); background: color-mix(in srgb, var(--asga-accent) 22%, transparent);
+  color: var(--asga-accent) !important; transform: scale(1.06);
+}
+
+/* description block. CA sets this text near-black via a more specific rule
+   (.popupDescription.popup_readmore), so force the theme colour back. */
 body.asga-active .popupDescription {
-  background: rgba(255,255,255,0.05); border: 1px solid rgba(127,127,127,0.25);
-  border-radius: 10px; padding: 14px 16px; line-height: 1.5; font-size: 1.05rem; margin: 4px 0 20px;
+  display: block; background: var(--asga-surface); border: 1px solid var(--asga-line);
+  border-radius: 12px; padding: 16px 18px; margin: 22px 0 0;
+  font-size: 1.5rem; line-height: 1.6 !important;
 }
 body.asga-active .popupDescription,
-body.asga-active .popupDescription * { color: #e8e8e8 !important; }
-body.asga-active .popupDescription a { color: #ff9d5c !important; }
+body.asga-active .popupDescription * { color: var(--asga-fg) !important; }
+body.asga-active .popupDescription a { color: var(--asga-accent) !important; text-decoration: underline; }
 
-/* section titles + details table */
-body.asga-active .rightTitle, body.asga-active .popupAuthorTitle {
-  font-size: 1.15rem; font-weight: 700; color: #ff8c2f; letter-spacing: 0.02em; margin: 6px 0 8px;
+/* section titles: small orange eyebrow labels, not 2.5rem headings */
+body.asga-active .rightTitle,
+body.asga-active .popupAuthorTitle,
+body.asga-active .chartTitle,
+body.asga-active .changelogTitle,
+body.asga-active .templateErrors,
+body.asga-active .additionalRequirementsHeader {
+  font-size: 1.3rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em;
+  color: var(--asga-accent); margin: 0 0 12px;
 }
-body.asga-active .popupTable { width: 100%; border-collapse: collapse; }
-body.asga-active .popupTable td { padding: 7px 8px; border-bottom: 1px solid rgba(127,127,127,0.15); font-size: 1.02rem; vertical-align: top; }
-body.asga-active .popupTableLeft { opacity: 0.6; white-space: nowrap; width: 40%; }
-body.asga-active .popupAuthorIcon img { width: 40px; height: 40px; border-radius: 8px; object-fit: contain; }
+
+/* Details + Maintainer as side-by-side cards (they stack when the drawer is narrow) */
+body.asga-active .popupInfoSection {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  align-items: start; gap: 16px; margin: 22px 0 0; font-size: 1.5rem; line-height: 1.5;
+}
+body.asga-active .popupInfoLeft {
+  margin: 0; overflow: visible;
+  background: var(--asga-surface); border: 1px solid var(--asga-line);
+  border-radius: 12px; padding: 16px 18px;
+}
+/* CA sets display:contents on .popupTable.contents, which drops the table box */
+body.asga-active .popupTable { display: table; width: 100%; table-layout: auto; border-collapse: collapse; margin: 0; }
+body.asga-active .popupTable td {
+  width: auto; padding: 9px 0; border-bottom: 1px solid var(--asga-line);
+  font-size: 1.4rem; line-height: 1.45; vertical-align: top;
+}
+body.asga-active .popupTable tr:last-child td { border-bottom: none; }
+body.asga-active .popupTableLeft { width: 1%; padding-right: 16px; color: var(--asga-muted); white-space: nowrap; }
+/* one row carries an inline white-space:nowrap that clips long repo names */
+body.asga-active .popupTableRight {
+  text-align: right; font-weight: 600; overflow: visible;
+  white-space: normal !important; overflow-wrap: anywhere;
+}
+
+/* Maintainer card: avatar beside the name, then the repo buttons */
+body.asga-active .popupAuthorTitle + div { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+body.asga-active .popupAuthor { font-size: 1.7rem; font-weight: 600; margin: 0; line-height: 1.3; overflow-wrap: anywhere; }
+body.asga-active .popupAuthorIcon { order: -1; float: none; flex: 0 0 auto; display: block; }
+body.asga-active img.popupAuthorIcon {
+  width: 44px; height: 44px; border-radius: 10px; object-fit: contain;
+  background: var(--asga-surface); border: 1px solid var(--asga-line);
+}
+/* the repo buttons stack full width: three pills never fit one row in a
+   column this narrow, and a 2+1 wrap reads as an accident */
+body.asga-active .popupInfoLeft .caButton {
+  display: flex; width: 100%; justify-content: center;
+  font-size: 1.3rem; padding: 8px 14px; margin: 0 0 8px;
+}
+body.asga-active .popupInfoLeft .caButton:last-child { margin-bottom: 0; }
+body.asga-active .donateText { margin: 16px 0 8px; color: var(--asga-muted); font-size: 1.3rem; }
+body.asga-active .donateDiv { margin: 0; }
+
+/* screenshots strip */
+body.asga-active #sidenavContent .screenshot { display: inline-block; margin: 0; }
+body.asga-active #sidenavContent .screen {
+  height: 96px; min-width: 0; max-width: 190px; margin: 22px 12px 0 0;
+  border-radius: 10px; border: 1px solid var(--asga-line);
+}
+body.asga-active #sidenavContent .screen:hover { border-color: var(--asga-accent); transform: none; }
+
+/* moderator / spotlight / changelog / errors, matched to the card language */
+body.asga-active .modComment {
+  margin: 22px 0 0; padding: 14px 18px; border: 1px solid var(--asga-line);
+  border-left: 3px solid var(--asga-accent); border-radius: 12px; background: var(--asga-surface);
+}
+body.asga-active .moderatorCommentHeader { font-size: 1.3rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--asga-accent); }
+body.asga-active .moderatorComment { font-size: 1.5rem; line-height: 1.5; }
+body.asga-active .spotlightPopup {
+  display: flex; gap: 16px; align-items: flex-start; margin: 22px 0 0;
+  padding: 16px 18px; border: 1px solid var(--asga-line); border-radius: 12px; background: var(--asga-surface);
+}
+/* CA hangs the spotlight icon on negative margins and pads the text block by
+   10rem, both of which collide inside a flex row */
+body.asga-active .spotlightIconArea {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  float: none; width: auto; flex: 0 0 auto;
+}
+body.asga-active .spotlightIconArea img.spotlightIcon {
+  width: 56px; height: auto; margin: 0 !important; object-fit: contain;
+}
+body.asga-active .spotlightDate { font-size: 1.2rem; margin: 0 !important; color: var(--asga-muted); }
+body.asga-active .spotlightInfoArea { margin: 0; padding: 0; min-width: 0; }
+body.asga-active .spotlightWhy { font-size: 1.3rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--asga-accent); margin-bottom: 6px; }
+body.asga-active .spotlightMessage { font-size: 1.5rem; line-height: 1.5; }
+body.asga-active .spotlightWho { margin-top: 8px; color: var(--asga-muted); }
+body.asga-active .charts.chartTitle, body.asga-active .changelogTitle, body.asga-active .templateErrors { margin-top: 28px; }
+body.asga-active .chartMenu { padding: 0 0 0 16px; font-size: 1.4rem; }
+body.asga-active .changelog, body.asga-active .changelogMessage { font-size: 1.5rem; line-height: 1.6; margin-top: 8px; }
+body.asga-active .additionalRequirements { margin: 0; font-size: 1.5rem; }
+body.asga-active .additionalRequirementsHeader { margin-top: 22px; }
+body.asga-active .templateErrorsList { font-size: 1.4rem; line-height: 1.5; margin-left: 18px; }
+/* CA's "statistics gathered every 30 days" footnote: a footnote, not a headline */
+body.asga-active .ca_note { font-size: 1.25rem; color: var(--asga-muted); }
+body.asga-active .ca_note.ca_bold { font-weight: 400; }
 
 /* our screenshot lightbox (replaces CA's drawer-closing gallery) */
 .asga-lightbox {
