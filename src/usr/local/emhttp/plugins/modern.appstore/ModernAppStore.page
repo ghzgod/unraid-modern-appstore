@@ -80,6 +80,8 @@ _(GitHub Personal Access Token)_:
 >
 > To create a token, open <u><a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a></u> (GitHub &rarr; Settings &rarr; Developer settings &rarr; Personal access tokens &rarr; Generate new token (classic)). Give it any name, leave all scopes unchecked since it only needs to read public star counts, click Generate token, and paste the value here.
 >
+> **Use a classic token (it starts with `ghp_`), not a fine-grained one (`github_pat_`).** GitHub refuses fine-grained tokens access to star dates, and the two "this year" trending sorts are built from those dates. Everything else, including the "all time" sorts, works with either kind.
+>
 > While this field is empty the Apps page shows a yellow warning and star counts stay disabled.
 
 _(Database directory)_:
@@ -95,6 +97,19 @@ _(Database directory)_:
   </span>
 
 </form>
+
+<?php if (!empty($status['stargazers_blocked'])): ?>
+<div class="title"><span class="left">Star dates unavailable</span></div>
+<div class="orange-text" style="max-width:760px;">
+  GitHub refused this token access to star dates (the stargazers endpoint), which is what the
+  <b>Trending (this year)</b> and <b>Trending % (this year)</b> sorts are built from, so those two stay empty.
+  This is how GitHub treats <b>fine-grained</b> tokens (<code>github_pat_...</code>); a <b>classic</b> token
+  (<code>ghp_...</code>) reads them with no scopes enabled. Replacing the token above and running
+  <b>Refresh now</b> fills the year windows in. Every other sort, including both <b>all time</b> ones,
+  is unaffected.
+</div>
+&nbsp;
+<?php endif; ?>
 
 <div class="title"><span class="left">Last scan</span></div>
 <?php if ($status): ?>

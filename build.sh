@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.31}"
+VERSION="${1:-2026.08.01}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,40 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Four new Sort By orders: Trending (this year), Trending (all time),
+  Trending % (this year) and Trending % (all time). All five trending windows now
+  rank by GitHub stars and differ only in the period they measure.
+  - "This year" is a real 365-day star delta. The plugin's daily snapshots cannot
+    reach back that far on a young install, so the year-ago baseline is
+    binary-searched out of the repo's stargazer list (about four requests for a
+    1,000-star repo) and cached for 30 days. Repos created inside the window cost
+    no request at all. The biggest repos are walked first, so a capped run still
+    produces a correct leaderboard, and browsing fills the rest in page by page.
+  - "All time" is every star the repo has ever gained. Its percentage form is a
+    lifetime rate (stars per year of repo age) because the other percent sorts
+    divide by the star count at the window's start, which at a repo's creation is
+    zero. It separates 5,000 stars in two years from 20,000 in twelve.
+- Fix (critical): the star fetcher crashed on every run before writing any data.
+  Apps with no GitHub repository passed null into a parameter typed as a plain
+  string, which is a TypeError in PHP 8, so the run died partway through building
+  the catalog. Star counts, trends and the app list had silently stopped updating.
+- A GitHub token that cannot read star dates is now detected with a single probe
+  request instead of thousands of failed ones, and is reported in plain language.
+  GitHub refuses fine-grained tokens (github_pat_...) access to the stargazers
+  endpoint, which is what the "this year" windows are built from; a classic token
+  (ghp_...) with no scopes reads them. The settings page explains this when it
+  applies, and the empty grid says which of the two reasons it is empty for.
+- The short trending windows no longer re-walk the whole catalog every scan.
+  Once a repo has a star snapshot older than a day the snapshots are used
+  outright, so that pass is now limited to repos that genuinely lack a baseline.
+- The Sort By dropdown is grouped (Name, Popularity, Trending, Trending %) rather
+  than one flat list of fifteen near-identical labels, and each trending entry
+  carries a tooltip naming exactly what it measures.
+- Fix: updating the plugin did not replace its files. Unraid's plugin manager
+  skips any bundled file that already exists, so an update over a running install
+  kept every old file and only took effect after a reboot (the plugin webroot
+  lives in RAM). The installer now clears its own webroot before unpacking. The
+  data directory on the flash, with the settings and star history, is untouched.
 - Renamed to "Unraid Modern App Store" throughout, and the plugin id is now
   modern.appstore: its folders are /usr/local/emhttp/plugins/modern.appstore and
   /boot/config/plugins/modern.appstore, and the settings page moved to
@@ -228,6 +262,17 @@ cat <<XMLHEAD
 <FILE Run="/bin/bash">
 <INLINE>
 <![CDATA[
+# The plugin manager SKIPS any inline payload whose target file already exists
+# ("skipping: ... already exists" in syslog), so an update over a running
+# install used to leave every old file in place and only appear to work after a
+# reboot, /usr/local/emhttp being tmpfs. Clearing the webroot first is what makes
+# an update actually update.
+#
+# Only the webroot is cleared. It is rebuilt from this package in full a few
+# lines later, and the generated JSON is restored from the flash afterwards.
+# /boot/config/plugins/$NAME is the DATA directory (settings, star database and
+# its history) and is never touched here.
+rm -rf /usr/local/emhttp/plugins/$NAME
 mkdir -p /usr/local/emhttp/plugins/$NAME
 mkdir -p /boot/config/plugins/$NAME
 ]]>

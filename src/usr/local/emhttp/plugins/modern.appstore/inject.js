@@ -33,6 +33,9 @@
     var scanAsked = {};           // path -> 1, so a page is only auto-scanned once
     var scanInFlight = false, scanPending = false, scanTimer = null;
     var pinnedSet = null, installedSet = null;
+    // false once the server reports the GitHub token cannot read star dates,
+    // which is what the year trending windows are built from
+    var starDates = true;
     // CA's Pinned/Installed views are broken in the 2026.07 rewrite (they render
     // the home screen), so the modern grid renders those itself (view.special).
     // The few views we can't yet rebuild from our data are handed back to CA.
@@ -47,25 +50,33 @@
         .catch(function () { pinnedSet = pinnedSet || new Set(); installedSet = installedSet || new Set(); cb && cb(); });
     }
 
-    // Trending windows are limited to day/week/month: those come from accurate
-    // daily star-history deltas. A "this year" window would need a full year of
-    // history the plugin hasn't accumulated, so it is deliberately omitted
-    // rather than shown with fabricated/empty data.
+    // Every trending sort ranks by GitHub stars; they differ only in the window.
+    // Day/week/month come from the plugin's own daily star snapshots. The year
+    // window can't: a fresh install has no year-old snapshot, so the server
+    // walks each repo's stargazer list for a real year-ago baseline (see
+    // backfill_year_baselines in fetch_stars.php) and hands it over as t365.
+    // All time is the repo's whole life: every star it has ever gained, and for
+    // the percentage variant the lifetime rate, since dividing by the star count
+    // at a repo's birth would be dividing by zero.
     // Trending sorts also FILTER to apps that actually moved in that window, so
     // the view is a real "what's hot" list, not the whole catalog with a few
     // movers on top and everything else in feed order.
     var SORT_OPTS = [
-      { v: 'name_asc',  label: 'Name Ascending',  cmp: function (a, b) { return a.sn < b.sn ? -1 : a.sn > b.sn ? 1 : 0; } },
-      { v: 'name_desc', label: 'Name Descending', cmp: function (a, b) { return a.sn < b.sn ? 1 : a.sn > b.sn ? -1 : 0; } },
-      { v: 'downloads', label: 'Unraid Downloads', cmp: numDesc('dl') },
-      { v: 'new',       label: 'Newest to the App Store', cmp: numDesc('fs') },
-      { v: 'ghstars',   label: 'GitHub Stars',    cmp: numDesc('s') },
-      { v: 'ght1',      label: 'Trending (today)',      cmp: numDesc('t1'),  filter: hasTrend('t1') },
-      { v: 'ght7',      label: 'Trending (this week)',  cmp: numDesc('t7'),  filter: hasTrend('t7') },
-      { v: 'ght30',     label: 'Trending (this month)', cmp: numDesc('t30'), filter: hasTrend('t30') },
-      { v: 'ghp1',      label: 'Trending % (today)',      cmp: pctDesc('t1'),  filter: hasPct('t1') },
-      { v: 'ghp7',      label: 'Trending % (this week)',  cmp: pctDesc('t7'),  filter: hasPct('t7') },
-      { v: 'ghp30',     label: 'Trending % (this month)', cmp: pctDesc('t30'), filter: hasPct('t30') }
+      { g: 'Name', v: 'name_asc',  label: 'Name Ascending',  cmp: function (a, b) { return a.sn < b.sn ? -1 : a.sn > b.sn ? 1 : 0; } },
+      { g: 'Name', v: 'name_desc', label: 'Name Descending', cmp: function (a, b) { return a.sn < b.sn ? 1 : a.sn > b.sn ? -1 : 0; } },
+      { g: 'Popularity', v: 'downloads', label: 'Unraid Downloads', cmp: numDesc('dl') },
+      { g: 'Popularity', v: 'new',       label: 'Newest to the App Store', cmp: numDesc('fs') },
+      { g: 'Popularity', v: 'ghstars',   label: 'GitHub Stars',    cmp: numDesc('s') },
+      { g: 'Trending', v: 'ght1',    label: 'Trending (today)',      cmp: numDesc('t1'),   filter: hasTrend('t1'),   hint: 'Stars gained in the last day' },
+      { g: 'Trending', v: 'ght7',    label: 'Trending (this week)',  cmp: numDesc('t7'),   filter: hasTrend('t7'),   hint: 'Stars gained in the last 7 days' },
+      { g: 'Trending', v: 'ght30',   label: 'Trending (this month)', cmp: numDesc('t30'),  filter: hasTrend('t30'),  hint: 'Stars gained in the last 30 days' },
+      { g: 'Trending', v: 'ght365',  label: 'Trending (this year)',  cmp: numDesc('t365'), filter: hasTrend('t365'), hint: 'Stars gained in the last 365 days' },
+      { g: 'Trending', v: 'ghtall',  label: 'Trending (all time)',   cmp: numDesc('s'),    filter: hasStars,         hint: 'Every star the repo has ever gained' },
+      { g: 'Trending %', v: 'ghp1',   label: 'Trending % (today)',      cmp: pctDesc('t1'),   filter: hasPct('t1'),   hint: 'Growth today, against the star count a day ago' },
+      { g: 'Trending %', v: 'ghp7',   label: 'Trending % (this week)',  cmp: pctDesc('t7'),   filter: hasPct('t7'),   hint: 'Growth this week, against the star count 7 days ago' },
+      { g: 'Trending %', v: 'ghp30',  label: 'Trending % (this month)', cmp: pctDesc('t30'),  filter: hasPct('t30'),  hint: 'Growth this month, against the star count 30 days ago' },
+      { g: 'Trending %', v: 'ghp365', label: 'Trending % (this year)',  cmp: pctDesc('t365'), filter: hasPct('t365'), hint: 'Growth this year, against the star count a year ago' },
+      { g: 'Trending %', v: 'ghpall', label: 'Trending % (all time)',   cmp: rateDesc,        filter: hasRate,        hint: 'Lifetime growth rate: stars per year since the repo was created' }
     ];
     function optFor(v) { for (var i = 0; i < SORT_OPTS.length; i++) if (SORT_OPTS[i].v === v) return SORT_OPTS[i]; return SORT_OPTS[0]; }
     // numeric descending; null/undefined sinks to the bottom
@@ -74,9 +85,23 @@
     // tiny repos (2->4 = +100%) don't dominate. Mirrors the old server logic.
     function pct(a, k) { var d = a[k]; if (d == null || a.s == null) return -Infinity; var base = a.s - d; if (base < 10) return -Infinity; return d / base; }
     function pctDesc(k) { return function (a, b) { return pct(b, k) - pct(a, k); }; }
+    // All-time rate: total stars over the repo's age in years. A repo has zero
+    // stars at birth, so the percentage form used by the other windows would
+    // divide by zero; the lifetime average is the meaningful all-time ranking.
+    // The 3-month age floor stops a repo published last week from posting an
+    // extrapolated rate in the tens of thousands.
+    var YEAR_MS = 365.25 * 24 * 3600 * 1000;
+    function rate(a) {
+      if (a.s == null || a.s < 10 || !a.ca) return -Infinity;
+      var yrs = (Date.now() - a.ca * 1000) / YEAR_MS;
+      return a.s / Math.max(0.25, yrs);
+    }
+    function rateDesc(a, b) { return rate(b) - rate(a); }
     // trending filters: only apps that actually gained stars in the window
     function hasTrend(k) { return function (a) { return a[k] != null && a[k] > 0; }; }
     function hasPct(k) { return function (a) { return pct(a, k) > 0; }; }
+    function hasStars(a) { return a.s != null && a.s > 0; }
+    function hasRate(a) { return rate(a) > 0; }
 
     function fmt(n) {
       if (n == null) return '';
@@ -90,7 +115,11 @@
     function loadApps(cb) {
       fetch(PREFIX + 'applist.php?_=' + Date.now())
         .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (j) { APPS = dedupe((j && j.apps) || []); cb && cb(); })
+        .then(function (j) {
+          APPS = dedupe((j && j.apps) || []);
+          if (j && j.starDates === false) starDates = false;
+          cb && cb();
+        })
         .catch(function () { APPS = APPS || []; cb && cb(); });
     }
     // The feed carries the same app under multiple templates (e.g. a repo and a
@@ -397,6 +426,21 @@
       return b;
     }
 
+    // A trending sort filters to apps that moved in its window, so an empty grid
+    // is ambiguous: nothing moved, or the data for that window was never
+    // gathered. The year windows are the ones that can genuinely be unavailable,
+    // so say which it is instead of leaving a blank page.
+    function emptySortNote() {
+      if (view.sort !== 'ght365' && view.sort !== 'ghp365') return '';
+      if (!starDates) {
+        return 'The "this year" windows need GitHub star dates, which the configured token cannot read. ' +
+               'A classic token (ghp_...) with no scopes can read them; a fine-grained token (github_pat_...) cannot. ' +
+               'Swap the token in Settings, or wait for the plugin to record a year of its own star history.';
+      }
+      return 'No star data reaches back a year yet. This fills in as the plugin records history, ' +
+             'or straight away once a full catalog scan has run.';
+    }
+
     function render() {
       if (!isOn() || caSpecial) return;
       var wrap = ensureGrid();
@@ -416,7 +460,8 @@
         empty.className = 'asga-empty';
         empty.textContent = view.special === 'pinned' ? 'No pinned apps yet. Use the Pin App button on any app to add it here.'
           : view.special === 'installed' ? 'No installed apps matched the App Store catalog.'
-          : view.q ? 'No apps match "' + view.q + '".' : 'No apps to show.';
+          : view.q ? 'No apps match "' + view.q + '".'
+          : emptySortNote() || 'No apps to show.';
         grid.appendChild(empty);
       } else {
         var frag = document.createDocumentFragment();
@@ -542,7 +587,14 @@
     function addSortBar() {
       var host = document.getElementById('searchFilter');
       if (!host || document.getElementById('asga-bar')) return;
-      var opts = SORT_OPTS.map(function (o) { return '<option value="' + o.v + '">' + o.label + '</option>'; }).join('');
+      // grouped, because a flat list of fifteen orders is a wall of near-identical
+      // labels; the four Trending/Trending % families read at a glance this way
+      var opts = '', group = '';
+      SORT_OPTS.forEach(function (o) {
+        if (o.g !== group) { if (group) opts += '</optgroup>'; opts += '<optgroup label="' + o.g + '">'; group = o.g; }
+        opts += '<option value="' + o.v + '"' + (o.hint ? ' title="' + o.hint + '"' : '') + '>' + o.label + '</option>';
+      });
+      if (group) opts += '</optgroup>';
       var bar = document.createElement('span');
       bar.id = 'asga-bar';
       bar.className = 'asga-bar';

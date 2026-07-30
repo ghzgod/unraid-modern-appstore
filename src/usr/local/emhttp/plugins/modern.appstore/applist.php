@@ -13,13 +13,14 @@
  *   - CA's templates_new.json      (FirstSeen, downloads, displayable flags), never written
  * It writes nothing, anywhere. All CA paths are opened read-only.
  *
- * Output: { "generated": <ts>, "apps": [ { p,n,sn,ic,ct,s,dl,fs,t1,t7,t30,t365 } ] }
+ * Output: { "generated": <ts>, "apps": [ { p,n,sn,ic,ct,s,dl,fs,ca,t1,t7,t30,t365 } ] }
  *   p  = template path (passed to CA's showSidebarApp for Info/Install)
  *   n  = display name          sn = lowercase sort-name
  *   ic = icon URL              ct = category
  *   s  = GitHub stars (or null)  dl = Unraid downloads (or 0)
  *   fs = FirstSeen unix ts (date added; 0 if unknown)
  *   sa = last star-fetch attempt for this app's repo (0 = never tried)
+ *   ca = repo creation unix ts (or null), for the lifetime growth-rate sort
  *   t1/t7/t30/t365 = star trend deltas (day/week/month/year)
  */
 header('Content-Type: application/json');
@@ -134,6 +135,7 @@ foreach ($tmpl as $t) {
         'dl'  => $dl,
         'fs'  => (int)($t['FirstSeen'] ?? 0),
         'sa'  => $fetchedAt[strtolower($mine['rp'] ?? '')] ?? 0,
+        'ca'  => $mine['ca'] ?? null,
         't1'  => $mine['t1'] ?? null,
         't7'  => $mine['t7'] ?? null,
         't30' => $mine['t30'] ?? null,
@@ -141,9 +143,15 @@ foreach ($tmpl as $t) {
     ];
 }
 
+// Whether the configured token can read star dates. The year trending windows
+// depend on them, so the grid needs to tell an empty result from an unreadable
+// one rather than just showing "No apps to show".
+$scan = read_json_ro("$dataDir/status.json") ?: [];
+$starDates = empty($scan['stargazers_blocked']);
+
 // JSON_INVALID_UTF8_SUBSTITUTE: some feed descriptions carry stray bytes that
 // would otherwise make json_encode() return false and emit an empty body.
 echo json_encode(
-    ['generated' => time(), 'count' => count($out), 'apps' => $out],
+    ['generated' => time(), 'count' => count($out), 'starDates' => $starDates, 'apps' => $out],
     JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
 );
