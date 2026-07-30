@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.29d}"
+VERSION="${1:-2026.07.30}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -16,7 +16,7 @@ PLUGIN_URL="https://raw.githubusercontent.com/ghzgod/appstore-github-addon/main/
 SUPPORT_URL="https://github.com/ghzgod/appstore-github-addon"
 
 # --- payload files (order: php, js, css, pages, readme) --------------------
-FILES=(fetch_stars.php refresh.php cancel.php sortinject.php newscan.php inject.js inject.css AppStoreGitHubAddon.page AppStoreGitHubAddonLoader.page README.md)
+FILES=(fetch_stars.php refresh.php cancel.php sortinject.php newscan.php applist.php inject.js inject.css AppStoreGitHubAddon.page AppStoreGitHubAddonLoader.page README.md)
 
 # guard: CDATA cannot contain ]]>
 for f in "${FILES[@]}"; do
@@ -44,6 +44,19 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Rearchitected the GitHub view. Community Applications' 2026.07 rewrite broke its
+  own client-side sort (any sort collapsed the list to ~36 apps). The addon now
+  renders its own grid over the full catalog: reliable sorting by name, Unraid
+  downloads, newest, GitHub stars and trending; real pagination; search; and
+  category filtering. Clicking a tile opens CA's own Info/Install drawer, so
+  installs are unchanged. A toggle switches back to the stock CA view at any time.
+- Tiles show the app description, author and category with modern Info/Support/
+  Install buttons, a GitHub-star badge and an Unraid-download-count badge.
+- Language packs are filtered out of the app grid, matching CA.
+- Trending is limited to day/week/month (accurate star-history deltas) and each
+  trending view lists only apps that actually moved, instead of the whole catalog.
+  The unreliable "this year" window was removed until a year of history exists.
+- Accent colour matches the Unraid logo orange.
 - Fix: "Newest to the App Store" and "Unraid Downloads" intermittently fell back
   to alphabetical order. They relied on CA's native sort, which does not re-apply
   after CA rebuilds the list A-Z on a results-per-page change. Every sort now runs

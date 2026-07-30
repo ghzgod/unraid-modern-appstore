@@ -1,113 +1,372 @@
 /*
- * Front-end injector for the App Store GitHub Addon.
+ * Front-end for the App Store GitHub Addon.
  *
- * Runs only on /Apps. It does NOT recreate any tiles. It uses Community
- * Applications' OWN rendering:
- *   1. paints a ★ star badge on every GitHub-backed tile,
- *   2. replaces CA's row of "Sort By:" links with ONE dropdown holding both
- *      CA's own sort orders and ours (stars / trending),
- *   3. a small Refresh control (confirm + 3-day cooldown + cancel) and a thin
- *      progress bar while a scan runs.
+ * Community Applications' 2026.07 rewrite made its client-side sort unreliable:
+ * applying any sort collapses the All-Apps view to a ~36-app subset and orders
+ * only those, and its results-per-page setting no longer reflects the view. So
+ * this addon stops depending on CA's display/sort pipeline and renders its OWN
+ * grid instead:
  *
- * Sorting works by injecting numeric metrics into CA's transient view caches
- * (via sortinject.php) and then calling CA's own changeSortOrder(), so the
- * GitHub view IS the real app page, just orderable by stars/trending, and it
- * tracks any change CA makes to its tiles. CA rebuilds those caches from the
- * raw feed on every search / category change, wiping our fields, so we hook
- * CA's updateDisplay() and re-inject + re-sort once after each render whenever
- * a GitHub sort is active. CA's own sort orders are applied by clicking its
- * hidden .sortIcons anchors, so CA's internal state stays exactly as it
- * expects. Everything is wrapped so a failure is a silent no-op that never
- * breaks CA.
+ *   - applist.php hands us every displayable app (name/icon/category/stars/
+ *     trends/date-added/downloads) for the whole ~3600-app catalog.
+ *   - We sort that full list client-side (name / downloads / newest / GitHub
+ *     stars / trending), paginate it, and paint a ★ badge on each tile.
+ *   - Clicking a tile calls CA's own showSidebarApp(path,name), which opens the
+ *     real Info + Install drawer. We never reimplement install, and never write
+ *     to or modify anything CA owns.
+ *
+ * Everything is wrapped so a failure is a silent no-op that never breaks CA.
  */
 (function () {
   'use strict';
   try {
     if (location.pathname.indexOf('/Apps') !== 0) return;
     var PREFIX = '/plugins/appstore.github.addon/';
-    var STARS = null;
-    var polling = false, wasRunning = false;
-    var activeOpt = null;      // the option currently applied
-    var reSorting = false;     // guards the one re-sort we trigger per CA render
 
-    // Every option is sorted through OUR path (applyGhSort + the re-apply hook),
-    // including CA's own fields (Name/SortName, downloads, FirstSeen). Clicking
-    // CA's native sort anchors instead was unreliable: CA's changeMaxPerPage
-    // rebuilds the list alphabetically, and a native sort does not self-heal
-    // after that render, so "Newest"/"Downloads" would intermittently fall back
-    // to A-Z. Routing everything through the self-healing hook fixes that.
-    // `key` is the field CA's mySort() orders by (it maps 'Name' -> 'SortName').
+    var APPS = [];
+    var view = { sort: 'new', q: '', cat: '', catLabel: 'All Apps', page: 1, perPage: 96 };
+    var polling = false, wasRunning = false;
+
+    // Trending windows are limited to day/week/month: those come from accurate
+    // daily star-history deltas. A "this year" window would need a full year of
+    // history the plugin hasn't accumulated, so it is deliberately omitted
+    // rather than shown with fabricated/empty data.
+    // Trending sorts also FILTER to apps that actually moved in that window, so
+    // the view is a real "what's hot" list, not the whole catalog with a few
+    // movers on top and everything else in feed order.
     var SORT_OPTS = [
-      { v: 'name_asc',  key: 'Name',      dir: 'Up',   label: 'Name Ascending' },
-      { v: 'name_desc', key: 'Name',      dir: 'Down', label: 'Name Descending' },
-      { v: 'downloads', key: 'downloads', dir: 'Down', label: 'Unraid Downloads' },
-      { v: 'new',       key: 'FirstSeen', dir: 'Down', label: 'Newest to the App Store' },
-      { v: 'ghstars',   key: 'ghstars',   dir: 'Down', label: 'GitHub Stars' },
-      { v: 'ght1',      key: 'ght1',      dir: 'Down', label: 'Trending (today)' },
-      { v: 'ght7',      key: 'ght7',      dir: 'Down', label: 'Trending (this week)' },
-      { v: 'ght30',     key: 'ght30',     dir: 'Down', label: 'Trending (this month)' },
-      { v: 'ght365',    key: 'ght365',    dir: 'Down', label: 'Trending (this year)' },
-      { v: 'ghp1',      key: 'ghp1',      dir: 'Down', label: 'Trending % (today)' },
-      { v: 'ghp7',      key: 'ghp7',      dir: 'Down', label: 'Trending % (this week)' },
-      { v: 'ghp30',     key: 'ghp30',     dir: 'Down', label: 'Trending % (this month)' },
-      { v: 'ghp365',    key: 'ghp365',    dir: 'Down', label: 'Trending % (this year)' }
+      { v: 'name_asc',  label: 'Name Ascending',  cmp: function (a, b) { return a.sn < b.sn ? -1 : a.sn > b.sn ? 1 : 0; } },
+      { v: 'name_desc', label: 'Name Descending', cmp: function (a, b) { return a.sn < b.sn ? 1 : a.sn > b.sn ? -1 : 0; } },
+      { v: 'downloads', label: 'Unraid Downloads', cmp: numDesc('dl') },
+      { v: 'new',       label: 'Newest to the App Store', cmp: numDesc('fs') },
+      { v: 'ghstars',   label: 'GitHub Stars',    cmp: numDesc('s') },
+      { v: 'ght1',      label: 'Trending (today)',      cmp: numDesc('t1'),  filter: hasTrend('t1') },
+      { v: 'ght7',      label: 'Trending (this week)',  cmp: numDesc('t7'),  filter: hasTrend('t7') },
+      { v: 'ght30',     label: 'Trending (this month)', cmp: numDesc('t30'), filter: hasTrend('t30') },
+      { v: 'ghp1',      label: 'Trending % (today)',      cmp: pctDesc('t1'),  filter: hasPct('t1') },
+      { v: 'ghp7',      label: 'Trending % (this week)',  cmp: pctDesc('t7'),  filter: hasPct('t7') },
+      { v: 'ghp30',     label: 'Trending % (this month)', cmp: pctDesc('t30'), filter: hasPct('t30') }
     ];
-    function optFor(v) { for (var i = 0; i < SORT_OPTS.length; i++) if (SORT_OPTS[i].v === v) return SORT_OPTS[i]; return null; }
+    function optFor(v) { for (var i = 0; i < SORT_OPTS.length; i++) if (SORT_OPTS[i].v === v) return SORT_OPTS[i]; return SORT_OPTS[0]; }
+    // numeric descending; null/undefined sinks to the bottom
+    function numDesc(k) { return function (a, b) { var x = a[k], y = b[k]; if (x == null) x = -Infinity; if (y == null) y = -Infinity; return y - x; }; }
+    // relative growth: window delta / stars at window start, 10-star floor so
+    // tiny repos (2->4 = +100%) don't dominate. Mirrors the old server logic.
+    function pct(a, k) { var d = a[k]; if (d == null || a.s == null) return -Infinity; var base = a.s - d; if (base < 10) return -Infinity; return d / base; }
+    function pctDesc(k) { return function (a, b) { return pct(b, k) - pct(a, k); }; }
+    // trending filters: only apps that actually gained stars in the window
+    function hasTrend(k) { return function (a) { return a[k] != null && a[k] > 0; }; }
+    function hasPct(k) { return function (a) { return pct(a, k) > 0; }; }
 
     function fmt(n) {
       if (n == null) return '';
-      var a = Math.abs(n);
-      if (a >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, '') + 'B';
-      if (a >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
-      if (a >= 1e3) return (n / 1e3).toFixed(a >= 1e4 ? 0 : 1).replace(/\.0$/, '') + 'k';
+      var x = Math.abs(n);
+      if (x >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, '') + 'B';
+      if (x >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+      if (x >= 1e3) return (n / 1e3).toFixed(x >= 1e4 ? 0 : 1).replace(/\.0$/, '') + 'k';
       return '' + n;
     }
-    function ago(ts) {
-      if (!ts) return 'never';
-      var s = Math.floor(Date.now() / 1000) - ts;
-      if (s < 3600) return Math.max(1, Math.floor(s / 60)) + 'm ago';
-      if (s < 86400) return Math.floor(s / 3600) + 'h ago';
-      return Math.floor(s / 86400) + 'd ago';
+
+    function loadApps(cb) {
+      fetch(PREFIX + 'applist.php?_=' + Date.now())
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) { APPS = (j && j.apps) || []; cb && cb(); })
+        .catch(function () { APPS = APPS || []; cb && cb(); });
     }
 
-    function injectUrl() { return PREFIX + 'sortinject.php?_=' + Date.now(); }
-
-    function loadStars(cb) {
-      fetch(PREFIX + 'stars.json?_=' + Date.now()).then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (j) { STARS = j || { byName: {} }; cb && cb(); })
-        .catch(function () { STARS = STARS || { byName: {} }; cb && cb(); });
+    // ---- filtering + sorting ----
+    function catMatch(a, cat) {
+      if (!cat) return true;
+      var c = (a.ct || '').toLowerCase();
+      cat = cat.toLowerCase();
+      return c === cat || c.indexOf(cat) >= 0;
     }
-
-    // ---- badges on CA's real tiles ----
-    // match each tile to its OWN repo by unique template path (data-apppath);
-    // fall back to name only if no path match (names are not unique).
-    function starsForTile(t) {
-      if (!STARS) return null;
-      var path = t.getAttribute('data-apppath');
-      if (path && STARS.byPath && Object.prototype.hasOwnProperty.call(STARS.byPath, path)) return STARS.byPath[path];
-      var name = (t.getAttribute('data-appname') || '').toLowerCase().trim();
-      if (STARS.byName && Object.prototype.hasOwnProperty.call(STARS.byName, name)) return STARS.byName[name];
-      return null;
-    }
-    function paintBadges() {
-      var tiles = document.querySelectorAll('.ca_holder[data-appname]:not([data-ghstars-done])');
-      for (var i = 0; i < tiles.length; i++) {
-        var t = tiles[i];
-        t.setAttribute('data-ghstars-done', '1');
-        var s = starsForTile(t);
-        if (s == null) continue;
-        var b = document.createElement('span');
-        b.className = 'ghstars-badge';
-        // official/installed cards draw a corner ribbon in the top-right; slide left of it
-        if (t.querySelector('.officialCardBackground, .LTOfficialCardBackground, .installedCardBackground, .warningCardBackground, .betaCardBackground, .greenCardBackground, .spotlightCardBackground')) {
-          b.className += ' ghstars-badge-flagged';
+    function currentList() {
+      var q = view.q.trim().toLowerCase();
+      var opt = optFor(view.sort);
+      var list = APPS.filter(function (a) {
+        if (opt.filter && !opt.filter(a)) return false;   // e.g. trending: only movers
+        if (!catMatch(a, view.cat)) return false;
+        if (q) {
+          if ((a.n || '').toLowerCase().indexOf(q) < 0 &&
+              (a.ct || '').toLowerCase().indexOf(q) < 0 &&
+              (a.rp || '').toLowerCase().indexOf(q) < 0) return false;
         }
-        b.title = s + ' GitHub stars';
-        b.textContent = '★ ' + fmt(s);
-        t.appendChild(b);
+        return true;
+      });
+      list.sort(opt.cmp);
+      return list;
+    }
+
+    // ---- rendering ----
+    function ensureGrid() {
+      var host = document.querySelector('.mainArea');
+      if (!host) return null;
+      var wrap = document.getElementById('asga-view');
+      if (wrap) return wrap;
+      wrap = document.createElement('div');
+      wrap.id = 'asga-view';
+      wrap.innerHTML = '<div id="asga-count" class="asga-count"></div>' +
+        '<div id="asga-grid" class="asga-grid"></div>' +
+        '<div id="asga-pager" class="asga-pager"></div>';
+      var anchor = document.getElementById('templates_content');
+      if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(wrap, anchor);
+      else host.appendChild(wrap);
+      // one delegated click handles tiles + their Info/Support/Install buttons
+      document.getElementById('asga-grid').addEventListener('click', function (e) {
+        var el = e.target;
+        var tile = el.closest ? el.closest('.asga-tile') : null;
+        if (!tile) return;
+        var p = tile.getAttribute('data-apppath'), n = tile.getAttribute('data-appname');
+        var btn = el.closest ? el.closest('.asga-btn') : null;
+        if (btn) {
+          e.stopPropagation();
+          if (btn.classList.contains('asga-install')) {
+            try { window.popupInstallXML(p, 'default', '', ''); } catch (err) {}
+          } else if (btn.classList.contains('asga-support')) {
+            toggleSupportMenu(tile, btn);
+          } else { // Info
+            try { window.showSidebarApp(p, n); } catch (err) {}
+          }
+          return;
+        }
+        // click anywhere else on the card opens the Info/Install drawer
+        try { window.showSidebarApp(p, n); } catch (err) {}
+      });
+      return wrap;
+    }
+
+    // small self-contained Support menu (Project / Support), no CA dependency
+    function toggleSupportMenu(tile, btn) {
+      var existing = tile.querySelector('.asga-supmenu');
+      document.querySelectorAll('.asga-supmenu').forEach(function (m) { m.remove(); });
+      if (existing) return;
+      var pr = tile.getAttribute('data-project') || '', su = tile.getAttribute('data-support') || '';
+      if (!pr && !su) return;
+      var menu = document.createElement('div');
+      menu.className = 'asga-supmenu';
+      if (pr) menu.appendChild(supLink('Project', pr));
+      if (su) menu.appendChild(supLink('Support', su));
+      btn.parentNode.appendChild(menu);
+      setTimeout(function () {
+        document.addEventListener('click', function close(ev) {
+          if (!menu.contains(ev.target)) { menu.remove(); document.removeEventListener('click', close, true); }
+        }, true);
+      }, 0);
+    }
+    function supLink(label, href) {
+      var a = document.createElement('a');
+      a.className = 'asga-suplink'; a.textContent = label; a.href = href; a.target = '_blank'; a.rel = 'noopener';
+      a.addEventListener('click', function (e) { e.stopPropagation(); });
+      return a;
+    }
+
+    function makeTile(a) {
+      var tile = document.createElement('div');
+      tile.className = 'asga-tile';
+      tile.setAttribute('data-apppath', a.p);
+      tile.setAttribute('data-appname', a.n);
+      if (a.pr) tile.setAttribute('data-project', a.pr);
+      if (a.su) tile.setAttribute('data-support', a.su);
+      tile.title = a.n;
+
+      // header: icon + name/author/category
+      var head = document.createElement('div');
+      head.className = 'asga-tile-head';
+
+      var iconWrap = document.createElement('div');
+      iconWrap.className = 'asga-tile-icon';
+      var img = document.createElement('img');
+      var fallback = '/plugins/dynamix.docker.manager/images/question.png';
+      img.src = a.ic || fallback; img.loading = 'lazy'; img.alt = '';
+      img.onerror = function () { if (this.src.indexOf('question.png') < 0) this.src = fallback; };
+      iconWrap.appendChild(img);
+      if (a.s != null) {
+        var badge = document.createElement('span');
+        badge.className = 'ghstars-badge';
+        badge.textContent = '★ ' + fmt(a.s);
+        badge.title = a.s + ' GitHub stars';
+        iconWrap.appendChild(badge);
+      }
+      if (a.dl > 0) {
+        var dlb = document.createElement('span');
+        dlb.className = 'ghdl-badge';
+        dlb.textContent = '⤓ ' + fmt(a.dl);
+        dlb.title = a.dl.toLocaleString() + ' Unraid downloads';
+        iconWrap.appendChild(dlb);
+      }
+      head.appendChild(iconWrap);
+
+      var htext = document.createElement('div');
+      htext.className = 'asga-tile-htext';
+      var name = document.createElement('div');
+      name.className = 'asga-tile-name';
+      name.textContent = a.n;
+      htext.appendChild(name);
+      if (a.au) {
+        var au = document.createElement('div');
+        au.className = 'asga-tile-author';
+        au.textContent = a.au;
+        htext.appendChild(au);
+      }
+      if (a.ct) {
+        var cat = document.createElement('div');
+        cat.className = 'asga-tile-cat';
+        cat.textContent = a.ct;
+        htext.appendChild(cat);
+      }
+      head.appendChild(htext);
+      tile.appendChild(head);
+
+      // description (verbiage)
+      if (a.de) {
+        var desc = document.createElement('div');
+        desc.className = 'asga-tile-desc';
+        desc.textContent = a.de;
+        tile.appendChild(desc);
+      }
+
+      // Info / Support / Install buttons
+      var btns = document.createElement('div');
+      btns.className = 'asga-tile-btns';
+      btns.appendChild(mkBtn('Info', 'asga-info'));
+      if (a.pr || a.su) btns.appendChild(mkBtn('Support', 'asga-support'));
+      btns.appendChild(mkBtn('Install', 'asga-install'));
+      tile.appendChild(btns);
+      return tile;
+    }
+    function mkBtn(label, cls) {
+      var b = document.createElement('span');
+      b.className = 'asga-btn ' + cls;
+      b.textContent = label;
+      return b;
+    }
+
+    function render() {
+      if (!isOn()) return;
+      var wrap = ensureGrid();
+      if (!wrap) return;
+      var list = currentList();
+      var total = list.length;
+      var pages = Math.max(1, Math.ceil(total / view.perPage));
+      if (view.page > pages) view.page = pages;
+      if (view.page < 1) view.page = 1;
+      var start = (view.page - 1) * view.perPage;
+      var pageItems = list.slice(start, start + view.perPage);
+
+      var grid = document.getElementById('asga-grid');
+      grid.textContent = '';
+      var frag = document.createDocumentFragment();
+      for (var i = 0; i < pageItems.length; i++) frag.appendChild(makeTile(pageItems[i]));
+      grid.appendChild(frag);
+
+      var from = total ? start + 1 : 0, to = Math.min(start + view.perPage, total);
+      document.getElementById('asga-count').textContent =
+        'Showing ' + from + '–' + to + ' of ' + total + ' apps' + (view.cat ? ' in ' + view.catLabel : '') + (view.q ? ' matching "' + view.q + '"' : '');
+      renderPager(pages);
+      try { window.scrollTo(0, 0); } catch (e) {}
+    }
+
+    function renderPager(pages) {
+      var p = document.getElementById('asga-pager');
+      p.textContent = '';
+      if (pages <= 1) return;
+      var mk = function (label, page, disabled, cur) {
+        var b = document.createElement('a');
+        b.className = 'asga-page' + (cur ? ' asga-page-cur' : '') + (disabled ? ' asga-page-off' : '');
+        b.textContent = label;
+        if (!disabled && !cur) b.addEventListener('click', function () { view.page = page; render(); });
+        return b;
+      };
+      p.appendChild(mk('‹ Prev', view.page - 1, view.page <= 1, false));
+      // windowed page numbers around current
+      var win = 3, lo = Math.max(1, view.page - win), hi = Math.min(pages, view.page + win);
+      if (lo > 1) { p.appendChild(mk('1', 1, false, view.page === 1)); if (lo > 2) p.appendChild(dots()); }
+      for (var n = lo; n <= hi; n++) p.appendChild(mk('' + n, n, false, n === view.page));
+      if (hi < pages) { if (hi < pages - 1) p.appendChild(dots()); p.appendChild(mk('' + pages, pages, false, view.page === pages)); }
+      p.appendChild(mk('Next ›', view.page + 1, view.page >= pages, false));
+    }
+    function dots() { var s = document.createElement('span'); s.className = 'asga-dots'; s.textContent = '…'; return s; }
+
+    // ---- our toolbar (toggle + dropdown + refresh) in CA's search row ----
+    function addSortBar() {
+      var host = document.getElementById('searchFilter');
+      if (!host || document.getElementById('asga-bar')) return;
+      var opts = SORT_OPTS.map(function (o) { return '<option value="' + o.v + '">' + o.label + '</option>'; }).join('');
+      var bar = document.createElement('span');
+      bar.id = 'asga-bar';
+      bar.className = 'asga-bar';
+      bar.innerHTML =
+        '<label class="asga-toggle" title="Toggle between the GitHub view and the stock Community Applications view">' +
+          '<input type="checkbox" id="asga-toggle-cb"><span class="asga-toggle-track"><span class="asga-toggle-knob"></span></span>' +
+          '<span class="asga-toggle-lbl">GitHub view</span>' +
+        '</label>' +
+        '<span class="asga-sortwrap"><span class="asga-bar-label">Sort By:</span>' +
+        '<select id="asga-sortsel" class="asga-sortsel">' + opts + '</select>' +
+        '<a id="asga-refresh" class="asga-refreshlink" title="Fetch the latest GitHub data (once every 3 days)">↻</a></span>';
+      host.appendChild(bar);
+      var sel = document.getElementById('asga-sortsel');
+      sel.value = view.sort;
+      sel.addEventListener('change', function (e) { view.sort = e.target.value; view.page = 1; render(); });
+      document.getElementById('asga-refresh').addEventListener('click', onRefreshClick);
+      var cb = document.getElementById('asga-toggle-cb');
+      cb.checked = isOn();
+      cb.addEventListener('change', function () { setOn(cb.checked); });
+    }
+
+    // GitHub view on/off, persisted. When off, we un-hide CA's own grid and let
+    // the stock App Store view take over; when on, our grid drives the page.
+    function isOn() { try { return localStorage.getItem('asga_view_off') !== '1'; } catch (e) { return true; } }
+    function setOn(on) {
+      try { localStorage.setItem('asga_view_off', on ? '0' : '1'); } catch (e) {}
+      applyViewMode();
+      if (on) { render(); }
+      else {
+        // hand control back to CA: show its grid and load its All-Apps view fresh
+        var all = document.querySelector('.caMenuItem.allApps');
+        if (all) try { all.click(); } catch (e) {}
       }
     }
+    function applyViewMode() {
+      var on = isOn();
+      document.body.classList.toggle('asga-active', on);   // CSS hides CA's grid only when on
+      var v = document.getElementById('asga-view'); if (v) v.style.display = on ? '' : 'none';
+      var sw = document.querySelector('.asga-sortwrap'); if (sw) sw.style.display = on ? '' : 'none';
+      var cb = document.getElementById('asga-toggle-cb'); if (cb) cb.checked = on;
+    }
 
+    // filter as the user types in CA's own search box (CA's hidden results are ignored)
+    function wireSearch() {
+      var box = document.getElementById('searchBox');
+      if (!box || box.__asgaWired) return;
+      box.__asgaWired = true;
+      var deb;
+      box.addEventListener('input', function () {
+        clearTimeout(deb);
+        deb = setTimeout(function () { view.q = box.value || ''; view.page = 1; render(); }, 120);
+      });
+    }
+
+    // left-menu category clicks filter our grid (capture phase, we don't stop CA)
+    function wireCategories() {
+      if (document.body.__asgaCatWired) return;
+      document.body.__asgaCatWired = true;
+      document.addEventListener('click', function (e) {
+        var item = e.target.closest ? e.target.closest('.caMenuItem[data-category]') : null;
+        if (!item) return;
+        var cat = item.getAttribute('data-category') || '';
+        var label = (item.textContent || '').trim();
+        // CA's "All"/"New"/startup screens mean "no category filter" for us
+        if (cat === 'All' || cat === 'New' || cat === '' || item.classList.contains('allApps')) { view.cat = ''; view.catLabel = 'All Apps'; }
+        else if (/^(onlynew|spotlight|top_trending|installed|previous_apps|prev_docker|prev_plugins|pinned_apps|action_centre|repos)$/.test(cat)) { return; } // leave CA's special views alone
+        else { view.cat = cat; view.catLabel = label || cat; }
+        view.q = ''; var box = document.getElementById('searchBox'); if (box) box.value = '';
+        view.page = 1;
+        setTimeout(render, 0);
+      }, true);
+    }
+
+    // ---- no-token warning ----
     function showWarningIfNeeded() {
       var cfg = window.__appStoreGhAddon || {};
       if (cfg.hasToken) return;
@@ -127,118 +386,7 @@
       main.insertBefore(w, main.firstChild);
     }
 
-    // ---- sort integration ----
-    // Re-inject our metrics into CA's view caches, then ask CA to sort+render
-    // its own tiles by the chosen field. sortinject.php is a no-op for CA's own
-    // fields (Name/downloads/FirstSeen) and adds ours (ghstars/trends) for the
-    // rest, so the same path drives every option.
-    function applyGhSort(o) {
-      // never let a dropped response wedge the re-sort guard
-      setTimeout(function () { reSorting = false; }, 15000);
-      return fetch(injectUrl())
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .catch(function () { return null; })
-        .then(function () {
-          try {
-            var icons = document.querySelectorAll('#sortIconArea .sortIcons');
-            for (var i = 0; i < icons.length; i++) icons[i].classList.remove('enabledIcon');
-            window.post({ action: 'changeSortOrder', sortOrder: { sortBy: o.key, sortDir: o.dir } }, function () { window.changeSortOrder(); });
-          } catch (e) { reSorting = false; }
-        });
-    }
-
-    function applySort(o) {
-      if (!o) return;
-      activeOpt = o;
-      var sel = document.getElementById('asga-sortsel');
-      if (sel && sel.value !== o.v) sel.value = o.v;
-      reSorting = true;   // the render this first call causes is already sorted
-      applyGhSort(o);
-      // Belt-and-suspenders: CA's changeMaxPerPage (our 96/page nudge) rebuilds
-      // the list A-Z on a later tick; re-assert the sort once it has settled so
-      // the final render is never alphabetical even if the hook missed a beat.
-      setTimeout(function () { if (activeOpt === o) { reSorting = true; applyGhSort(o); } }, 900);
-    }
-
-    // CA rebuilds its view caches (without our fields, and re-sorted A-Z) on
-    // every search, category switch, page change and per-page change, so
-    // re-inject and re-sort exactly once after each of its renders while one of
-    // our orders is active. This self-heal is what keeps every sort (including
-    // CA's own Newest/Downloads) from falling back to alphabetical.
-    function hookUpdateDisplay() {
-      if (window.__asgaDisplayHooked || typeof window.updateDisplay !== 'function') return;
-      window.__asgaDisplayHooked = true;
-      var orig = window.updateDisplay;
-      window.updateDisplay = function () {
-        var r = orig.apply(this, arguments);
-        try {
-          if (reSorting) {
-            reSorting = false;                      // this render IS our re-sort
-          } else if (activeOpt) {
-            reSorting = true;
-            setTimeout(function () { applyGhSort(activeOpt); }, 0);
-          }
-        } catch (e) { reSorting = false; }
-        return r;
-      };
-    }
-
-    // a native <select> (inherits Unraid's dropdown theme) replacing CA's row
-    // of Sort By links, which we hide rather than remove, since CA's own code
-    // reads and writes their classes.
-    // Hide CA's own Sort By row. Separate from placing our control, because CA
-    // hides and shows #sortIconArea as a unit (clearSearchBox -> hideSortIcons),
-    // so anything we put INSIDE it disappears with it.
-    function hideNativeSortRow() {
-      var area = document.getElementById('sortIconArea');
-      if (!area || area.classList.contains('asga-sorthidden')) return;
-      area.classList.add('asga-sorthidden');
-      // CA's "Sort By:" caption is a bare text node, so CSS can't hide it with
-      // the anchors. Blank it here and let our own label stand in.
-      for (var n = 0; n < area.childNodes.length; n++) {
-        var node = area.childNodes[n];
-        if (node.nodeType === 3 && node.nodeValue && node.nodeValue.trim()) node.nodeValue = '';
-      }
-    }
-
-    function addSortBar() {
-      // the toolbar row, which CA never hides
-      var host = document.getElementById('searchFilter');
-      if (!host || document.getElementById('asga-bar')) return;
-      var opts = SORT_OPTS.map(function (o) { return '<option value="' + o.v + '">' + o.label + '</option>'; }).join('');
-      var bar = document.createElement('span');
-      bar.id = 'asga-bar';
-      bar.className = 'asga-bar';
-      bar.innerHTML = '<span class="asga-bar-label">Sort By:</span>' +
-        '<select id="asga-sortsel" class="asga-sortsel">' + opts + '</select>' +
-        '<a id="asga-refresh" class="asga-refreshlink" title="Fetch the latest GitHub data (once every 3 days)">↻</a>';
-      host.appendChild(bar);
-      document.getElementById('asga-sortsel').addEventListener('change', function (e) {
-        applySort(optFor(e.target.value));
-      });
-      document.getElementById('asga-refresh').addEventListener('click', onRefreshClick);
-    }
-
-    // CA defaults to 24 results per page, which makes a stars/trending ranking
-    // useless. Nudge it to CA's largest option (96). CA persists this
-    // server-side, so it only has to succeed once, but the old code set its
-    // "done" flag BEFORE 96 actually took effect, so a failed nudge left the
-    // browser stuck at 24 forever. Now we only mark it done once we OBSERVE 96
-    // is active, and retry on every apply() until then. (New flag key, so
-    // browsers stuck under the old key re-run.)
-    function maybeSetPerPage() {
-      try {
-        if (localStorage.getItem('asga_perpage_96')) return;
-        if (typeof window.changeMax !== 'function') return;
-        var el = document.getElementById('maxPerPage');
-        if (!el || !el.textContent) return;
-        var m = /(\d+)/.exec(el.textContent);
-        var cur = m ? parseInt(m[1], 10) : 0;
-        if (cur >= 96) { localStorage.setItem('asga_perpage_96', '1'); return; }
-        window.changeMax(96);   // retried next apply() until 96 is observed
-      } catch (e) {}
-    }
-
+    // ---- refresh + progress (thin top bar) ----
     function onRefreshClick(e) {
       if (e) e.stopPropagation();
       if (!window.confirm('Fetch the latest GitHub star data now? Allowed once every 3 days.')) return;
@@ -253,8 +401,6 @@
           startPolling();
         });
     }
-
-    // ---- refresh + progress (thin top bar) ----
     function ensureTopBar() {
       var bar = document.getElementById('ghstars-topbar');
       if (bar) return bar;
@@ -283,32 +429,12 @@
             setTimeout(pollProgress, 1200);
           } else {
             bar.style.display = 'none';
-            if (wasRunning) { wasRunning = false; loadStars(function () { repaintBadges(); }); }
+            if (wasRunning) { wasRunning = false; loadApps(function () { render(); }); }
             polling = false;
           }
         }).catch(function () { polling = false; });
     }
     function startPolling() { if (polling) return; polling = true; pollProgress(); }
-
-    function repaintBadges() {
-      var marked = document.querySelectorAll('.ca_holder[data-ghstars-done]');
-      for (var i = 0; i < marked.length; i++) marked[i].removeAttribute('data-ghstars-done');
-      var badges = document.querySelectorAll('.ghstars-badge');
-      for (var j = 0; j < badges.length; j++) if (badges[j].parentNode) badges[j].parentNode.removeChild(badges[j]);
-      paintBadges();
-    }
-
-    // ---- lifecycle ----
-    function apply() {
-      paintBadges();
-      showWarningIfNeeded();
-      addSortBar();
-      hideNativeSortRow();
-      hookUpdateDisplay();
-      maybeSetPerPage();
-    }
-    // on Apps-page load, pull stars for any newly-published repos right away
-    // (throttled server-side); the progress poller repaints badges when it finishes.
     function triggerNewScan() {
       fetch(PREFIX + 'newscan.php?_=' + Date.now())
         .then(function (r) { return r.ok ? r.json() : null; })
@@ -316,16 +442,29 @@
         .catch(function () {});
     }
 
+    // ---- lifecycle ----
+    // CA keeps re-rendering its own (now hidden) grid; re-attach our UI if CA
+    // rebuilt the toolbar, but the grid itself only re-renders on user actions.
+    function attachUI() {
+      addSortBar();
+      wireSearch();
+      wireCategories();
+      showWarningIfNeeded();
+      applyViewMode();
+      if (isOn() && !document.getElementById('asga-view')) render();
+    }
+
     function start() {
       triggerNewScan();
-      loadStars(function () {
-        apply();
+      loadApps(function () {
+        attachUI();
+        render();
         var main = document.querySelector('.mainArea') || document.body;
         var pending = false;
         var mo = new MutationObserver(function () {
           if (pending) return;
           pending = true;
-          setTimeout(function () { pending = false; apply(); }, 150);
+          setTimeout(function () { pending = false; attachUI(); }, 200);
         });
         mo.observe(main, { childList: true, subtree: true });
         startPolling();

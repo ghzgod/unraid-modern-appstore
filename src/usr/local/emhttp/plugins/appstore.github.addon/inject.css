@@ -1,20 +1,114 @@
 /* Injected styles for the App Store GitHub Addon. Scoped to .ghstars-* / .asga-* so it never touches CA. */
 
-.ca_holder[data-appname] { position: relative; }
+/* When our own grid is active, hide CA's grid + its pager/count so only ours shows. */
+body.asga-active #templates_content { display: none !important; }
 
-/* top-RIGHT corner. The app icon lives top-left, so the right corner is clear on
-   ordinary cards. Official/Installed cards draw a triangular corner ribbon in the
-   top-right (.officialCardBackground / .installedCardBackground, ~9rem); on those
-   we add .ghstars-badge-flagged to slide left of the ribbon (see inject.js). */
-.ghstars-badge {
-  position: absolute; top: 6px; right: 6px; z-index: 5;
+/* our toolbar row lives in CA's search row */
+#searchFilter { margin-top: 24px; }
+.asga-bar {
+  display: inline-flex; align-items: center; gap: 16px;
+  margin-left: 14px; vertical-align: middle;
+  font-size: 1.2rem; color: var(--sidebar-text);
+}
+.asga-sortwrap { display: inline-flex; align-items: center; gap: 8px; }
+.asga-bar-label { white-space: nowrap; }
+.asga-sortsel { vertical-align: middle; font-size: 1.2rem; }
+.asga-refreshlink { cursor: pointer; opacity: 0.8; font-size: 1.4rem; text-decoration: none; color: inherit; }
+.asga-refreshlink:hover { opacity: 1; }
+
+/* GitHub-view on/off toggle */
+.asga-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
+.asga-toggle input { position: absolute; opacity: 0; width: 0; height: 0; }
+.asga-toggle-track {
+  position: relative; width: 40px; height: 22px; border-radius: 22px;
+  background: rgba(127,127,127,0.35); transition: background 0.15s ease;
+}
+.asga-toggle-knob {
+  position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%;
+  background: #fff; transition: transform 0.15s ease;
+}
+.asga-toggle input:checked + .asga-toggle-track { background: #ff8c2f; }
+.asga-toggle input:checked + .asga-toggle-track .asga-toggle-knob { transform: translateX(18px); }
+.asga-toggle-lbl { white-space: nowrap; }
+
+/* ---- our grid ---- */
+#asga-view { margin: 6px 10px 40px; }
+.asga-count { font-size: 1.1rem; opacity: 0.75; margin: 4px 2px 12px; }
+
+.asga-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 14px;
+}
+.asga-tile {
+  position: relative;
+  background: var(--background-color, rgba(127,127,127,0.06));
+  border: 1px solid rgba(127, 127, 127, 0.22);
+  border-radius: 8px;
+  padding: 14px;
+  display: flex; flex-direction: column;
+  transition: border-color 0.15s ease;
+  cursor: pointer;
+}
+.asga-tile:hover { border-color: #ff8c2f; }
+
+.asga-tile-head { display: flex; gap: 12px; align-items: flex-start; }
+.asga-tile-icon { position: relative; width: 64px; height: 64px; flex: 0 0 64px; }
+.asga-tile-icon img { width: 64px; height: 64px; object-fit: contain; border-radius: 10px; }
+.asga-tile-htext { min-width: 0; flex: 1; }
+.asga-tile-name {
+  font-size: 1.25rem; font-weight: 700; line-height: 1.2;
+  color: var(--text-color, inherit);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.asga-tile-author { font-size: 1rem; opacity: 0.7; margin-top: 2px; }
+.asga-tile-cat { font-size: 0.95rem; opacity: 0.55; margin-top: 1px; }
+
+.asga-tile-desc {
+  font-size: 1rem; line-height: 1.35; opacity: 0.85; margin: 10px 0 12px;
+  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+}
+
+.asga-tile-btns { margin-top: auto; display: flex; gap: 8px; position: relative; }
+.asga-btn {
+  cursor: pointer; user-select: none;
+  font-size: 1rem; padding: 4px 14px; border-radius: 20px;
+  border: 1px solid rgba(127,127,127,0.4); color: var(--text-color, inherit);
+  background: rgba(127,127,127,0.08);
+}
+.asga-btn:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.14); }
+
+/* support dropdown */
+.asga-supmenu {
+  position: absolute; bottom: 34px; left: 0; z-index: 20;
+  background: var(--background-color, #1c1c1c); border: 1px solid rgba(127,127,127,0.4);
+  border-radius: 6px; min-width: 120px; box-shadow: 0 4px 14px rgba(0,0,0,0.4); overflow: hidden;
+}
+.asga-suplink { display: block; padding: 7px 12px; font-size: 1rem; color: var(--text-color, inherit); text-decoration: none; }
+.asga-suplink:hover { background: rgba(255,140,47,0.16); }
+
+/* star badge (top-right) + downloads badge (bottom-right) sit on the icon */
+.ghstars-badge, .ghdl-badge {
+  position: absolute; z-index: 5;
   font-size: 11px; line-height: 1; font-weight: 600;
-  color: #f0a500; background: rgba(0, 0, 0, 0.55);
-  border: 1px solid rgba(127, 127, 127, 0.25);
-  padding: 2px 6px; border-radius: 10px;
+  background: rgba(0, 0, 0, 0.8);
+  border: 1px solid rgba(127, 127, 127, 0.35);
+  padding: 3px 6px; border-radius: 10px;
   pointer-events: none; white-space: nowrap;
 }
-.ghstars-badge.ghstars-badge-flagged { right: 10.5rem; }
+.ghstars-badge { top: -6px; right: -8px; color: #f0a500; }
+.ghdl-badge   { bottom: -6px; right: -8px; color: #4ab8c9; }
+
+/* pager */
+.asga-pager { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; margin: 22px 0 8px; }
+.asga-page {
+  cursor: pointer; padding: 4px 10px; border-radius: 6px;
+  border: 1px solid rgba(127,127,127,0.25); font-size: 1.05rem; color: var(--text-color, inherit); text-decoration: none;
+}
+.asga-page:hover { border-color: #ff8c2f; }
+.asga-page-cur { background: #ff8c2f; color: #fff; border-color: #ff8c2f; cursor: default; }
+.asga-page-off { opacity: 0.4; cursor: default; }
+.asga-dots { opacity: 0.5; padding: 0 2px; }
 
 /* yellow no-token warning banner */
 .ghstars-warning {
@@ -25,28 +119,6 @@
 .ghstars-warning a { color: #7a5d00; text-decoration: underline; }
 .ghstars-warning-x { cursor: pointer; font-weight: bold; opacity: 0.7; }
 .ghstars-warning-x:hover { opacity: 1; }
-
-/* Unified Sort By control. CA's own sort links stay in the DOM (its code reads
-   and writes their classes) but are hidden; our dropdown drives them. */
-#sortIconArea.asga-sorthidden .sortIcons { display: none; }
-
-/* The GitHub view hides CA's whole #sortIconArea, which normally sits between
-   the nav and the search row and provides its top spacing. Without it the
-   search box butts right against the nav bar, so give the toolbar row its own
-   breathing room. (#searchFilter only exists on the Apps page.) */
-#searchFilter { margin-top: 24px; }
-
-/* sort toolbar. A native <select> inherits Unraid's dropdown theme. Sized and
-   coloured to match CA's own .sortIcons so it reads as part of the page. */
-.asga-bar {
-  display: inline-flex; align-items: center; gap: 8px;
-  margin-left: 14px; vertical-align: middle;
-  font-size: 1.2rem; color: var(--sidebar-text);
-}
-.asga-bar-label { white-space: nowrap; }
-.asga-sortsel { vertical-align: middle; font-size: 1.2rem; }
-.asga-refreshlink { cursor: pointer; opacity: 0.8; font-size: 1.4rem; text-decoration: none; color: inherit; }
-.asga-refreshlink:hover { opacity: 1; }
 
 /* thin fixed progress bar at the very top of the page (no layout impact) */
 .ghstars-topbar {
