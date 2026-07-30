@@ -1,6 +1,6 @@
 <?php
 /**
- * App Store GitHub Addon — on-demand new-repo check.
+ * App Store GitHub Addon: on-demand new-repo check.
  *
  * Called by inject.js when the Apps page loads. Launches a lightweight
  * --new-only scan (fetches stars only for repos not yet in the DB), so newly

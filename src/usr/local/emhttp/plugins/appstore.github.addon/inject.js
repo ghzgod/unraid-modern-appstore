@@ -24,8 +24,22 @@
     var PREFIX = '/plugins/appstore.github.addon/';
 
     var APPS = [];
-    var view = { sort: 'new', q: '', cat: '', catLabel: 'All Apps', page: 1, perPage: 96 };
+    var view = { sort: 'new', q: '', cat: '', catLabel: 'All Apps', special: '', page: 1, perPage: 96 };
     var polling = false, wasRunning = false;
+    var pinnedSet = null, installedSet = null;
+    // CA's Pinned/Installed views are broken in the 2026.07 rewrite (they render
+    // the home screen), so the modern grid renders those itself (view.special).
+    // The few views we can't yet rebuild from our data are handed back to CA.
+    var caSpecial = false;
+    var CA_SPECIAL = /^(previous_apps|prev_docker|prev_plugins|action_centre|repos)$/;
+    function stripTag(ri) { return (ri || '').toLowerCase().split(':')[0]; }
+
+    function loadViews(cb) {
+      fetch(PREFIX + 'pinned.php?_=' + Date.now())
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) { pinnedSet = new Set((j && j.pinned) || []); installedSet = new Set((j && j.installed) || []); cb && cb(); })
+        .catch(function () { pinnedSet = pinnedSet || new Set(); installedSet = installedSet || new Set(); cb && cb(); });
+    }
 
     // Trending windows are limited to day/week/month: those come from accurate
     // daily star-history deltas. A "this year" window would need a full year of
@@ -85,6 +99,8 @@
       var q = view.q.trim().toLowerCase();
       var opt = optFor(view.sort);
       var list = APPS.filter(function (a) {
+        if (view.special === 'pinned') { if (!pinnedSet || !pinnedSet.has((a.ri || '') + '&' + (a.pn || ''))) return false; }
+        else if (view.special === 'installed') { if (!installedSet || !installedSet.has(stripTag(a.ri))) return false; }
         if (opt.filter && !opt.filter(a)) return false;   // e.g. trending: only movers
         if (!catMatch(a, view.cat)) return false;
         if (q) {
@@ -141,12 +157,20 @@
     // pin/unpin via CA's own pinApp action (keyed by RepoName & Name, exactly
     // like CA's drawer button), and reflect the toggled state on our button.
     function pinApp(tile, btn) {
-      var repo = tile.getAttribute('data-reponame') || '', name = tile.getAttribute('data-appname') || '';
+      // CA keys pins by "<image ref>&<SortName>" (exactly what its own drawer
+      // sends), so pinnedApps() can find the template again.
+      var repo = tile.getAttribute('data-pinrepo') || '', name = tile.getAttribute('data-pinname') || '';
       if (!repo) return;
+      var key = repo + '&' + name;
       var willPin = btn.textContent !== 'Unpin';
       btn.textContent = willPin ? 'Unpin' : 'Pin App';
       btn.classList.toggle('asga-pinned', willPin);
-      try { window.post({ action: 'pinApp', repository: repo, name: name }, function () {}); } catch (e) {}
+      if (pinnedSet) { if (willPin) pinnedSet.add(key); else pinnedSet.delete(key); }
+      try {
+        window.post({ action: 'pinApp', repository: repo, name: name }, function () {
+          if (view.special === 'pinned') render();   // reflect an unpin immediately in the pinned view
+        });
+      } catch (e) {}
     }
 
     // small self-contained Support menu (Project / Support), no CA dependency
@@ -181,7 +205,7 @@
       tile.setAttribute('data-appname', a.n);
       if (a.pr) tile.setAttribute('data-project', a.pr);
       if (a.su) tile.setAttribute('data-support', a.su);
-      if (a.rn) tile.setAttribute('data-reponame', a.rn);
+      if (a.ri) { tile.setAttribute('data-pinrepo', a.ri); tile.setAttribute('data-pinname', a.pn || a.n); }
       tile.title = a.n;
 
       // header: icon + name/author/category
@@ -255,7 +279,12 @@
       var btns = document.createElement('div');
       btns.className = 'asga-tile-btns';
       btns.appendChild(mkBtn('Info', 'asga-info'));
-      if (a.rn) btns.appendChild(mkBtn('Pin App', 'asga-pin'));
+      if (a.ri) {
+        var isPinned = pinnedSet && pinnedSet.has(a.ri + '&' + (a.pn || ''));
+        var pb = mkBtn(isPinned ? 'Unpin' : 'Pin App', 'asga-pin');
+        if (isPinned) pb.classList.add('asga-pinned');
+        btns.appendChild(pb);
+      }
       if (a.pr || a.su) btns.appendChild(mkBtn('Support', 'asga-support'));
       btns.appendChild(mkBtn('Install', 'asga-install'));
       tile.appendChild(btns);
@@ -269,7 +298,7 @@
     }
 
     function render() {
-      if (!isOn()) return;
+      if (!isOn() || caSpecial) return;
       var wrap = ensureGrid();
       if (!wrap) return;
       var list = currentList();
@@ -282,13 +311,28 @@
 
       var grid = document.getElementById('asga-grid');
       grid.textContent = '';
-      var frag = document.createDocumentFragment();
-      for (var i = 0; i < pageItems.length; i++) frag.appendChild(makeTile(pageItems[i]));
-      grid.appendChild(frag);
+      if (!total) {
+        var empty = document.createElement('div');
+        empty.className = 'asga-empty';
+        empty.textContent = view.special === 'pinned' ? 'No pinned apps yet. Use the Pin App button on any app to add it here.'
+          : view.special === 'installed' ? 'No installed apps matched the App Store catalog.'
+          : view.q ? 'No apps match "' + view.q + '".' : 'No apps to show.';
+        grid.appendChild(empty);
+      } else {
+        var frag = document.createDocumentFragment();
+        for (var i = 0; i < pageItems.length; i++) frag.appendChild(makeTile(pageItems[i]));
+        grid.appendChild(frag);
+      }
 
+      var noun = view.special === 'pinned' ? 'pinned apps' : view.special === 'installed' ? 'installed apps' : 'apps';
+      var title = view.special === 'pinned' ? 'Pinned Apps' : view.special === 'installed' ? 'Installed Apps' : (view.cat ? view.catLabel : 'All Apps');
       var from = total ? start + 1 : 0, to = Math.min(start + view.perPage, total);
-      document.getElementById('asga-count').textContent =
-        'Showing ' + from + '–' + to + ' of ' + total + ' apps' + (view.cat ? ' in ' + view.catLabel : '') + (view.q ? ' matching "' + view.q + '"' : '');
+      var cnt = document.getElementById('asga-count');
+      cnt.textContent = '';
+      var h = document.createElement('span'); h.className = 'asga-count-title'; h.textContent = title;
+      var s = document.createElement('span'); s.className = 'asga-count-sub';
+      s.textContent = total ? ('  ' + from + '–' + to + ' of ' + total + ' ' + noun + (view.q ? ' matching "' + view.q + '"' : '')) : '';
+      cnt.appendChild(h); cnt.appendChild(s);
       renderPager(pages);
       try { window.scrollTo(0, 0); } catch (e) {}
     }
@@ -354,11 +398,12 @@
       }
     }
     function applyViewMode() {
-      var on = isOn();
-      document.body.classList.toggle('asga-active', on);   // CSS hides CA's grid only when on
-      var v = document.getElementById('asga-view'); if (v) v.style.display = on ? '' : 'none';
-      var sw = document.querySelector('.asga-sortwrap'); if (sw) sw.style.display = on ? '' : 'none';
-      var cb = document.getElementById('asga-toggle-cb'); if (cb) cb.checked = on;
+      var persisted = isOn();
+      var showOurs = persisted && !caSpecial;   // a CA special view temporarily wins
+      document.body.classList.toggle('asga-active', showOurs);   // CSS hides CA's grid only when ours shows
+      var v = document.getElementById('asga-view'); if (v) v.style.display = showOurs ? '' : 'none';
+      var sw = document.querySelector('.asga-sortwrap'); if (sw) sw.style.display = showOurs ? '' : 'none';
+      var cb = document.getElementById('asga-toggle-cb'); if (cb) cb.checked = persisted;   // toggle reflects the persisted choice
     }
 
     // filter as the user types in CA's own search box (CA's hidden results are ignored)
@@ -369,7 +414,12 @@
       var deb;
       box.addEventListener('input', function () {
         clearTimeout(deb);
-        deb = setTimeout(function () { view.q = box.value || ''; view.page = 1; render(); }, 120);
+        deb = setTimeout(function () {
+          if (!isOn()) return;
+          if (caSpecial) { caSpecial = false; applyViewMode(); }   // leave a CA view when searching
+          view.special = '';   // search spans the whole store
+          view.q = box.value || ''; view.page = 1; render();
+        }, 120);
       });
     }
 
@@ -382,12 +432,25 @@
         if (!item) return;
         var cat = item.getAttribute('data-category') || '';
         var label = (item.textContent || '').trim();
-        // CA's "All"/"New"/startup screens mean "no category filter" for us
+        var box = document.getElementById('searchBox');
+        // Pinned + Installed: CA's own views are broken, so render them ourselves.
+        if (cat === 'pinned_apps' || cat === 'installed_apps') {
+          caSpecial = false; view.special = (cat === 'installed_apps') ? 'installed' : 'pinned';
+          view.cat = ''; view.q = ''; if (box) box.value = ''; view.page = 1;
+          loadViews(function () { applyViewMode(); render(); });
+          return;
+        }
+        if (CA_SPECIAL.test(cat)) {
+          // Previous Apps / Action Centre / Repositories: hand back to CA for now.
+          caSpecial = true; applyViewMode(); return;
+        }
+        // Home / All Apps / a category chip: our grid, filtered.
+        caSpecial = false; view.special = '';
         if (cat === 'All' || cat === 'New' || cat === '' || item.classList.contains('allApps')) { view.cat = ''; view.catLabel = 'All Apps'; }
-        else if (/^(onlynew|spotlight|top_trending|installed|previous_apps|prev_docker|prev_plugins|pinned_apps|action_centre|repos)$/.test(cat)) { return; } // leave CA's special views alone
         else { view.cat = cat; view.catLabel = label || cat; }
-        view.q = ''; var box = document.getElementById('searchBox'); if (box) box.value = '';
+        view.q = ''; if (box) box.value = '';
         view.page = 1;
+        applyViewMode();
         setTimeout(render, 0);
       }, true);
     }
@@ -482,6 +545,7 @@
 
     function start() {
       triggerNewScan();
+      loadViews();   // pin/installed membership, so tiles show correct pin state
       loadApps(function () {
         attachUI();
         render();

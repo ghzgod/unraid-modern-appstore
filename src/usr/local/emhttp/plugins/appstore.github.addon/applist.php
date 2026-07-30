@@ -89,7 +89,8 @@ foreach ($tmpl as $t) {
         'de'  => $desc,
         'pr'  => $mine['pr'] ?? ($t['Project'] ?? ''),
         'su'  => $mine['su'] ?? ($t['Support'] ?? ''),
-        'rn'  => $t['RepoName'] ?? '',                       // pin key (repo display name)
+        'ri'  => $t['Repository'] ?? '',                     // image ref, CA's pin key part 1
+        'pn'  => $t['SortName'] ?? $name,                    // exact SortName, CA's pin key part 2
         'rp'  => $mine['rp'] ?? '',                          // owner/repo, for the icon fallback
         's'   => isset($mine['s']) ? $mine['s'] : null,
         'dl'  => $dl,

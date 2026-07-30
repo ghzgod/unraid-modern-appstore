@@ -3,7 +3,7 @@ Title="App Store GitHub Addon"
 Icon="star"
 ---
 <?php
-/* App Store GitHub Addon — settings page (Settings -> Utilities -> App Store GitHub Addon). */
+/* App Store GitHub Addon: settings page (Settings -> Utilities -> App Store GitHub Addon). */
 require_once "$docroot/plugins/dynamix/include/Wrappers.php";
 
 $gas_dir  = "/boot/config/plugins/appstore.github.addon";
@@ -41,7 +41,7 @@ if ($_POST) {
         $datadir  = $_POST['DATA_DIR'] ?? '';
         gas_write_cfg($gas_cfg, $token, $service, $datadir);
         gas_write_cron($gas_cron);
-        $gas_msg = "Settings saved." . (trim($token) === '' ? " WARNING: no token set — star counts are disabled." : "");
+        $gas_msg = "Settings saved." . (trim($token) === '' ? " WARNING: no token set - star counts are disabled." : "");
     }
     if (isset($_POST['REFRESH'])) {
         @exec("nohup php " . escapeshellarg($gas_php) . " >/dev/null 2>&1 &");
@@ -99,12 +99,12 @@ _(Database directory)_:
 <div class="title"><span class="left">Last scan</span></div>
 <?php if ($status): ?>
 <table class="asga-status" style="border-collapse:collapse;">
-  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Ran at</td><td><?= $status['ran_at'] ? date('Y-m-d H:i:s', $status['ran_at']) : '—' ?></td></tr>
+  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Ran at</td><td><?= $status['ran_at'] ? date('Y-m-d H:i:s', $status['ran_at']) : '-' ?></td></tr>
   <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Repos with a GitHub link</td><td><?= (int)($status['repos_total'] ?? 0) ?></td></tr>
   <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Updated</td><td><?= (int)($status['ok'] ?? 0) ?></td></tr>
   <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Unchanged</td><td><?= (int)($status['not_modified'] ?? 0) ?></td></tr>
   <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Missing repos</td><td><?= (int)($status['missing'] ?? 0) ?></td></tr>
-  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Rate limit remaining</td><td><?= isset($status['rate_remaining']) ? (int)$status['rate_remaining'] : '—' ?></td></tr>
+  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Rate limit remaining</td><td><?= isset($status['rate_remaining']) ? (int)$status['rate_remaining'] : '-' ?></td></tr>
   <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Errors</td><td><?= count($status['errors'] ?? []) ?></td></tr>
 </table>
 <?php else: ?>

@@ -1,6 +1,6 @@
 <?php
 /**
- * App Store GitHub Addon — cancel a running scan.
+ * App Store GitHub Addon: cancel a running scan.
  * Kills the fetcher and marks progress.json as not running.
  */
 header('Content-Type: application/json');

@@ -6,6 +6,9 @@
 body.asga-active #templates_content { display: none !important; }
 body.asga-active #sortIconArea { display: none !important; }
 body.asga-active #maxPerPage { display: none !important; }
+/* CA writes the current view name (e.g. "Pinned Apps") into a toolbar category
+   label; our own title covers that, so hide CA's to avoid a run-together line. */
+body.asga-active .categoryLine { display: none !important; }
 
 /* our toolbar row lives in CA's search row */
 #searchFilter { margin-top: 24px; }
@@ -37,7 +40,10 @@ body.asga-active #maxPerPage { display: none !important; }
 
 /* ---- our grid ---- */
 #asga-view { margin: 6px 10px 40px; }
-.asga-count { font-size: 1.1rem; opacity: 0.75; margin: 4px 2px 12px; }
+.asga-count { margin: 6px 2px 16px; }
+.asga-count-title { font-size: 1.6rem; font-weight: 700; color: var(--text-color, inherit); }
+.asga-count-sub { font-size: 1.05rem; opacity: 0.55; }
+.asga-empty { padding: 40px 8px; font-size: 1.2rem; opacity: 0.7; text-align: center; }
 
 .asga-grid {
   display: grid;
@@ -127,6 +133,63 @@ body.asga-active #maxPerPage { display: none !important; }
 .ghstars-warning a { color: #7a5d00; text-decoration: underline; }
 .ghstars-warning-x { cursor: pointer; font-weight: bold; opacity: 0.7; }
 .ghstars-warning-x:hover { opacity: 1; }
+
+/* ===== modern Info drawer =====
+   CA populates its own right-slide sidebar (#sidenavContent) when a tile is
+   clicked. We restyle it here, scoped to body.asga-active, so it matches the
+   modern grid; with the Modern view toggled off none of this applies and CA's
+   stock drawer styling returns. We only override styles, never CA markup. */
+body.asga-active .sidenav {
+  background: var(--background-color, #1b1b1b);
+  border-left: 1px solid rgba(255, 140, 47, 0.35);
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.45);
+}
+body.asga-active #sidenavContent { padding: 8px 20px 40px; }
+
+/* close button (CA makes this a sticky black bar; theme it and keep it on top) */
+body.asga-active .popupCloseArea {
+  position: sticky; top: 0; z-index: 4;
+  background: var(--background-color, #1b1b1b); border-bottom: 1px solid rgba(127,127,127,0.15);
+  text-align: right; margin: 0 -20px 10px; padding: 10px 20px;
+}
+body.asga-active .popUpClose.caButton {
+  display: inline-block; cursor: pointer;
+  font-size: 1rem; padding: 5px 16px; border-radius: 20px;
+  border: 1px solid rgba(127,127,127,0.4); background: rgba(127,127,127,0.08); color: var(--text-color, inherit);
+}
+body.asga-active .popUpClose.caButton:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.14); }
+
+/* header: icon + name + actions */
+body.asga-active .ca_popupIconArea { display: flex; gap: 18px; align-items: flex-start; margin: 4px 0 18px; }
+body.asga-active .popupIcon img { width: 96px; height: 96px; object-fit: contain; border-radius: 16px; }
+body.asga-active .popupName { font-size: 1.9rem; font-weight: 800; line-height: 1.15; }
+body.asga-active .popupAuthorMain { font-size: 1.1rem; opacity: 0.6; margin: 2px 0 12px; }
+
+/* action buttons (Install / Support / Pin) as modern pills */
+body.asga-active .popupInfo .caButton {
+  display: inline-block; cursor: pointer;
+  font-size: 1.05rem; padding: 6px 18px; margin: 0 8px 8px 0; border-radius: 22px;
+  border: 1px solid rgba(127,127,127,0.4); background: rgba(127,127,127,0.08); color: var(--text-color, inherit);
+}
+body.asga-active .popupInfo .caButton:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.14); }
+body.asga-active .popupInfo .caButton.actionsPopup { background: #ff8c2f; border-color: #ff8c2f; color: #fff; }
+body.asga-active .popupInfo .caButton.actionsPopup:hover { filter: brightness(1.08); }
+body.asga-active .popupInfo .caButton.pinPopup.pinned { border-color: #ff8c2f; color: #ff8c2f; background: rgba(255,140,47,0.2); }
+
+/* description block */
+body.asga-active .popupDescription {
+  background: rgba(127,127,127,0.08); border: 1px solid rgba(127,127,127,0.2);
+  border-radius: 10px; padding: 14px 16px; line-height: 1.5; font-size: 1.05rem; margin: 4px 0 20px;
+}
+
+/* section titles + details table */
+body.asga-active .rightTitle, body.asga-active .popupAuthorTitle {
+  font-size: 1.15rem; font-weight: 700; color: #ff8c2f; letter-spacing: 0.02em; margin: 6px 0 8px;
+}
+body.asga-active .popupTable { width: 100%; border-collapse: collapse; }
+body.asga-active .popupTable td { padding: 7px 8px; border-bottom: 1px solid rgba(127,127,127,0.15); font-size: 1.02rem; vertical-align: top; }
+body.asga-active .popupTableLeft { opacity: 0.6; white-space: nowrap; width: 40%; }
+body.asga-active .popupAuthorIcon img { width: 40px; height: 40px; border-radius: 8px; object-fit: contain; }
 
 /* thin fixed progress bar at the very top of the page (no layout impact) */
 .ghstars-topbar {

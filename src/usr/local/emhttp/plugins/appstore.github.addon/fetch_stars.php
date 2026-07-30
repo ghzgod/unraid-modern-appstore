@@ -1,6 +1,6 @@
 <?php
 /**
- * App Store GitHub Addon — star fetcher.
+ * App Store GitHub Addon: star fetcher.
  *
  * Reads the Community Applications catalog cache READ-ONLY, derives owner/repo
  * from each app's Project GitHub URL, queries the GitHub API (token +

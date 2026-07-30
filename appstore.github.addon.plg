@@ -2,14 +2,30 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "appstore.github.addon">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.07.30b">
+<!ENTITY version "2026.07.30d">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/appstore-github-addon/main/appstore.github.addon.plg">
 <!ENTITY support "https://github.com/ghzgod/appstore-github-addon">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/AppStoreGitHubAddon" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.07.30b
+##2026.07.30d
+- Pinned Apps and Installed Apps now render in the modern grid (with GitHub stars),
+  because CA's own Pinned/Installed views are broken in its 2026.07 rewrite (they
+  showed the home screen). Pin/Unpin works from the tiles and the drawer alike.
+- Home and category browsing stay in the modern grid; only Previous Apps, Action
+  Centre and Repositories still hand off to CA for now.
+- Fix: the leaked CA category label next to the toolbar is hidden; each view shows
+  a proper bold title (All Apps / Pinned Apps / Installed Apps) with its count.
+- Fix: Pin App writes CA's real key (image ref + SortName) so pins actually appear.
+- Modern Info drawer: the slide-in app drawer is restyled to match the grid
+  (rounded icon, orange Install, pill buttons, carded description, orange section
+  titles). Turning the modern view off restores CA's stock drawer.
+- Fix: CA's own views (Pinned Apps, Installed Apps, Previous Apps, Action Centre,
+  Repositories) now display CA's native list instead of being hidden behind our
+  grid. Selecting All Apps, a category or searching returns to the modern grid.
+- Fix: the Pin App button now pins with CA's real key (image ref + SortName), so
+  pinned apps show up under Pinned Apps exactly like CA's own drawer button.
 - Tiles: stars and Docker-pull count now sit inline in the top-right corner; a
   Pin App button was added (pins via CA's own pinApp, same as the Info drawer);
   the toggle is labelled "Modern view".
@@ -106,7 +122,7 @@ mkdir -p /boot/config/plugins/appstore.github.addon
 <![CDATA[
 <?php
 /**
- * App Store GitHub Addon — star fetcher.
+ * App Store GitHub Addon: star fetcher.
  *
  * Reads the Community Applications catalog cache READ-ONLY, derives owner/repo
  * from each app's Project GitHub URL, queries the GitHub API (token +
@@ -603,7 +619,7 @@ exit(0);
 <![CDATA[
 <?php
 /**
- * App Store GitHub Addon — manual refresh trigger.
+ * App Store GitHub Addon: manual refresh trigger.
  *
  * Launches the fetcher in the background (with --manual so its time is
  * recorded) and returns JSON. Enforces a 3-day cooldown between MANUAL
@@ -648,7 +664,7 @@ echo json_encode(['started' => true, 'running' => true]);
 <![CDATA[
 <?php
 /**
- * App Store GitHub Addon — cancel a running scan.
+ * App Store GitHub Addon: cancel a running scan.
  * Kills the fetcher and marks progress.json as not running.
  */
 header('Content-Type: application/json');
@@ -763,7 +779,7 @@ echo json_encode(['ok' => true, 'count' => $total, 'files' => $files]);
 <![CDATA[
 <?php
 /**
- * App Store GitHub Addon — on-demand new-repo check.
+ * App Store GitHub Addon: on-demand new-repo check.
  *
  * Called by inject.js when the Apps page loads. Launches a lightweight
  * --new-only scan (fetches stars only for repos not yet in the DB), so newly
@@ -885,7 +901,8 @@ foreach ($tmpl as $t) {
         'de'  => $desc,
         'pr'  => $mine['pr'] ?? ($t['Project'] ?? ''),
         'su'  => $mine['su'] ?? ($t['Support'] ?? ''),
-        'rn'  => $t['RepoName'] ?? '',                       // pin key (repo display name)
+        'ri'  => $t['Repository'] ?? '',                     // image ref, CA's pin key part 1
+        'pn'  => $t['SortName'] ?? $name,                    // exact SortName, CA's pin key part 2
         'rp'  => $mine['rp'] ?? '',                          // owner/repo, for the icon fallback
         's'   => isset($mine['s']) ? $mine['s'] : null,
         'dl'  => $dl,
@@ -903,6 +920,51 @@ echo json_encode(
     ['generated' => time(), 'count' => count($out), 'apps' => $out],
     JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
 );
+]]>
+</INLINE>
+</FILE>
+
+<FILE Name="/usr/local/emhttp/plugins/appstore.github.addon/pinned.php">
+<INLINE>
+<![CDATA[
+<?php
+/**
+ * Membership lists for the addon's own grid views (Pinned, Installed).
+ *
+ * Community Applications' own Pinned/Installed views are broken in the 2026.07
+ * rewrite (they render the home screen instead of the list), so the modern grid
+ * renders them itself. This endpoint returns the membership sets so the grid can
+ * filter to them.
+ *
+ * READ-ONLY. Reads CA's pinned file and the user's Docker templates; writes
+ * nothing. CA keys each pin as "<image ref>&<SortName>"
+ * (e.g. "leppermesiah/belot:latest&Belot").
+ */
+header('Content-Type: application/json');
+
+// pinned: CA's flash file, keyed "<image ref>&<SortName>"
+$file = '/boot/config/plugins/community.applications/pinned_appsV2.json';
+$pinned = [];
+if (is_file($file)) {
+    $raw = @file_get_contents($file);
+    $d = @unserialize($raw);
+    if ($d === false) $d = @json_decode($raw, true);
+    if (is_array($d)) {
+        foreach ($d as $k => $v) { if ($v !== false && $v !== null && $v !== '') $pinned[] = (string)$k; }
+    }
+}
+
+// installed: image refs (repo, tag stripped) from the user's Docker templates
+$installed = [];
+foreach (glob('/boot/config/plugins/dockerMan/templates-user/*.xml') ?: [] as $x) {
+    $c = @file_get_contents($x);
+    if ($c !== false && preg_match('#<Repository>([^<]+)</Repository>#', $c, $m)) {
+        $repo = strtolower(trim($m[1]));
+        if ($repo !== '') { $repo = explode(':', $repo)[0]; $installed[$repo] = true; }
+    }
+}
+
+echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
 ]]>
 </INLINE>
 </FILE>
@@ -936,8 +998,22 @@ echo json_encode(
     var PREFIX = '/plugins/appstore.github.addon/';
 
     var APPS = [];
-    var view = { sort: 'new', q: '', cat: '', catLabel: 'All Apps', page: 1, perPage: 96 };
+    var view = { sort: 'new', q: '', cat: '', catLabel: 'All Apps', special: '', page: 1, perPage: 96 };
     var polling = false, wasRunning = false;
+    var pinnedSet = null, installedSet = null;
+    // CA's Pinned/Installed views are broken in the 2026.07 rewrite (they render
+    // the home screen), so the modern grid renders those itself (view.special).
+    // The few views we can't yet rebuild from our data are handed back to CA.
+    var caSpecial = false;
+    var CA_SPECIAL = /^(previous_apps|prev_docker|prev_plugins|action_centre|repos)$/;
+    function stripTag(ri) { return (ri || '').toLowerCase().split(':')[0]; }
+
+    function loadViews(cb) {
+      fetch(PREFIX + 'pinned.php?_=' + Date.now())
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) { pinnedSet = new Set((j && j.pinned) || []); installedSet = new Set((j && j.installed) || []); cb && cb(); })
+        .catch(function () { pinnedSet = pinnedSet || new Set(); installedSet = installedSet || new Set(); cb && cb(); });
+    }
 
     // Trending windows are limited to day/week/month: those come from accurate
     // daily star-history deltas. A "this year" window would need a full year of
@@ -997,6 +1073,8 @@ echo json_encode(
       var q = view.q.trim().toLowerCase();
       var opt = optFor(view.sort);
       var list = APPS.filter(function (a) {
+        if (view.special === 'pinned') { if (!pinnedSet || !pinnedSet.has((a.ri || '') + '&' + (a.pn || ''))) return false; }
+        else if (view.special === 'installed') { if (!installedSet || !installedSet.has(stripTag(a.ri))) return false; }
         if (opt.filter && !opt.filter(a)) return false;   // e.g. trending: only movers
         if (!catMatch(a, view.cat)) return false;
         if (q) {
@@ -1053,12 +1131,20 @@ echo json_encode(
     // pin/unpin via CA's own pinApp action (keyed by RepoName & Name, exactly
     // like CA's drawer button), and reflect the toggled state on our button.
     function pinApp(tile, btn) {
-      var repo = tile.getAttribute('data-reponame') || '', name = tile.getAttribute('data-appname') || '';
+      // CA keys pins by "<image ref>&<SortName>" (exactly what its own drawer
+      // sends), so pinnedApps() can find the template again.
+      var repo = tile.getAttribute('data-pinrepo') || '', name = tile.getAttribute('data-pinname') || '';
       if (!repo) return;
+      var key = repo + '&' + name;
       var willPin = btn.textContent !== 'Unpin';
       btn.textContent = willPin ? 'Unpin' : 'Pin App';
       btn.classList.toggle('asga-pinned', willPin);
-      try { window.post({ action: 'pinApp', repository: repo, name: name }, function () {}); } catch (e) {}
+      if (pinnedSet) { if (willPin) pinnedSet.add(key); else pinnedSet.delete(key); }
+      try {
+        window.post({ action: 'pinApp', repository: repo, name: name }, function () {
+          if (view.special === 'pinned') render();   // reflect an unpin immediately in the pinned view
+        });
+      } catch (e) {}
     }
 
     // small self-contained Support menu (Project / Support), no CA dependency
@@ -1093,7 +1179,7 @@ echo json_encode(
       tile.setAttribute('data-appname', a.n);
       if (a.pr) tile.setAttribute('data-project', a.pr);
       if (a.su) tile.setAttribute('data-support', a.su);
-      if (a.rn) tile.setAttribute('data-reponame', a.rn);
+      if (a.ri) { tile.setAttribute('data-pinrepo', a.ri); tile.setAttribute('data-pinname', a.pn || a.n); }
       tile.title = a.n;
 
       // header: icon + name/author/category
@@ -1167,7 +1253,12 @@ echo json_encode(
       var btns = document.createElement('div');
       btns.className = 'asga-tile-btns';
       btns.appendChild(mkBtn('Info', 'asga-info'));
-      if (a.rn) btns.appendChild(mkBtn('Pin App', 'asga-pin'));
+      if (a.ri) {
+        var isPinned = pinnedSet && pinnedSet.has(a.ri + '&' + (a.pn || ''));
+        var pb = mkBtn(isPinned ? 'Unpin' : 'Pin App', 'asga-pin');
+        if (isPinned) pb.classList.add('asga-pinned');
+        btns.appendChild(pb);
+      }
       if (a.pr || a.su) btns.appendChild(mkBtn('Support', 'asga-support'));
       btns.appendChild(mkBtn('Install', 'asga-install'));
       tile.appendChild(btns);
@@ -1181,7 +1272,7 @@ echo json_encode(
     }
 
     function render() {
-      if (!isOn()) return;
+      if (!isOn() || caSpecial) return;
       var wrap = ensureGrid();
       if (!wrap) return;
       var list = currentList();
@@ -1194,13 +1285,28 @@ echo json_encode(
 
       var grid = document.getElementById('asga-grid');
       grid.textContent = '';
-      var frag = document.createDocumentFragment();
-      for (var i = 0; i < pageItems.length; i++) frag.appendChild(makeTile(pageItems[i]));
-      grid.appendChild(frag);
+      if (!total) {
+        var empty = document.createElement('div');
+        empty.className = 'asga-empty';
+        empty.textContent = view.special === 'pinned' ? 'No pinned apps yet. Use the Pin App button on any app to add it here.'
+          : view.special === 'installed' ? 'No installed apps matched the App Store catalog.'
+          : view.q ? 'No apps match "' + view.q + '".' : 'No apps to show.';
+        grid.appendChild(empty);
+      } else {
+        var frag = document.createDocumentFragment();
+        for (var i = 0; i < pageItems.length; i++) frag.appendChild(makeTile(pageItems[i]));
+        grid.appendChild(frag);
+      }
 
+      var noun = view.special === 'pinned' ? 'pinned apps' : view.special === 'installed' ? 'installed apps' : 'apps';
+      var title = view.special === 'pinned' ? 'Pinned Apps' : view.special === 'installed' ? 'Installed Apps' : (view.cat ? view.catLabel : 'All Apps');
       var from = total ? start + 1 : 0, to = Math.min(start + view.perPage, total);
-      document.getElementById('asga-count').textContent =
-        'Showing ' + from + '–' + to + ' of ' + total + ' apps' + (view.cat ? ' in ' + view.catLabel : '') + (view.q ? ' matching "' + view.q + '"' : '');
+      var cnt = document.getElementById('asga-count');
+      cnt.textContent = '';
+      var h = document.createElement('span'); h.className = 'asga-count-title'; h.textContent = title;
+      var s = document.createElement('span'); s.className = 'asga-count-sub';
+      s.textContent = total ? ('  ' + from + '–' + to + ' of ' + total + ' ' + noun + (view.q ? ' matching "' + view.q + '"' : '')) : '';
+      cnt.appendChild(h); cnt.appendChild(s);
       renderPager(pages);
       try { window.scrollTo(0, 0); } catch (e) {}
     }
@@ -1266,11 +1372,12 @@ echo json_encode(
       }
     }
     function applyViewMode() {
-      var on = isOn();
-      document.body.classList.toggle('asga-active', on);   // CSS hides CA's grid only when on
-      var v = document.getElementById('asga-view'); if (v) v.style.display = on ? '' : 'none';
-      var sw = document.querySelector('.asga-sortwrap'); if (sw) sw.style.display = on ? '' : 'none';
-      var cb = document.getElementById('asga-toggle-cb'); if (cb) cb.checked = on;
+      var persisted = isOn();
+      var showOurs = persisted && !caSpecial;   // a CA special view temporarily wins
+      document.body.classList.toggle('asga-active', showOurs);   // CSS hides CA's grid only when ours shows
+      var v = document.getElementById('asga-view'); if (v) v.style.display = showOurs ? '' : 'none';
+      var sw = document.querySelector('.asga-sortwrap'); if (sw) sw.style.display = showOurs ? '' : 'none';
+      var cb = document.getElementById('asga-toggle-cb'); if (cb) cb.checked = persisted;   // toggle reflects the persisted choice
     }
 
     // filter as the user types in CA's own search box (CA's hidden results are ignored)
@@ -1281,7 +1388,12 @@ echo json_encode(
       var deb;
       box.addEventListener('input', function () {
         clearTimeout(deb);
-        deb = setTimeout(function () { view.q = box.value || ''; view.page = 1; render(); }, 120);
+        deb = setTimeout(function () {
+          if (!isOn()) return;
+          if (caSpecial) { caSpecial = false; applyViewMode(); }   // leave a CA view when searching
+          view.special = '';   // search spans the whole store
+          view.q = box.value || ''; view.page = 1; render();
+        }, 120);
       });
     }
 
@@ -1294,12 +1406,25 @@ echo json_encode(
         if (!item) return;
         var cat = item.getAttribute('data-category') || '';
         var label = (item.textContent || '').trim();
-        // CA's "All"/"New"/startup screens mean "no category filter" for us
+        var box = document.getElementById('searchBox');
+        // Pinned + Installed: CA's own views are broken, so render them ourselves.
+        if (cat === 'pinned_apps' || cat === 'installed_apps') {
+          caSpecial = false; view.special = (cat === 'installed_apps') ? 'installed' : 'pinned';
+          view.cat = ''; view.q = ''; if (box) box.value = ''; view.page = 1;
+          loadViews(function () { applyViewMode(); render(); });
+          return;
+        }
+        if (CA_SPECIAL.test(cat)) {
+          // Previous Apps / Action Centre / Repositories: hand back to CA for now.
+          caSpecial = true; applyViewMode(); return;
+        }
+        // Home / All Apps / a category chip: our grid, filtered.
+        caSpecial = false; view.special = '';
         if (cat === 'All' || cat === 'New' || cat === '' || item.classList.contains('allApps')) { view.cat = ''; view.catLabel = 'All Apps'; }
-        else if (/^(onlynew|spotlight|top_trending|installed|previous_apps|prev_docker|prev_plugins|pinned_apps|action_centre|repos)$/.test(cat)) { return; } // leave CA's special views alone
         else { view.cat = cat; view.catLabel = label || cat; }
-        view.q = ''; var box = document.getElementById('searchBox'); if (box) box.value = '';
+        view.q = ''; if (box) box.value = '';
         view.page = 1;
+        applyViewMode();
         setTimeout(render, 0);
       }, true);
     }
@@ -1394,6 +1519,7 @@ echo json_encode(
 
     function start() {
       triggerNewScan();
+      loadViews();   // pin/installed membership, so tiles show correct pin state
       loadApps(function () {
         attachUI();
         render();
@@ -1427,6 +1553,9 @@ echo json_encode(
 body.asga-active #templates_content { display: none !important; }
 body.asga-active #sortIconArea { display: none !important; }
 body.asga-active #maxPerPage { display: none !important; }
+/* CA writes the current view name (e.g. "Pinned Apps") into a toolbar category
+   label; our own title covers that, so hide CA's to avoid a run-together line. */
+body.asga-active .categoryLine { display: none !important; }
 
 /* our toolbar row lives in CA's search row */
 #searchFilter { margin-top: 24px; }
@@ -1458,7 +1587,10 @@ body.asga-active #maxPerPage { display: none !important; }
 
 /* ---- our grid ---- */
 #asga-view { margin: 6px 10px 40px; }
-.asga-count { font-size: 1.1rem; opacity: 0.75; margin: 4px 2px 12px; }
+.asga-count { margin: 6px 2px 16px; }
+.asga-count-title { font-size: 1.6rem; font-weight: 700; color: var(--text-color, inherit); }
+.asga-count-sub { font-size: 1.05rem; opacity: 0.55; }
+.asga-empty { padding: 40px 8px; font-size: 1.2rem; opacity: 0.7; text-align: center; }
 
 .asga-grid {
   display: grid;
@@ -1549,6 +1681,63 @@ body.asga-active #maxPerPage { display: none !important; }
 .ghstars-warning-x { cursor: pointer; font-weight: bold; opacity: 0.7; }
 .ghstars-warning-x:hover { opacity: 1; }
 
+/* ===== modern Info drawer =====
+   CA populates its own right-slide sidebar (#sidenavContent) when a tile is
+   clicked. We restyle it here, scoped to body.asga-active, so it matches the
+   modern grid; with the Modern view toggled off none of this applies and CA's
+   stock drawer styling returns. We only override styles, never CA markup. */
+body.asga-active .sidenav {
+  background: var(--background-color, #1b1b1b);
+  border-left: 1px solid rgba(255, 140, 47, 0.35);
+  box-shadow: -12px 0 40px rgba(0, 0, 0, 0.45);
+}
+body.asga-active #sidenavContent { padding: 8px 20px 40px; }
+
+/* close button (CA makes this a sticky black bar; theme it and keep it on top) */
+body.asga-active .popupCloseArea {
+  position: sticky; top: 0; z-index: 4;
+  background: var(--background-color, #1b1b1b); border-bottom: 1px solid rgba(127,127,127,0.15);
+  text-align: right; margin: 0 -20px 10px; padding: 10px 20px;
+}
+body.asga-active .popUpClose.caButton {
+  display: inline-block; cursor: pointer;
+  font-size: 1rem; padding: 5px 16px; border-radius: 20px;
+  border: 1px solid rgba(127,127,127,0.4); background: rgba(127,127,127,0.08); color: var(--text-color, inherit);
+}
+body.asga-active .popUpClose.caButton:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.14); }
+
+/* header: icon + name + actions */
+body.asga-active .ca_popupIconArea { display: flex; gap: 18px; align-items: flex-start; margin: 4px 0 18px; }
+body.asga-active .popupIcon img { width: 96px; height: 96px; object-fit: contain; border-radius: 16px; }
+body.asga-active .popupName { font-size: 1.9rem; font-weight: 800; line-height: 1.15; }
+body.asga-active .popupAuthorMain { font-size: 1.1rem; opacity: 0.6; margin: 2px 0 12px; }
+
+/* action buttons (Install / Support / Pin) as modern pills */
+body.asga-active .popupInfo .caButton {
+  display: inline-block; cursor: pointer;
+  font-size: 1.05rem; padding: 6px 18px; margin: 0 8px 8px 0; border-radius: 22px;
+  border: 1px solid rgba(127,127,127,0.4); background: rgba(127,127,127,0.08); color: var(--text-color, inherit);
+}
+body.asga-active .popupInfo .caButton:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.14); }
+body.asga-active .popupInfo .caButton.actionsPopup { background: #ff8c2f; border-color: #ff8c2f; color: #fff; }
+body.asga-active .popupInfo .caButton.actionsPopup:hover { filter: brightness(1.08); }
+body.asga-active .popupInfo .caButton.pinPopup.pinned { border-color: #ff8c2f; color: #ff8c2f; background: rgba(255,140,47,0.2); }
+
+/* description block */
+body.asga-active .popupDescription {
+  background: rgba(127,127,127,0.08); border: 1px solid rgba(127,127,127,0.2);
+  border-radius: 10px; padding: 14px 16px; line-height: 1.5; font-size: 1.05rem; margin: 4px 0 20px;
+}
+
+/* section titles + details table */
+body.asga-active .rightTitle, body.asga-active .popupAuthorTitle {
+  font-size: 1.15rem; font-weight: 700; color: #ff8c2f; letter-spacing: 0.02em; margin: 6px 0 8px;
+}
+body.asga-active .popupTable { width: 100%; border-collapse: collapse; }
+body.asga-active .popupTable td { padding: 7px 8px; border-bottom: 1px solid rgba(127,127,127,0.15); font-size: 1.02rem; vertical-align: top; }
+body.asga-active .popupTableLeft { opacity: 0.6; white-space: nowrap; width: 40%; }
+body.asga-active .popupAuthorIcon img { width: 40px; height: 40px; border-radius: 8px; object-fit: contain; }
+
 /* thin fixed progress bar at the very top of the page (no layout impact) */
 .ghstars-topbar {
   position: fixed; top: 0; left: 0; right: 0; z-index: 9999;
@@ -1574,7 +1763,7 @@ Title="App Store GitHub Addon"
 Icon="star"
 ---
 <?php
-/* App Store GitHub Addon — settings page (Settings -> Utilities -> App Store GitHub Addon). */
+/* App Store GitHub Addon: settings page (Settings -> Utilities -> App Store GitHub Addon). */
 require_once "$docroot/plugins/dynamix/include/Wrappers.php";
 
 $gas_dir  = "/boot/config/plugins/appstore.github.addon";
@@ -1612,7 +1801,7 @@ if ($_POST) {
         $datadir  = $_POST['DATA_DIR'] ?? '';
         gas_write_cfg($gas_cfg, $token, $service, $datadir);
         gas_write_cron($gas_cron);
-        $gas_msg = "Settings saved." . (trim($token) === '' ? " WARNING: no token set — star counts are disabled." : "");
+        $gas_msg = "Settings saved." . (trim($token) === '' ? " WARNING: no token set - star counts are disabled." : "");
     }
     if (isset($_POST['REFRESH'])) {
         @exec("nohup php " . escapeshellarg($gas_php) . " >/dev/null 2>&1 &");
@@ -1670,12 +1859,12 @@ _(Database directory)_:
 <div class="title"><span class="left">Last scan</span></div>
 <?php if ($status): ?>
 <table class="asga-status" style="border-collapse:collapse;">
-  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Ran at</td><td><?= $status['ran_at'] ? date('Y-m-d H:i:s', $status['ran_at']) : '—' ?></td></tr>
+  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Ran at</td><td><?= $status['ran_at'] ? date('Y-m-d H:i:s', $status['ran_at']) : '-' ?></td></tr>
   <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Repos with a GitHub link</td><td><?= (int)($status['repos_total'] ?? 0) ?></td></tr>
   <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Updated</td><td><?= (int)($status['ok'] ?? 0) ?></td></tr>
   <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Unchanged</td><td><?= (int)($status['not_modified'] ?? 0) ?></td></tr>
   <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Missing repos</td><td><?= (int)($status['missing'] ?? 0) ?></td></tr>
-  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Rate limit remaining</td><td><?= isset($status['rate_remaining']) ? (int)$status['rate_remaining'] : '—' ?></td></tr>
+  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Rate limit remaining</td><td><?= isset($status['rate_remaining']) ? (int)$status['rate_remaining'] : '-' ?></td></tr>
   <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Errors</td><td><?= count($status['errors'] ?? []) ?></td></tr>
 </table>
 <?php else: ?>
@@ -1692,7 +1881,7 @@ Menu="Buttons:99"
 Link="nav-user"
 ---
 <?php
-/* App Store GitHub Addon — global loader.
+/* App Store GitHub Addon: global loader.
  * Rides the same "Buttons" hook the custom.css plugin uses: this page body is
  * emitted into the chrome of EVERY webGUI page. We output the inject script
  * (which self-limits to /Apps) plus a tiny config object so the front-end knows
@@ -1719,7 +1908,7 @@ if (($gas['SERVICE'] ?? 'disabled') === 'enabled') {
 <INLINE>
 <![CDATA[
 ####App Store GitHub Addon###
-Adds GitHub star counts to every Community Applications app tile, plus a sortable GitHub view of the whole catalog — by stars, trending (day/week/month/year), or newest to the App Store. It uses CA's own app page and never modifies the Community Applications plugin.
+Adds GitHub star counts to every Community Applications app tile, plus a sortable GitHub view of the whole catalog - by stars, trending (day/week/month/year), or newest to the App Store. It uses CA's own app page and never modifies the Community Applications plugin.
 
 Set your GitHub personal access token at **Settings → Utilities → App Store GitHub Addon**. Star data is cached in appdata and refreshed automatically.
 ]]>

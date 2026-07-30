@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.30b}"
+VERSION="${1:-2026.07.30d}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -16,7 +16,7 @@ PLUGIN_URL="https://raw.githubusercontent.com/ghzgod/appstore-github-addon/main/
 SUPPORT_URL="https://github.com/ghzgod/appstore-github-addon"
 
 # --- payload files (order: php, js, css, pages, readme) --------------------
-FILES=(fetch_stars.php refresh.php cancel.php sortinject.php newscan.php applist.php inject.js inject.css AppStoreGitHubAddon.page AppStoreGitHubAddonLoader.page README.md)
+FILES=(fetch_stars.php refresh.php cancel.php sortinject.php newscan.php applist.php pinned.php inject.js inject.css AppStoreGitHubAddon.page AppStoreGitHubAddonLoader.page README.md)
 
 # guard: CDATA cannot contain ]]>
 for f in "${FILES[@]}"; do
@@ -44,6 +44,22 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Pinned Apps and Installed Apps now render in the modern grid (with GitHub stars),
+  because CA's own Pinned/Installed views are broken in its 2026.07 rewrite (they
+  showed the home screen). Pin/Unpin works from the tiles and the drawer alike.
+- Home and category browsing stay in the modern grid; only Previous Apps, Action
+  Centre and Repositories still hand off to CA for now.
+- Fix: the leaked CA category label next to the toolbar is hidden; each view shows
+  a proper bold title (All Apps / Pinned Apps / Installed Apps) with its count.
+- Fix: Pin App writes CA's real key (image ref + SortName) so pins actually appear.
+- Modern Info drawer: the slide-in app drawer is restyled to match the grid
+  (rounded icon, orange Install, pill buttons, carded description, orange section
+  titles). Turning the modern view off restores CA's stock drawer.
+- Fix: CA's own views (Pinned Apps, Installed Apps, Previous Apps, Action Centre,
+  Repositories) now display CA's native list instead of being hidden behind our
+  grid. Selecting All Apps, a category or searching returns to the modern grid.
+- Fix: the Pin App button now pins with CA's real key (image ref + SortName), so
+  pinned apps show up under Pinned Apps exactly like CA's own drawer button.
 - Tiles: stars and Docker-pull count now sit inline in the top-right corner; a
   Pin App button was added (pins via CA's own pinApp, same as the Info drawer);
   the toggle is labelled "Modern view".

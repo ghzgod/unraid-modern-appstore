@@ -2,7 +2,7 @@ Menu="Buttons:99"
 Link="nav-user"
 ---
 <?php
-/* App Store GitHub Addon — global loader.
+/* App Store GitHub Addon: global loader.
  * Rides the same "Buttons" hook the custom.css plugin uses: this page body is
  * emitted into the chrome of EVERY webGUI page. We output the inject script
  * (which self-limits to /Apps) plus a tiny config object so the front-end knows

@@ -1,6 +1,6 @@
 <?php
 /**
- * App Store GitHub Addon — manual refresh trigger.
+ * App Store GitHub Addon: manual refresh trigger.
  *
  * Launches the fetcher in the background (with --manual so its time is
  * recorded) and returns JSON. Enforces a 3-day cooldown between MANUAL
