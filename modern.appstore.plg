@@ -220,12 +220,13 @@ mkdir -p /boot/config/plugins/modern.appstore
  * SSD so it survives reboots; served copies go to the tmpfs webroot. curl_multi
  * keep-alive for speed; a flock guarantees one scan at a time.
  *
- * NEVER writes to any CA-owned path. NEVER logs the token. UA is fabricated.
+ * NEVER writes to any CA-owned path. NEVER logs the token. The User-Agent names
+ * the project only; it carries nothing about the server it runs on.
  */
 
 error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
 
-const UA = 'unraid-app-stars/1.0 (+https://example.com)';
+const UA = 'unraid-modern-appstore/1.0 (+https://github.com/ghzgod/unraid-modern-appstore)';
 const PLUGIN = 'modern.appstore';
 
 $cfgPath = '/boot/config/plugins/' . PLUGIN . '/' . PLUGIN . '.cfg';
