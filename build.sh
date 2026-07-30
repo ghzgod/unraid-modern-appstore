@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.30h}"
+VERSION="${1:-2026.07.30i}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,10 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Fix: preview screenshots now open in a built-in lightbox. CA's own gallery closed
+  the whole Info drawer when a preview opened and re-opened it on close, which
+  flashed the drawer blank and could show two images overlaid. The drawer now stays
+  put behind the lightbox.
 - Repo renamed to unraid-modern-appstore; the plugin update URL now points there.
 - Fix: the Sort By dropdown is vertically aligned with the toolbar labels.
 - Renamed to "Unraid Modern Appstore" (settings page, in-app labels, README and the

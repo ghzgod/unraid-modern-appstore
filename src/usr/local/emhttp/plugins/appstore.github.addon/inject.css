@@ -204,6 +204,25 @@ body.asga-active .popupTable td { padding: 7px 8px; border-bottom: 1px solid rgb
 body.asga-active .popupTableLeft { opacity: 0.6; white-space: nowrap; width: 40%; }
 body.asga-active .popupAuthorIcon img { width: 40px; height: 40px; border-radius: 8px; object-fit: contain; }
 
+/* our screenshot lightbox (replaces CA's drawer-closing gallery) */
+.asga-lightbox {
+  position: fixed; inset: 0; z-index: 10050;
+  background: rgba(0,0,0,0.9); display: flex; align-items: center; justify-content: center;
+}
+.asga-lb-img { max-width: 92vw; max-height: 88vh; object-fit: contain; border-radius: 6px; box-shadow: 0 10px 50px rgba(0,0,0,0.6); }
+.asga-lb-close {
+  position: fixed; top: 18px; right: 24px; font-size: 2rem; line-height: 1; color: #fff;
+  cursor: pointer; opacity: 0.85; user-select: none;
+}
+.asga-lb-close:hover { opacity: 1; }
+.asga-lb-nav {
+  position: fixed; top: 50%; transform: translateY(-50%); font-size: 3.4rem; line-height: 1;
+  color: #fff; cursor: pointer; opacity: 0.7; user-select: none; padding: 0 18px;
+}
+.asga-lb-nav:hover { opacity: 1; }
+.asga-lb-prev { left: 10px; }
+.asga-lb-next { right: 10px; }
+
 /* thin fixed progress bar at the very top of the page (no layout impact) */
 .ghstars-topbar {
   position: fixed; top: 0; left: 0; right: 0; z-index: 9999;

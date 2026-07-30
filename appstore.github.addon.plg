@@ -2,14 +2,18 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "appstore.github.addon">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.07.30h">
+<!ENTITY version "2026.07.30i">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/appstore.github.addon.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/AppStoreGitHubAddon" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.07.30h
+##2026.07.30i
+- Fix: preview screenshots now open in a built-in lightbox. CA's own gallery closed
+  the whole Info drawer when a preview opened and re-opened it on close, which
+  flashed the drawer blank and could show two images overlaid. The drawer now stays
+  put behind the lightbox.
 - Repo renamed to unraid-modern-appstore; the plugin update URL now points there.
 - Fix: the Sort By dropdown is vertically aligned with the toolbar labels.
 - Renamed to "Unraid Modern Appstore" (settings page, in-app labels, README and the
@@ -1194,6 +1198,50 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
 
     function openExt(url) { if (url) try { window.open(url, '_blank', 'noopener'); } catch (e) {} }
 
+    // Screenshot lightbox. CA's own gallery (magnificPopup) closes the whole
+    // drawer when a preview opens and re-opens it on close, which flashes the
+    // pane blank and, because it re-binds each time, sometimes shows two images
+    // overlaid. In modern view we intercept the click and show our own overlay
+    // instead, so the drawer stays put.
+    function wireLightbox() {
+      if (document.body.__asgaLightbox) return;
+      document.body.__asgaLightbox = true;
+      var srcOf = function (el) { return el.getAttribute('href') || (el.querySelector('img') && el.querySelector('img').getAttribute('src')) || el.getAttribute('src'); };
+      document.addEventListener('click', function (e) {
+        if (!isOn()) return;
+        // previews are <a class="screenshot mfp-image">; the app icon is
+        // img.popupIcon.screenshot (handle it too so CA's gallery never fires).
+        var scr = e.target.closest ? e.target.closest('#sidenavContent .screenshot') : null;
+        if (!scr) return;
+        e.preventDefault(); e.stopImmediatePropagation();
+        if (scr.classList.contains('popupIcon')) { var s = srcOf(scr); if (s) openLightbox([s], 0); return; }
+        var items = [].slice.call(document.querySelectorAll('#sidenavContent .screenshot')).filter(function (el) { return !el.classList.contains('popupIcon'); });
+        var srcs = items.map(srcOf).filter(Boolean);
+        openLightbox(srcs, Math.max(0, items.indexOf(scr)));
+      }, true);
+    }
+    function openLightbox(srcs, idx) {
+      if (!srcs.length) return;
+      var i = idx;
+      var ov = document.createElement('div');
+      ov.className = 'asga-lightbox';
+      ov.innerHTML = '<span class="asga-lb-close">✕</span>' +
+        (srcs.length > 1 ? '<span class="asga-lb-nav asga-lb-prev">‹</span><span class="asga-lb-nav asga-lb-next">›</span>' : '') +
+        '<img class="asga-lb-img" alt="">';
+      var imgEl = ov.querySelector('.asga-lb-img');
+      var show = function () { imgEl.src = srcs[(i + srcs.length) % srcs.length]; };
+      show();
+      var close = function () { ov.remove(); document.removeEventListener('keydown', key, true); };
+      var key = function (ev) { if (ev.key === 'Escape') close(); else if (ev.key === 'ArrowRight') { i++; show(); } else if (ev.key === 'ArrowLeft') { i--; show(); } };
+      ov.addEventListener('click', function (ev) {
+        if (ev.target.classList.contains('asga-lb-close') || ev.target === ov) return close();
+        if (ev.target.classList.contains('asga-lb-next')) { i++; show(); }
+        else if (ev.target.classList.contains('asga-lb-prev')) { i--; show(); }
+      });
+      document.addEventListener('keydown', key, true);
+      document.body.appendChild(ov);
+    }
+
     // Install in a NEW tab. Docker apps open CA's template editor at
     // /Apps/AddContainer; plugins open CA's plugin-install page. Same targets CA
     // uses, just forced into a new tab.
@@ -1569,6 +1617,7 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       addSortBar();
       wireSearch();
       wireCategories();
+      wireLightbox();
       showWarningIfNeeded();
       applyViewMode();
       dismissCaLoading();
@@ -1809,6 +1858,25 @@ body.asga-active .popupTable { width: 100%; border-collapse: collapse; }
 body.asga-active .popupTable td { padding: 7px 8px; border-bottom: 1px solid rgba(127,127,127,0.15); font-size: 1.02rem; vertical-align: top; }
 body.asga-active .popupTableLeft { opacity: 0.6; white-space: nowrap; width: 40%; }
 body.asga-active .popupAuthorIcon img { width: 40px; height: 40px; border-radius: 8px; object-fit: contain; }
+
+/* our screenshot lightbox (replaces CA's drawer-closing gallery) */
+.asga-lightbox {
+  position: fixed; inset: 0; z-index: 10050;
+  background: rgba(0,0,0,0.9); display: flex; align-items: center; justify-content: center;
+}
+.asga-lb-img { max-width: 92vw; max-height: 88vh; object-fit: contain; border-radius: 6px; box-shadow: 0 10px 50px rgba(0,0,0,0.6); }
+.asga-lb-close {
+  position: fixed; top: 18px; right: 24px; font-size: 2rem; line-height: 1; color: #fff;
+  cursor: pointer; opacity: 0.85; user-select: none;
+}
+.asga-lb-close:hover { opacity: 1; }
+.asga-lb-nav {
+  position: fixed; top: 50%; transform: translateY(-50%); font-size: 3.4rem; line-height: 1;
+  color: #fff; cursor: pointer; opacity: 0.7; user-select: none; padding: 0 18px;
+}
+.asga-lb-nav:hover { opacity: 1; }
+.asga-lb-prev { left: 10px; }
+.asga-lb-next { right: 10px; }
 
 /* thin fixed progress bar at the very top of the page (no layout impact) */
 .ghstars-topbar {

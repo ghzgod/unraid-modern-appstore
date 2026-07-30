@@ -203,6 +203,50 @@
 
     function openExt(url) { if (url) try { window.open(url, '_blank', 'noopener'); } catch (e) {} }
 
+    // Screenshot lightbox. CA's own gallery (magnificPopup) closes the whole
+    // drawer when a preview opens and re-opens it on close, which flashes the
+    // pane blank and, because it re-binds each time, sometimes shows two images
+    // overlaid. In modern view we intercept the click and show our own overlay
+    // instead, so the drawer stays put.
+    function wireLightbox() {
+      if (document.body.__asgaLightbox) return;
+      document.body.__asgaLightbox = true;
+      var srcOf = function (el) { return el.getAttribute('href') || (el.querySelector('img') && el.querySelector('img').getAttribute('src')) || el.getAttribute('src'); };
+      document.addEventListener('click', function (e) {
+        if (!isOn()) return;
+        // previews are <a class="screenshot mfp-image">; the app icon is
+        // img.popupIcon.screenshot (handle it too so CA's gallery never fires).
+        var scr = e.target.closest ? e.target.closest('#sidenavContent .screenshot') : null;
+        if (!scr) return;
+        e.preventDefault(); e.stopImmediatePropagation();
+        if (scr.classList.contains('popupIcon')) { var s = srcOf(scr); if (s) openLightbox([s], 0); return; }
+        var items = [].slice.call(document.querySelectorAll('#sidenavContent .screenshot')).filter(function (el) { return !el.classList.contains('popupIcon'); });
+        var srcs = items.map(srcOf).filter(Boolean);
+        openLightbox(srcs, Math.max(0, items.indexOf(scr)));
+      }, true);
+    }
+    function openLightbox(srcs, idx) {
+      if (!srcs.length) return;
+      var i = idx;
+      var ov = document.createElement('div');
+      ov.className = 'asga-lightbox';
+      ov.innerHTML = '<span class="asga-lb-close">✕</span>' +
+        (srcs.length > 1 ? '<span class="asga-lb-nav asga-lb-prev">‹</span><span class="asga-lb-nav asga-lb-next">›</span>' : '') +
+        '<img class="asga-lb-img" alt="">';
+      var imgEl = ov.querySelector('.asga-lb-img');
+      var show = function () { imgEl.src = srcs[(i + srcs.length) % srcs.length]; };
+      show();
+      var close = function () { ov.remove(); document.removeEventListener('keydown', key, true); };
+      var key = function (ev) { if (ev.key === 'Escape') close(); else if (ev.key === 'ArrowRight') { i++; show(); } else if (ev.key === 'ArrowLeft') { i--; show(); } };
+      ov.addEventListener('click', function (ev) {
+        if (ev.target.classList.contains('asga-lb-close') || ev.target === ov) return close();
+        if (ev.target.classList.contains('asga-lb-next')) { i++; show(); }
+        else if (ev.target.classList.contains('asga-lb-prev')) { i--; show(); }
+      });
+      document.addEventListener('keydown', key, true);
+      document.body.appendChild(ov);
+    }
+
     // Install in a NEW tab. Docker apps open CA's template editor at
     // /Apps/AddContainer; plugins open CA's plugin-install page. Same targets CA
     // uses, just forced into a new tab.
@@ -578,6 +622,7 @@
       addSortBar();
       wireSearch();
       wireCategories();
+      wireLightbox();
       showWarningIfNeeded();
       applyViewMode();
       dismissCaLoading();
