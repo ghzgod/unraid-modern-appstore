@@ -2,14 +2,16 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "appstore.github.addon">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.07.30k">
+<!ENTITY version "2026.07.30l">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/appstore.github.addon.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/AppStoreGitHubAddon" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.07.30k
+##2026.07.30l
+- Fix: the drawer CLOSE button text is now light (was black on dark, invisible
+  until hovered).
 - Fix: tile buttons no longer wrap to two lines ("Pin App" stayed on one line and
   all five buttons fit one row).
 - Info drawer: removed the blank space at the top and moved CLOSE up in line with
@@ -1827,9 +1829,10 @@ body.asga-active .popupCloseArea {
 body.asga-active .popUpClose.caButton {
   display: inline-block; cursor: pointer;
   font-size: 1rem; padding: 5px 16px; border-radius: 20px;
-  border: 1px solid rgba(127,127,127,0.4); background: rgba(127,127,127,0.08); color: var(--text-color, inherit);
+  border: 1px solid rgba(200,200,200,0.55); background: rgba(255,255,255,0.09); color: #f2f2f2 !important;
 }
-body.asga-active .popUpClose.caButton:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.14); }
+body.asga-active .popUpClose.caButton * { color: #f2f2f2 !important; }
+body.asga-active .popUpClose.caButton:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.2); color: #fff !important; }
 
 /* header: icon + name + actions */
 body.asga-active .ca_popupIconArea { display: flex; gap: 18px; align-items: flex-start; margin: 4px 0 18px; }
