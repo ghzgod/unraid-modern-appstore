@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.30j}"
+VERSION="${1:-2026.07.30k}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,10 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Fix: tile buttons no longer wrap to two lines ("Pin App" stayed on one line and
+  all five buttons fit one row).
+- Info drawer: removed the blank space at the top and moved CLOSE up in line with
+  the app title.
 - Fix: the Info-drawer description text was black on the dark card (unreadable);
   CA set it via a more specific rule, now forced to a light colour.
 - Fix: preview screenshots now open in a built-in lightbox. CA's own gallery closed
