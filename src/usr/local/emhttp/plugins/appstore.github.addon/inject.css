@@ -21,9 +21,9 @@ body.asga-active .spinner.fixed { display: none !important; }
 }
 .asga-sortwrap { display: inline-flex; align-items: center; gap: 8px; }
 .asga-bar-label { white-space: nowrap; }
-/* the native select renders its glyphs higher inside its taller box than the
-   adjacent text labels, so nudge it down a hair to sit on the same line */
-.asga-sortsel { vertical-align: middle; font-size: 1.2rem; position: relative; top: 3px; }
+/* constrain the native select's box height so its glyphs center on the same
+   line as the adjacent text labels (a taller default box made it sit high) */
+.asga-sortsel { vertical-align: middle; font-size: 1.2rem; height: 1.7rem; line-height: 1.7rem; padding: 0 4px; }
 .asga-refreshlink { cursor: pointer; opacity: 0.8; font-size: 1.4rem; text-decoration: none; color: inherit; }
 .asga-refreshlink:hover { opacity: 1; }
 

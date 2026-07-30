@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.07.30f}"
+VERSION="${1:-2026.07.30g}"
 NAME="appstore.github.addon"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,7 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Fix: the Sort By dropdown is vertically aligned with the toolbar labels.
 - Renamed to "Unraid Modern Appstore" (settings page, in-app labels, README and the
   GitHub page). The internal plugin id is unchanged, so no reinstall is required.
 - Fix: CA's "Updating Content / Please Wait" modal and spinner no longer get
