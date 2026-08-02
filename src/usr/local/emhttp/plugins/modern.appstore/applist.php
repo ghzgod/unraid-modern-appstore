@@ -116,6 +116,13 @@ foreach ($tmpl as $t) {
     $desc = trim(preg_replace('/\s+/', ' ', strip_tags($desc)));
     if (strlen($desc) > 400) $desc = substr($desc, 0, 400) . '…';
 
+    // CA carries FirstSeen = 1 for apps that predate its record-keeping (all of
+    // binhex's catalog, 78 apps today). That is a sentinel, not a 1970 date, and
+    // CA's own fixTemplates() blanks it the same way ("if Date == 1, Date = null").
+    // Report it as unknown so the grid omits the line instead of printing 1969.
+    $fs = (int)($t['FirstSeen'] ?? 0);
+    if ($fs <= 1) $fs = 0;
+
     $out[] = [
         'p'   => $path,
         'n'   => $name,
@@ -133,7 +140,7 @@ foreach ($tmpl as $t) {
         'pu'  => $t['PluginURL'] ?? '',                      // plugin .plg url (plugins install differently)
         's'   => isset($mine['s']) ? $mine['s'] : null,
         'dl'  => $dl,
-        'fs'  => (int)($t['FirstSeen'] ?? 0),
+        'fs'  => $fs,
         'sa'  => $fetchedAt[strtolower($mine['rp'] ?? '')] ?? 0,
         'ca'  => $mine['ca'] ?? null,
         't1'  => $mine['t1'] ?? null,

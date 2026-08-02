@@ -2,14 +2,14 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.08.01">
+<!ENTITY version "2026.08.02">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.08.01
+##2026.08.02
 - Four new Sort By orders: Trending (this year), Trending (all time),
   Trending % (this year) and Trending % (all time). All five trending windows now
   rank by GitHub stars and differ only in the period they measure.
@@ -1498,6 +1498,13 @@ foreach ($tmpl as $t) {
     $desc = trim(preg_replace('/\s+/', ' ', strip_tags($desc)));
     if (strlen($desc) > 400) $desc = substr($desc, 0, 400) . '…';
 
+    // CA carries FirstSeen = 1 for apps that predate its record-keeping (all of
+    // binhex's catalog, 78 apps today). That is a sentinel, not a 1970 date, and
+    // CA's own fixTemplates() blanks it the same way ("if Date == 1, Date = null").
+    // Report it as unknown so the grid omits the line instead of printing 1969.
+    $fs = (int)($t['FirstSeen'] ?? 0);
+    if ($fs <= 1) $fs = 0;
+
     $out[] = [
         'p'   => $path,
         'n'   => $name,
@@ -1515,7 +1522,7 @@ foreach ($tmpl as $t) {
         'pu'  => $t['PluginURL'] ?? '',                      // plugin .plg url (plugins install differently)
         's'   => isset($mine['s']) ? $mine['s'] : null,
         'dl'  => $dl,
-        'fs'  => (int)($t['FirstSeen'] ?? 0),
+        'fs'  => $fs,
         'sa'  => $fetchedAt[strtolower($mine['rp'] ?? '')] ?? 0,
         'ca'  => $mine['ca'] ?? null,
         't1'  => $mine['t1'] ?? null,
@@ -1994,6 +2001,8 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
         var ad = document.createElement('div');
         ad.className = 'asga-tile-added';
         ad.textContent = added;
+        ad.title = 'When the Community Applications feed first saw this app. Your server '
+                 + 'only picks it up on its next feed refresh, so an app can appear here days later.';
         tile.appendChild(ad);
       }
       return tile;

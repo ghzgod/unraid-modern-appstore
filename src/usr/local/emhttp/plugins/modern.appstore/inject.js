@@ -403,6 +403,8 @@
         var ad = document.createElement('div');
         ad.className = 'asga-tile-added';
         ad.textContent = added;
+        ad.title = 'When the Community Applications feed first saw this app. Your server '
+                 + 'only picks it up on its next feed refresh, so an app can appear here days later.';
         tile.appendChild(ad);
       }
       return tile;
