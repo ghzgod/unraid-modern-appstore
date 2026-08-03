@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.08.02}"
+VERSION="${1:-2026.08.03}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,21 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Fix: the modern grid was empty after a reboot. Community Applications keeps its
+  app catalog in /tmp, so it is gone on every boot until CA's own Apps page has
+  re-downloaded the feed. The modern grid loaded first, found nothing, printed
+  "No apps to show" and stayed that way until a manual reload, which is why the
+  store looked empty in modern view but full with modern view switched off. It
+  now recognises a catalog that has not been published yet, says so, and fills in
+  by itself the moment CA writes it.
+- The modern view now mirrors CA's behaviour when Docker is not running. CA never
+  empties the store in that state: it lists every app, keeps plugins fully
+  installable, and blocks only Docker installs. The grid now does the same, with
+  CA's own reason (Docker service not enabled, Docker failed to start, or array
+  not started) shown above the grid and on each Docker card, and Install disabled
+  on those cards only.
+
+##2026.08.02
 - Four new Sort By orders: Trending (this year), Trending (all time),
   Trending % (this year) and Trending % (all time). All five trending windows now
   rank by GitHub stars and differ only in the period they measure.

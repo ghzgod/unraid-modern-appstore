@@ -36,6 +36,21 @@
     // false once the server reports the GitHub token cannot read star dates,
     // which is what the year trending windows are built from
     var starDates = true;
+    // CA's docker availability, as applist.php reports it. Docker being down
+    // does NOT empty the store: CA still lists everything and still installs
+    // plugins, it only blocks docker installs and says why. The modern view is
+    // a re-skin of CA's own catalog, so it behaves identically.
+    var docker = { running: true, reason: 0, warn: false };
+    var DOCKER_MSG = {
+      1: 'Docker Service Not Enabled',
+      2: 'Docker system failed to start',
+      3: 'Array not started'
+    };
+    // CA's app catalog lives in /tmp, so it is gone after every boot until CA's
+    // own page has re-downloaded the feed. Our grid loads first, and used to
+    // paint "No apps to show" and stay that way until a manual reload.
+    var feedReady = true, feedWaits = 0;
+    var FEED_POLL_MS = 3000, FEED_MAX_WAITS = 100;   // give up after ~5 minutes
     // CA's Pinned/Installed views are broken in the 2026.07 rewrite (they render
     // the home screen), so the modern grid renders those itself (view.special).
     // The few views we can't yet rebuild from our data are handed back to CA.
@@ -118,9 +133,20 @@
         .then(function (j) {
           APPS = dedupe((j && j.apps) || []);
           if (j && j.starDates === false) starDates = false;
+          if (j && j.docker) docker = j.docker;
+          // no answer at all counts as not ready, so a failed request retries
+          // rather than freezing the grid on an empty catalog
+          feedReady = !!j && j.feedReady !== false;
           cb && cb();
         })
-        .catch(function () { APPS = APPS || []; cb && cb(); });
+        .catch(function () { APPS = APPS || []; feedReady = false; cb && cb(); });
+    }
+    // Poll until CA has written its catalog, then paint. Only the wait is new;
+    // the grid renders from the same endpoint either way.
+    function waitForFeed() {
+      if (feedReady || feedWaits >= FEED_MAX_WAITS) return;
+      feedWaits++;
+      setTimeout(function () { loadApps(function () { render(); waitForFeed(); }); }, FEED_POLL_MS);
     }
     // The feed carries the same app under multiple templates (e.g. a repo and a
     // mirror), so the grid showed duplicates. Collapse by name+author, keeping
@@ -183,7 +209,8 @@
       if (wrap) return wrap;
       wrap = document.createElement('div');
       wrap.id = 'asga-view';
-      wrap.innerHTML = '<div id="asga-count" class="asga-count"></div>' +
+      wrap.innerHTML = '<div id="asga-dockerwarn" class="asga-dockerwarn" style="display:none"></div>' +
+        '<div id="asga-count" class="asga-count"></div>' +
         '<div id="asga-grid" class="asga-grid"></div>' +
         '<div id="asga-pager" class="asga-pager"></div>';
       var anchor = document.getElementById('templates_content');
@@ -292,6 +319,7 @@
         try { window.showSidebarApp(p, tile.getAttribute('data-appname')); } catch (e) {}
         return;
       }
+      if (!docker.running) return;   // nothing to install into; the card says why
       try { window.open('/Apps/AddContainer?xmlTemplate=default:' + encodeURIComponent(p), '_blank', 'noopener'); } catch (e) {}
     }
 
@@ -394,8 +422,22 @@
       }
       if (a.pr) btns.appendChild(mkBtn('Project', 'asga-project'));
       if (a.su) btns.appendChild(mkBtn('Support', 'asga-support'));
-      btns.appendChild(mkBtn('Install', 'asga-install'));
+      var ib = mkBtn('Install', 'asga-install');
+      // Docker down: the card still lists the app and still opens its Info
+      // drawer, only Install is off, exactly as CA behaves.
+      if (blocked(a)) {
+        ib.classList.add('asga-btn-off');
+        ib.title = (DOCKER_MSG[docker.reason] || 'Docker is not available') + ', Docker apps cannot be installed';
+      }
+      btns.appendChild(ib);
       tile.appendChild(btns);
+      if (blocked(a)) {
+        tile.classList.add('asga-tile-blocked');
+        var note = document.createElement('div');
+        note.className = 'asga-tile-blocked-note';
+        note.textContent = (DOCKER_MSG[docker.reason] || 'Docker not available') + ', install unavailable';
+        tile.appendChild(note);
+      }
 
       // when CA's feed first saw this app, bottom-right of the card
       var added = addedLabel(a.fs);
@@ -443,10 +485,38 @@
              'or straight away once a full catalog scan has run.';
     }
 
+    // The catalog is CA's file in /tmp, rebuilt by CA's own Apps page after a
+    // boot. Until it lands there is nothing to show and nothing wrong, so say
+    // that rather than "No apps to show", which reads like an empty store.
+    function feedWaitNote() {
+      if (feedWaits >= FEED_MAX_WAITS) {
+        return 'Community Applications has not published its app catalog yet. Reload this page, ' +
+               'or turn Modern view off once to let Community Applications download the feed.';
+      }
+      return 'Waiting for Community Applications to download the app catalog. ' +
+             'It is rebuilt after every reboot, and this grid fills in as soon as it lands.';
+    }
+
+    // Same message CA puts in its page banner, restated inside the grid. CA's
+    // banner is dismissible and stays dismissed for a month by cookie, so the
+    // modern view says it itself rather than relying on a banner that may not
+    // be there. Plugins remain fully installable, which is the point of it.
+    function renderDockerNotice() {
+      var el = document.getElementById('asga-dockerwarn');
+      if (!el) return;
+      if (docker.running || !docker.warn) { el.style.display = 'none'; el.textContent = ''; return; }
+      el.textContent = '⚠ ' + (DOCKER_MSG[docker.reason] || 'Docker apps not available to install') +
+        '. Only plugins can be installed or managed until Docker is running. Docker apps are still listed here.';
+      el.style.display = '';
+    }
+    // A docker app cannot be installed while the daemon is down; a plugin can.
+    function blocked(a) { return !docker.running && (a.ty || 'docker') !== 'plugin'; }
+
     function render() {
       if (!isOn() || caSpecial) return;
       var wrap = ensureGrid();
       if (!wrap) return;
+      renderDockerNotice();
       var list = currentList();
       var total = list.length;
       var pages = Math.max(1, Math.ceil(total / view.perPage));
@@ -460,7 +530,8 @@
       if (!total) {
         var empty = document.createElement('div');
         empty.className = 'asga-empty';
-        empty.textContent = view.special === 'pinned' ? 'No pinned apps yet. Use the Pin App button on any app to add it here.'
+        empty.textContent = !feedReady ? feedWaitNote()
+          : view.special === 'pinned' ? 'No pinned apps yet. Use the Pin App button on any app to add it here.'
           : view.special === 'installed' ? 'No installed apps matched the App Store catalog.'
           : view.q ? 'No apps match "' + view.q + '".'
           : emptySortNote() || 'No apps to show.';
@@ -830,6 +901,7 @@
       loadApps(function () {
         attachUI();
         render();
+        waitForFeed();   // no-op unless CA's catalog is still being downloaded
         var main = document.querySelector('.mainArea') || document.body;
         var pending = false;
         var mo = new MutationObserver(function () {

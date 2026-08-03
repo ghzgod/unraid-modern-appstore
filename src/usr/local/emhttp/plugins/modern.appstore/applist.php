@@ -13,7 +13,8 @@
  *   - CA's templates_new.json      (FirstSeen, downloads, displayable flags), never written
  * It writes nothing, anywhere. All CA paths are opened read-only.
  *
- * Output: { "generated": <ts>, "apps": [ { p,n,sn,ic,ct,s,dl,fs,ca,t1,t7,t30,t365 } ] }
+ * Output: { "generated": <ts>, "feedReady": <bool>, "docker": {...},
+ *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,ca,t1,t7,t30,t365 } ] }
  *   p  = template path (passed to CA's showSidebarApp for Info/Install)
  *   n  = display name          sn = lowercase sort-name
  *   ic = icon URL              ct = category
@@ -50,6 +51,31 @@ function clip($s, $max) {
     return strlen($s) > $max ? substr($s, 0, $max - 1) . '…' : $s;
 }
 
+// Community Applications' own docker-availability check, mirrored from its
+// skins/Narrow/skin.php: the daemon counts as up only when its pid file points
+// at a live process, and when it is not CA keeps listing every app but blocks
+// docker installs and says why. The reason is read off the array state and the
+// docker service setting, exactly as CA derives its 1/2/3 warning code.
+//   1 = array started, docker service disabled
+//   2 = array started, docker enabled but the daemon failed to start
+//   3 = array not started
+// CA suppresses the warning entirely while its own install disclaimer has not
+// been accepted (nothing is installable then anyway), so this reports that as
+// warn=false rather than inventing a message CA would not show.
+function docker_state() {
+    $pid = @file_get_contents('/var/run/dockerd.pid');
+    if ($pid !== false && is_dir('/proc/' . trim($pid))) {
+        return ['running' => true, 'reason' => 0, 'warn' => false];
+    }
+    $vars = @parse_ini_file('/var/local/emhttp/var.ini') ?: [];
+    $dcfg = @parse_ini_file('/boot/config/docker.cfg') ?: [];
+    if (($vars['mdState'] ?? '') !== 'STARTED')            $reason = 3;
+    elseif (($dcfg['DOCKER_ENABLED'] ?? '') !== 'yes')     $reason = 1;
+    else                                                   $reason = 2;
+    $accepted = is_file('/boot/config/plugins/community.applications/accepted');
+    return ['running' => false, 'reason' => $reason, 'warn' => $accepted];
+}
+
 function read_json_ro($path) {
     if (!is_file($path)) return null;
     $raw = @file_get_contents($path);
@@ -66,8 +92,14 @@ foreach (($ours['apps'] ?? []) as $a) {
     if (!empty($a['p'])) $byPath[$a['p']] = $a;
 }
 
-// CA's master template list: name, FirstSeen, downloads, displayable flags
+// CA's master template list: name, FirstSeen, downloads, displayable flags.
+// It lives in /tmp, so it is gone after every boot until CA's Apps page has
+// downloaded the feed again. The modern grid loads faster than that download,
+// so an empty read here means "not ready yet", never "the catalog is empty",
+// and the grid is told which of the two it is so it can wait instead of
+// printing "No apps to show" and sitting there until a manual reload.
 $tmpl = read_json_ro("$caTmp/templates_new.json") ?: [];
+$feedReady = !empty($tmpl);
 
 // When each repo was last tried for stars, so the grid can ask for a scan of
 // only the apps on screen that are missing or stale. Read-only; no DB is fine.
@@ -159,6 +191,7 @@ $starDates = empty($scan['stargazers_blocked']);
 // JSON_INVALID_UTF8_SUBSTITUTE: some feed descriptions carry stray bytes that
 // would otherwise make json_encode() return false and emit an empty body.
 echo json_encode(
-    ['generated' => time(), 'count' => count($out), 'starDates' => $starDates, 'apps' => $out],
+    ['generated' => time(), 'count' => count($out), 'starDates' => $starDates,
+     'feedReady' => $feedReady, 'docker' => docker_state(), 'apps' => $out],
     JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
 );
