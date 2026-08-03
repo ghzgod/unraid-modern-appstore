@@ -2,13 +2,26 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.08.03">
+<!ENTITY version "2026.08.03a">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
+##2026.08.03a
+- Three rolling archives of Community Applications' own template catalog, kept in
+  this plugin's data directory as catalog_weekly.json.gz, catalog_monthly.json.gz
+  and catalog_yearly.json.gz. Each is a gzip of CA's templates_new.json exactly as
+  CA wrote it, so there is always a copy no older than a week, one no older than a
+  month, and one no older than a year. The data directory is on the Unraid flash,
+  so the check for whether an archive is due reads no file at all, the catalog is
+  only opened once a window has elapsed, and windows that come due together share
+  a single compression pass. Steady state is one write a week.
+- Docker-unavailable cards keep the grid aligned: the reason now sits above the
+  button row rather than below it, so every card in a row still bottom-aligns its
+  buttons and its Added line. The notice strip's edges line up with the tile grid.
+
 ##2026.08.03
 - Fix: the modern grid was empty after a reboot. Community Applications keeps its
   app catalog in /tmp, so it is gone on every boot until CA's own Apps page has
@@ -372,6 +385,66 @@ if ($lockFh && !flock($lockFh, LOCK_EX | LOCK_NB)) {
 if ((int)$opt['manual'] === 1) {
     @file_put_contents($dataDir . '/last_manual.json', json_encode(['ts' => time()]));
 }
+
+// ---- rolling archives of CA's catalog --------------------------------------
+// Three snapshots of Community Applications' own template catalog kept in this
+// plugin's data directory: one never older than a week, one than a month, one
+// than a year. Each is a gzip of CA's templates_new.json exactly as CA wrote it.
+//
+// That data directory lives on the Unraid flash, which is a USB stick, so this
+// is written as seldom as it can be. The due check is a filemtime comparison
+// that opens nothing; the 27 MB catalog is only read once a window has actually
+// elapsed; it is gzipped (5.5 MB, measured) before it lands; and when two windows
+// come due in the same run the bytes are compressed once and reused. Steady
+// state is one write a week, one a month, one a year.
+const ARCHIVE_WINDOWS = ['weekly' => 604800, 'monthly' => 2592000, 'yearly' => 31536000];
+
+function archive_path(string $dataDir, string $name): string {
+    return $dataDir . '/catalog_' . $name . '.json.gz';
+}
+
+// Which archives exist and when each was taken, for status.json.
+function archive_state(string $dataDir): array {
+    $out = [];
+    foreach (ARCHIVE_WINDOWS as $name => $window) {
+        $ts = @filemtime(archive_path($dataDir, $name));
+        $out[$name] = $ts === false ? 0 : $ts;
+    }
+    return $out;
+}
+
+// Returns the names of the archives actually written this run (often none).
+function archive_catalogs(string $src, string $dataDir): array {
+    $now = time();
+    $due = [];
+    foreach (ARCHIVE_WINDOWS as $name => $window) {
+        $path = archive_path($dataDir, $name);
+        $ts = @filemtime($path);
+        if ($ts === false || ($now - $ts) >= $window) $due[$name] = $path;
+    }
+    if (!$due || !is_file($src)) return [];
+
+    $raw = @file_get_contents($src);              // read-only, CA's file is never touched
+    if ($raw === false || $raw === '') return [];
+    $gz = @gzencode($raw, 6);
+    unset($raw);
+    if ($gz === false) return [];
+
+    $written = [];
+    $len = strlen($gz);
+    foreach ($due as $name => $path) {
+        // temp file then rename, so an interrupted write cannot leave a
+        // truncated archive standing in for a good one
+        $tmp = $path . '.tmp';
+        if (@file_put_contents($tmp, $gz) === $len && @rename($tmp, $path)) $written[] = $name;
+        else @unlink($tmp);
+    }
+    return $written;
+}
+
+$archived = archive_catalogs($opt['ca-cache'], $dataDir);
+if ($archived) fwrite(STDERR, 'fetch_stars: archived CA catalog (' . implode(', ', $archived) . ")\n");
+$status['archives'] = archive_state($dataDir);
 
 if ($token === '' && !$trendsOnly) {
     $status['errors'][] = 'No GitHub token configured.';
@@ -2055,6 +2128,18 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
         tile.appendChild(desc);
       }
 
+      // Why Install is off, in the flowing part of the card. It has to sit
+      // ABOVE the button row: that row carries margin-top:auto and is what
+      // bottom-aligns every card, so a line placed after it would push the
+      // buttons up on blocked cards only and leave the row ragged.
+      if (blocked(a)) {
+        tile.classList.add('asga-tile-blocked');
+        var note = document.createElement('div');
+        note.className = 'asga-tile-blocked-note';
+        note.textContent = (DOCKER_MSG[docker.reason] || 'Docker not available') + ', install unavailable';
+        tile.appendChild(note);
+      }
+
       // Info / Pin / Project / Support / Install buttons (Project + Support are
       // direct links, no submenu)
       var btns = document.createElement('div');
@@ -2077,13 +2162,6 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       }
       btns.appendChild(ib);
       tile.appendChild(btns);
-      if (blocked(a)) {
-        tile.classList.add('asga-tile-blocked');
-        var note = document.createElement('div');
-        note.className = 'asga-tile-blocked-note';
-        note.textContent = (DOCKER_MSG[docker.reason] || 'Docker not available') + ', install unavailable';
-        tile.appendChild(note);
-      }
 
       // when CA's feed first saw this app, bottom-right of the card
       var added = addedLabel(a.fs);
@@ -2746,16 +2824,22 @@ html.asga-pre .spinner.fixed { display: none !important; }
 
 /* Docker unavailable: the grid keeps listing every app, exactly as Community
    Applications does, and marks the ones that cannot be installed right now. */
+/* Left and right edges sit on the tile grid's, not on the 2px optical inset the
+   text-only count line uses, because this is a bordered box like the tiles are.
+   The 10px bottom plus the count's 6px top reproduces the 16px the count line
+   already leaves above the grid, so the strip joins the existing rhythm. */
 .asga-dockerwarn {
-  margin: 0 2px 14px; padding: 8px 12px;
+  margin: 0 0 10px; padding: 8px 12px;
   background: rgba(255, 140, 47, 0.1); color: #d98324;
   border: 1px solid rgba(255, 140, 47, 0.45); border-radius: 6px;
   font-size: 1.05rem;
 }
 .asga-tile-blocked { border-style: dashed; }
 .asga-tile-blocked .asga-tile-icon img { opacity: 0.6; }
+/* Sits under the description, above the bottom-aligned button row. 12px below
+   matches the description's own bottom margin so the card keeps one rhythm. */
 .asga-tile-blocked-note {
-  margin-top: 8px; font-size: 0.92rem; color: #e05c4a;
+  margin: 0 0 12px; font-size: 0.92rem; color: #e05c4a;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .asga-btn.asga-btn-off { opacity: 0.4; cursor: not-allowed; }

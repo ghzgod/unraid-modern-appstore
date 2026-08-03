@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.08.03}"
+VERSION="${1:-2026.08.03a}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,19 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Three rolling archives of Community Applications' own template catalog, kept in
+  this plugin's data directory as catalog_weekly.json.gz, catalog_monthly.json.gz
+  and catalog_yearly.json.gz. Each is a gzip of CA's templates_new.json exactly as
+  CA wrote it, so there is always a copy no older than a week, one no older than a
+  month, and one no older than a year. The data directory is on the Unraid flash,
+  so the check for whether an archive is due reads no file at all, the catalog is
+  only opened once a window has elapsed, and windows that come due together share
+  a single compression pass. Steady state is one write a week.
+- Docker-unavailable cards keep the grid aligned: the reason now sits above the
+  button row rather than below it, so every card in a row still bottom-aligns its
+  buttons and its Added line. The notice strip's edges line up with the tile grid.
+
+##2026.08.03
 - Fix: the modern grid was empty after a reboot. Community Applications keeps its
   app catalog in /tmp, so it is gone on every boot until CA's own Apps page has
   re-downloaded the feed. The modern grid loaded first, found nothing, printed

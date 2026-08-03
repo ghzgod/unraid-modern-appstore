@@ -409,6 +409,18 @@
         tile.appendChild(desc);
       }
 
+      // Why Install is off, in the flowing part of the card. It has to sit
+      // ABOVE the button row: that row carries margin-top:auto and is what
+      // bottom-aligns every card, so a line placed after it would push the
+      // buttons up on blocked cards only and leave the row ragged.
+      if (blocked(a)) {
+        tile.classList.add('asga-tile-blocked');
+        var note = document.createElement('div');
+        note.className = 'asga-tile-blocked-note';
+        note.textContent = (DOCKER_MSG[docker.reason] || 'Docker not available') + ', install unavailable';
+        tile.appendChild(note);
+      }
+
       // Info / Pin / Project / Support / Install buttons (Project + Support are
       // direct links, no submenu)
       var btns = document.createElement('div');
@@ -431,13 +443,6 @@
       }
       btns.appendChild(ib);
       tile.appendChild(btns);
-      if (blocked(a)) {
-        tile.classList.add('asga-tile-blocked');
-        var note = document.createElement('div');
-        note.className = 'asga-tile-blocked-note';
-        note.textContent = (DOCKER_MSG[docker.reason] || 'Docker not available') + ', install unavailable';
-        tile.appendChild(note);
-      }
 
       // when CA's feed first saw this app, bottom-right of the card
       var added = addedLabel(a.fs);

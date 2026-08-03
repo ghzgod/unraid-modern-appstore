@@ -108,6 +108,66 @@ if ((int)$opt['manual'] === 1) {
     @file_put_contents($dataDir . '/last_manual.json', json_encode(['ts' => time()]));
 }
 
+// ---- rolling archives of CA's catalog --------------------------------------
+// Three snapshots of Community Applications' own template catalog kept in this
+// plugin's data directory: one never older than a week, one than a month, one
+// than a year. Each is a gzip of CA's templates_new.json exactly as CA wrote it.
+//
+// That data directory lives on the Unraid flash, which is a USB stick, so this
+// is written as seldom as it can be. The due check is a filemtime comparison
+// that opens nothing; the 27 MB catalog is only read once a window has actually
+// elapsed; it is gzipped (5.5 MB, measured) before it lands; and when two windows
+// come due in the same run the bytes are compressed once and reused. Steady
+// state is one write a week, one a month, one a year.
+const ARCHIVE_WINDOWS = ['weekly' => 604800, 'monthly' => 2592000, 'yearly' => 31536000];
+
+function archive_path(string $dataDir, string $name): string {
+    return $dataDir . '/catalog_' . $name . '.json.gz';
+}
+
+// Which archives exist and when each was taken, for status.json.
+function archive_state(string $dataDir): array {
+    $out = [];
+    foreach (ARCHIVE_WINDOWS as $name => $window) {
+        $ts = @filemtime(archive_path($dataDir, $name));
+        $out[$name] = $ts === false ? 0 : $ts;
+    }
+    return $out;
+}
+
+// Returns the names of the archives actually written this run (often none).
+function archive_catalogs(string $src, string $dataDir): array {
+    $now = time();
+    $due = [];
+    foreach (ARCHIVE_WINDOWS as $name => $window) {
+        $path = archive_path($dataDir, $name);
+        $ts = @filemtime($path);
+        if ($ts === false || ($now - $ts) >= $window) $due[$name] = $path;
+    }
+    if (!$due || !is_file($src)) return [];
+
+    $raw = @file_get_contents($src);              // read-only, CA's file is never touched
+    if ($raw === false || $raw === '') return [];
+    $gz = @gzencode($raw, 6);
+    unset($raw);
+    if ($gz === false) return [];
+
+    $written = [];
+    $len = strlen($gz);
+    foreach ($due as $name => $path) {
+        // temp file then rename, so an interrupted write cannot leave a
+        // truncated archive standing in for a good one
+        $tmp = $path . '.tmp';
+        if (@file_put_contents($tmp, $gz) === $len && @rename($tmp, $path)) $written[] = $name;
+        else @unlink($tmp);
+    }
+    return $written;
+}
+
+$archived = archive_catalogs($opt['ca-cache'], $dataDir);
+if ($archived) fwrite(STDERR, 'fetch_stars: archived CA catalog (' . implode(', ', $archived) . ")\n");
+$status['archives'] = archive_state($dataDir);
+
 if ($token === '' && !$trendsOnly) {
     $status['errors'][] = 'No GitHub token configured.';
     write_status($status, $outDir, $dataDir);
