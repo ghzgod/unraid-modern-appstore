@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.08.06b}"
+VERSION="${1:-2026.08.06c}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -77,6 +77,9 @@ cat <<XMLHEAD
   which left a hole in the left column. Home now sits on the search box's line.
   The menu also picks up the grid's own styling, and marks the entry you are
   actually looking at, which it never did before.
+- The version Community Applications prints at the foot of that menu is now one
+  quiet line rather than two lines set in the same type as the navigation above
+  it. A footnote should not read as another place to click.
 
 ##2026.08.03a
 - Three rolling archives of Community Applications' own template catalog, kept in

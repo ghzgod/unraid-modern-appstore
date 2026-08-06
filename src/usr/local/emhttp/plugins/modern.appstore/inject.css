@@ -268,6 +268,21 @@ body.asga-active .caMenu .asga-menu-cur {
 body.asga-active .caMenu .caMenuItem:not(.caMenuEnabled) { opacity: 0.45; cursor: default; }
 body.asga-active .caMenu .caMenuItem:not(.caMenuEnabled):hover { background: none; color: inherit; }
 
+/* CA closes the menu with its own version, as a bare "VERSION" list item and the
+   number on the line below it, both at the size of a navigation link. A footnote
+   set in the same type as the navigation reads as another destination. The two
+   items are pulled onto one quiet line instead. They carry no class of their
+   own, so the pair is reached through the id CA puts on the number. Nothing
+   breaks in a browser without :has(), the label simply stays as it was. */
+body.asga-active .caMenu li:has(> #caInstalledVersion),
+body.asga-active .caMenu li:has(+ li > #caInstalledVersion) {
+  display: inline-block; width: auto;
+  font-size: 1.05rem; line-height: 1.4; opacity: 0.5;
+}
+body.asga-active .caMenu li:has(+ li > #caInstalledVersion) {
+  margin-right: 5px; letter-spacing: 0.06em;
+}
+
 /* ===== modern Info drawer =====
    CA populates its own right-slide sidebar (#sidenavContent) when a tile is
    clicked. We restyle it here, scoped to body.asga-active, so it matches the

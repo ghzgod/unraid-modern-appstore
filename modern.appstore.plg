@@ -2,14 +2,14 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.08.06b">
+<!ENTITY version "2026.08.06c">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.08.06b
+##2026.08.06c
 - Every card now shows when the app itself last shipped, on the same line as the
   Added date: Added at the left edge of the card's foot, Updated at the right.
   For a Docker app the date is when the image was last published to its registry,
@@ -43,6 +43,9 @@
   which left a hole in the left column. Home now sits on the search box's line.
   The menu also picks up the grid's own styling, and marks the entry you are
   actually looking at, which it never did before.
+- The version Community Applications prints at the foot of that menu is now one
+  quiet line rather than two lines set in the same type as the navigation above
+  it. A footnote should not read as another place to click.
 
 ##2026.08.03a
 - Three rolling archives of Community Applications' own template catalog, kept in
@@ -3131,6 +3134,21 @@ body.asga-active .caMenu .asga-menu-cur {
    unavailable instead of lighting up under the cursor like a live one. */
 body.asga-active .caMenu .caMenuItem:not(.caMenuEnabled) { opacity: 0.45; cursor: default; }
 body.asga-active .caMenu .caMenuItem:not(.caMenuEnabled):hover { background: none; color: inherit; }
+
+/* CA closes the menu with its own version, as a bare "VERSION" list item and the
+   number on the line below it, both at the size of a navigation link. A footnote
+   set in the same type as the navigation reads as another destination. The two
+   items are pulled onto one quiet line instead. They carry no class of their
+   own, so the pair is reached through the id CA puts on the number. Nothing
+   breaks in a browser without :has(), the label simply stays as it was. */
+body.asga-active .caMenu li:has(> #caInstalledVersion),
+body.asga-active .caMenu li:has(+ li > #caInstalledVersion) {
+  display: inline-block; width: auto;
+  font-size: 1.05rem; line-height: 1.4; opacity: 0.5;
+}
+body.asga-active .caMenu li:has(+ li > #caInstalledVersion) {
+  margin-right: 5px; letter-spacing: 0.06em;
+}
 
 /* ===== modern Info drawer =====
    CA populates its own right-slide sidebar (#sidenavContent) when a tile is
