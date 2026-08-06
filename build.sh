@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.08.03a}"
+VERSION="${1:-2026.08.06a}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,29 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Every card now shows when the app itself last shipped, on the same line as the
+  Added date: Added at the left edge of the card's foot, Updated at the right.
+  For a Docker app the date is when the image was last published to its registry,
+  the same figure Community Applications shows as "Last Update" in its own
+  drawer, and it is left off an app pinned to a tag other than :latest because
+  that number belongs to the repository rather than to the pinned tag. Plugins
+  carry no such field in the feed, so their date-formed version number
+  (2026.06.10a) is read back as the release date it is, and shown without a time
+  of day since only the day is real there. A semver plugin version yields no date
+  rather than a guess. Roughly seven of every ten apps have one.
+- Both dates now read as an interval while they are recent ("just now", "3 hours
+  ago", "yesterday", "12 days ago") and switch to the full date past a month,
+  where an interval stops helping. The exact timestamp is in the tooltip.
+- The card's date line reserves its height whether or not either date is known,
+  so a card missing a date no longer lifts its own button row above the rest of
+  its grid row.
+- The Info drawer's description no longer hides behind a SHOW MORE button. The
+  block keeps the same height and scrolls, so the whole description is one
+  gesture away instead of an expand followed by a scroll.
+- The drawer's close bar is now 40px, the same height as Unraid's own menu bar,
+  rather than a taller strip of its own.
+
+##2026.08.03a
 - Three rolling archives of Community Applications' own template catalog, kept in
   this plugin's data directory as catalog_weekly.json.gz, catalog_monthly.json.gz
   and catalog_yearly.json.gz. Each is a gzip of CA's templates_new.json exactly as

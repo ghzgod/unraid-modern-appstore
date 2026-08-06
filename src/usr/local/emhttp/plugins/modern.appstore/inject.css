@@ -123,10 +123,24 @@ html.asga-pre .spinner.fixed { display: none !important; }
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
 }
 
-.asga-tile-added {
-  margin-top: 10px; text-align: right; font-size: 0.92rem; opacity: 0.55;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+/* Added and Updated share one line at the foot of the card, Added pinned to the
+   left edge and Updated to the right. Pushing them to opposite edges is what
+   keeps them from colliding on a narrow card, and it lines the Updated dates of
+   every card in a grid row up with each other. */
+.asga-tile-dates {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  margin-top: 10px; font-size: 0.92rem; opacity: 0.55; line-height: 1.5;
+  /* One line is reserved whether or not either date is known, because a shorter
+     footer would pull that card's button row a line lower than its neighbours',
+     and the button row is what bottom-aligns a whole grid row. */
+  min-height: 1.5em;
 }
+/* min-width:0 is what lets a flex child ellipsise instead of forcing the row
+   wider than the card. */
+.asga-tile-added, .asga-tile-updated {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.asga-tile-updated { text-align: right; }
 .asga-tile-btns { margin-top: auto; display: flex; flex-wrap: nowrap; gap: 5px; position: relative; }
 .asga-btn {
   cursor: pointer; user-select: none; white-space: nowrap;
@@ -232,11 +246,13 @@ body.asga-active .popup { margin: 0; padding: 0 24px; }
 
 /* Close: a slim bar that sticks to the top of the scroll area, holding a round
    ✕. CA renders the word "CLOSE" in this span; we swap the glyph in CSS so the
-   button reads the same in every language. */
+   button reads the same in every language.
+   40px is Unraid's own menu bar height, so the drawer opens with a strip of the
+   same weight as the navigation it covers rather than one of its own invention. */
 body.asga-active .popupCloseArea {
   position: sticky; top: 0; z-index: 20;
   display: flex; justify-content: flex-end; align-items: center;
-  height: 46px; margin: 0; padding: 0 24px; width: auto;
+  height: 40px; margin: 0; padding: 0 24px; width: auto;
   background: var(--sidebar-background, #1b1b1b);
   border-bottom: 1px solid var(--asga-line);
 }
@@ -295,7 +311,9 @@ body.asga-active #sidenavContent .caButton.ca_favouriteRepo.fav {
    outranks the shared .caButton rule above. */
 body.asga-active #sidenavContent .popUpClose.caButton {
   display: flex; align-items: center; justify-content: center;
-  width: 34px; height: 34px; padding: 0; margin: 0; border-radius: 50%;
+  /* 30px inside the 40px bar, so the circle keeps a margin instead of filling
+     the strip edge to edge */
+  width: 30px; height: 30px; padding: 0; margin: 0; border-radius: 50%;
   gap: 0;   /* else the shared button gap offsets the glyph from centre */
   font-size: 0; line-height: 0;
   border: 1px solid var(--asga-line); background: var(--asga-surface);
@@ -318,6 +336,21 @@ body.asga-active .popupDescription {
 body.asga-active .popupDescription,
 body.asga-active .popupDescription * { color: var(--asga-fg) !important; }
 body.asga-active .popupDescription a { color: var(--asga-accent) !important; text-decoration: underline; }
+/* CA runs readmore.js over this block: it clamps the text to a fixed height and
+   hangs a SHOW MORE toggle underneath. The drawer already scrolls, so that is a
+   click that buys nothing. The clamp height is kept, the text scrolls inside it,
+   and the toggle is dropped. readmore.js writes height, max-height and overflow
+   as inline styles, so every one of them needs !important to answer it.
+   overscroll-behavior keeps a scroll that reaches the bottom of the description
+   from carrying on into the drawer behind it. */
+body.asga-active .popupDescription {
+  height: auto !important;
+  max-height: 29rem !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+}
+body.asga-active #sidenavContent .ca_readmore,
+body.asga-active #sidenavContent .readmore-js-toggle { display: none !important; }
 
 /* section titles: small orange eyebrow labels, not 2.5rem headings */
 body.asga-active .rightTitle,

@@ -2,13 +2,36 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.08.03a">
+<!ENTITY version "2026.08.06a">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
+##2026.08.06a
+- Every card now shows when the app itself last shipped, on the same line as the
+  Added date: Added at the left edge of the card's foot, Updated at the right.
+  For a Docker app the date is when the image was last published to its registry,
+  the same figure Community Applications shows as "Last Update" in its own
+  drawer, and it is left off an app pinned to a tag other than :latest because
+  that number belongs to the repository rather than to the pinned tag. Plugins
+  carry no such field in the feed, so their date-formed version number
+  (2026.06.10a) is read back as the release date it is, and shown without a time
+  of day since only the day is real there. A semver plugin version yields no date
+  rather than a guess. Roughly seven of every ten apps have one.
+- Both dates now read as an interval while they are recent ("just now", "3 hours
+  ago", "yesterday", "12 days ago") and switch to the full date past a month,
+  where an interval stops helping. The exact timestamp is in the tooltip.
+- The card's date line reserves its height whether or not either date is known,
+  so a card missing a date no longer lifts its own button row above the rest of
+  its grid row.
+- The Info drawer's description no longer hides behind a SHOW MORE button. The
+  block keeps the same height and scrolls, so the whole description is one
+  gesture away instead of an expand followed by a scroll.
+- The drawer's close bar is now 40px, the same height as Unraid's own menu bar,
+  rather than a taller strip of its own.
+
 ##2026.08.03a
 - Three rolling archives of Community Applications' own template catalog, kept in
   this plugin's data directory as catalog_weekly.json.gz, catalog_monthly.json.gz
@@ -1480,16 +1503,17 @@ echo json_encode(['scanned' => count($valid), 'stars' => $out ?: (object)[]], JS
  *
  * READ-ONLY. It only reads:
  *   - this plugin's own apps.json  (name/icon/category/stars/trends, our data)
- *   - CA's templates_new.json      (FirstSeen, downloads, displayable flags), never written
+ *   - CA's templates_new.json      (FirstSeen, LastUpdate, downloads, displayable flags), never written
  * It writes nothing, anywhere. All CA paths are opened read-only.
  *
  * Output: { "generated": <ts>, "feedReady": <bool>, "docker": {...},
- *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,ca,t1,t7,t30,t365 } ] }
+ *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,lu,lk,ca,t1,t7,t30,t365 } ] }
  *   p  = template path (passed to CA's showSidebarApp for Info/Install)
  *   n  = display name          sn = lowercase sort-name
  *   ic = icon URL              ct = category
  *   s  = GitHub stars (or null)  dl = Unraid downloads (or 0)
  *   fs = FirstSeen unix ts (date added; 0 if unknown)
+ *   lu = last-update unix ts (0 if unknown)   lk = its source: 'r' registry push, 'v' plugin version
  *   sa = last star-fetch attempt for this app's repo (0 = never tried)
  *   ca = repo creation unix ts (or null), for the lifetime growth-rate sort
  *   t1/t7/t30/t365 = star trend deltas (day/week/month/year)
@@ -1519,6 +1543,33 @@ function clip($s, $max) {
     $s = trim((string)$s);
     if (function_exists('mb_strlen')) return mb_strlen($s) > $max ? mb_substr($s, 0, $max - 1) . '…' : $s;
     return strlen($s) > $max ? substr($s, 0, $max - 1) . '…' : $s;
+}
+
+// When the app itself last shipped, and where that date came from.
+//
+// Docker apps: CA's LastUpdate is the registry push time for the image. It is
+// the repository's date, not a specific tag's, so an app pinned to a tag other
+// than :latest would be shown a date that has nothing to do with the version it
+// installs. CA's own drawer suppresses the row in exactly that case, and so does
+// this. Returns 'r' for those.
+//
+// Plugins: the feed carries no LastUpdate for them. Unraid plugin versions are
+// dates by convention (2026.06.10a), which IS the release date, so that is read
+// back out. Only the day is meaningful there, so the grid renders it without a
+// time. Returns 'v'. Semver-style plugin versions (1.3.13) yield nothing rather
+// than a guess.
+function last_update(array $t) {
+    if (!empty($t['Plugin'])) {
+        $v = (string)($t['pluginVersion'] ?? '');
+        if (preg_match('/^(20\d{2})\.(0[1-9]|1[0-2])\.(0[1-9]|[12]\d|3[01])(?![\d])/', $v, $m)) {
+            return [(int)mktime(0, 0, 0, (int)$m[2], (int)$m[3], (int)$m[1]), 'v'];
+        }
+        return [0, ''];
+    }
+    $tag = strtolower(explode(':', trim((string)($t['Repository'] ?? '')))[1] ?? '');
+    if ($tag !== '' && $tag !== 'latest') return [0, ''];
+    $lu = (int)($t['LastUpdate'] ?? 0);
+    return $lu > 1 ? [$lu, 'r'] : [0, ''];
 }
 
 // Community Applications' own docker-availability check, mirrored from its
@@ -1625,6 +1676,8 @@ foreach ($tmpl as $t) {
     $fs = (int)($t['FirstSeen'] ?? 0);
     if ($fs <= 1) $fs = 0;
 
+    list($lu, $lk) = last_update($t);
+
     $out[] = [
         'p'   => $path,
         'n'   => $name,
@@ -1643,6 +1696,8 @@ foreach ($tmpl as $t) {
         's'   => isset($mine['s']) ? $mine['s'] : null,
         'dl'  => $dl,
         'fs'  => $fs,
+        'lu'  => $lu,
+        'lk'  => $lk,
         'sa'  => $fetchedAt[strtolower($mine['rp'] ?? '')] ?? 0,
         'ca'  => $mine['ca'] ?? null,
         't1'  => $mine['t1'] ?? null,
@@ -2163,29 +2218,95 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       btns.appendChild(ib);
       tile.appendChild(btns);
 
-      // when CA's feed first saw this app, bottom-right of the card
+      // when CA's feed first saw this app, and when the app itself last shipped,
+      // on one line at the foot of the card: Added at the left edge, Updated at
+      // the right. Both halves are appended even when their date is unknown, so
+      // the Updated column stays put on a card that knows only one of the two,
+      // and so every button row in a grid row still bottom-aligns.
+      var dates = document.createElement('div');
+      dates.className = 'asga-tile-dates';
       var added = addedLabel(a.fs);
+      var ad = document.createElement('div');
+      ad.className = 'asga-tile-added';
+      // The label is an interval for anything recent, so the exact date leads the
+      // tooltip: hovering is the only way back to it.
       if (added) {
-        var ad = document.createElement('div');
-        ad.className = 'asga-tile-added';
         ad.textContent = added;
-        ad.title = 'When the Community Applications feed first saw this app. Your server '
+        ad.title = absDate(a.fs, a.fs > 1433649600) + '\n'
+                 + 'When the Community Applications feed first saw this app. Your server '
                  + 'only picks it up on its next feed refresh, so an app can appear here days later.';
-        tile.appendChild(ad);
       }
+      dates.appendChild(ad);
+      var updated = updatedLabel(a.lu, a.lk);
+      var up = document.createElement('div');
+      up.className = 'asga-tile-updated';
+      if (updated) {
+        up.textContent = updated;
+        up.title = absDate(a.lu, a.lk === 'r') + '\n' + (a.lk === 'v'
+          ? 'Release date of this plugin\'s current version, read from the version number itself.'
+          : 'When this app\'s image was last published to its container registry.');
+      }
+      dates.appendChild(up);
+      tile.appendChild(dates);
       return tile;
     }
-    // CA's FirstSeen is a unix timestamp, and it floors anything older than its
-    // own record-keeping to 1433000000 (Jun 2015). For those the time of day is
-    // an artefact, so only the date is shown.
-    function addedLabel(fs) {
-      if (!fs) return '';
-      var d = new Date(fs * 1000);
+    // The absolute form. CA's FirstSeen is a unix timestamp, and it floors
+    // anything older than its own record-keeping to 1433000000 (Jun 2015); for
+    // those the time of day is an artefact, so the caller asks for date only.
+    function absDate(ts, withTime) {
+      var d = new Date(ts * 1000);
       if (isNaN(d.getTime())) return '';
       var opts = { year: 'numeric', month: 'short', day: 'numeric' };
-      if (fs > 1433649600) { opts.hour = 'numeric'; opts.minute = '2-digit'; }
-      try { return 'Added ' + d.toLocaleString(undefined, opts); }
-      catch (e) { return 'Added ' + d.toDateString(); }
+      if (withTime) { opts.hour = 'numeric'; opts.minute = '2-digit'; }
+      try { return d.toLocaleString(undefined, opts); }
+      catch (e) { return d.toDateString(); }
+    }
+    // A recent date reads better as an interval than as a timestamp: "3 hours
+    // ago" places an app against now, where "Aug 6, 2026, 2:14 PM" has to be
+    // worked out first. Past a month the interval stops helping ("94 days ago"
+    // is worse than a date), so that is where this returns nothing and the
+    // caller falls back to absDate.
+    // dayOnly is for a value that was only ever a day, such as a plugin's
+    // date-formed version number. Its clock reads midnight because that is what
+    // a bare date parses to, not because anything happened then, so those never
+    // report hours or minutes.
+    var REL_MAX_AGE = 30 * 86400;
+    function relDate(ts, dayOnly) {
+      var now = Math.floor(Date.now() / 1000);
+      var age = now - ts;
+      // a feed clock running ahead of ours would otherwise read "-2 hours ago"
+      if (age < 0 || age > REL_MAX_AGE) return '';
+      if (!dayOnly) {
+        if (age < 60) return 'just now';
+        if (age < 3600) return countOf(Math.floor(age / 60), 'minute') + ' ago';
+        if (age < 86400) return countOf(Math.floor(age / 3600), 'hour') + ' ago';
+      }
+      var days = dayGap(ts, now);
+      if (days <= 0) return 'today';
+      if (days === 1) return 'yesterday';
+      return countOf(days, 'day') + ' ago';
+    }
+    function countOf(n, unit) { return n + ' ' + unit + (n === 1 ? '' : 's'); }
+    // Calendar days apart rather than 24-hour blocks, so 11pm last night is
+    // "yesterday" to someone reading at 1am, which is what they would call it.
+    function dayGap(ts, now) {
+      var a = new Date(ts * 1000), b = new Date(now * 1000);
+      a.setHours(0, 0, 0, 0);
+      b.setHours(0, 0, 0, 0);
+      return Math.round((b - a) / 86400000);
+    }
+    function addedLabel(fs) {
+      if (!fs) return '';
+      var abs = absDate(fs, fs > 1433649600);
+      return abs ? 'Added ' + (relDate(fs, false) || abs) : '';
+    }
+    // A registry push has a real time of day and is shown with one. A plugin's
+    // date-formed version carries no time, so that variant stops at the day
+    // rather than inventing midnight.
+    function updatedLabel(lu, lk) {
+      if (!lu) return '';
+      var abs = absDate(lu, lk === 'r');
+      return abs ? 'Updated ' + (relDate(lu, lk !== 'r') || abs) : '';
     }
     function mkBtn(label, cls) {
       var b = document.createElement('span');
@@ -2773,10 +2894,24 @@ html.asga-pre .spinner.fixed { display: none !important; }
   display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
 }
 
-.asga-tile-added {
-  margin-top: 10px; text-align: right; font-size: 0.92rem; opacity: 0.55;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+/* Added and Updated share one line at the foot of the card, Added pinned to the
+   left edge and Updated to the right. Pushing them to opposite edges is what
+   keeps them from colliding on a narrow card, and it lines the Updated dates of
+   every card in a grid row up with each other. */
+.asga-tile-dates {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  margin-top: 10px; font-size: 0.92rem; opacity: 0.55; line-height: 1.5;
+  /* One line is reserved whether or not either date is known, because a shorter
+     footer would pull that card's button row a line lower than its neighbours',
+     and the button row is what bottom-aligns a whole grid row. */
+  min-height: 1.5em;
 }
+/* min-width:0 is what lets a flex child ellipsise instead of forcing the row
+   wider than the card. */
+.asga-tile-added, .asga-tile-updated {
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+.asga-tile-updated { text-align: right; }
 .asga-tile-btns { margin-top: auto; display: flex; flex-wrap: nowrap; gap: 5px; position: relative; }
 .asga-btn {
   cursor: pointer; user-select: none; white-space: nowrap;
@@ -2882,11 +3017,13 @@ body.asga-active .popup { margin: 0; padding: 0 24px; }
 
 /* Close: a slim bar that sticks to the top of the scroll area, holding a round
    ✕. CA renders the word "CLOSE" in this span; we swap the glyph in CSS so the
-   button reads the same in every language. */
+   button reads the same in every language.
+   40px is Unraid's own menu bar height, so the drawer opens with a strip of the
+   same weight as the navigation it covers rather than one of its own invention. */
 body.asga-active .popupCloseArea {
   position: sticky; top: 0; z-index: 20;
   display: flex; justify-content: flex-end; align-items: center;
-  height: 46px; margin: 0; padding: 0 24px; width: auto;
+  height: 40px; margin: 0; padding: 0 24px; width: auto;
   background: var(--sidebar-background, #1b1b1b);
   border-bottom: 1px solid var(--asga-line);
 }
@@ -2945,7 +3082,9 @@ body.asga-active #sidenavContent .caButton.ca_favouriteRepo.fav {
    outranks the shared .caButton rule above. */
 body.asga-active #sidenavContent .popUpClose.caButton {
   display: flex; align-items: center; justify-content: center;
-  width: 34px; height: 34px; padding: 0; margin: 0; border-radius: 50%;
+  /* 30px inside the 40px bar, so the circle keeps a margin instead of filling
+     the strip edge to edge */
+  width: 30px; height: 30px; padding: 0; margin: 0; border-radius: 50%;
   gap: 0;   /* else the shared button gap offsets the glyph from centre */
   font-size: 0; line-height: 0;
   border: 1px solid var(--asga-line); background: var(--asga-surface);
@@ -2968,6 +3107,21 @@ body.asga-active .popupDescription {
 body.asga-active .popupDescription,
 body.asga-active .popupDescription * { color: var(--asga-fg) !important; }
 body.asga-active .popupDescription a { color: var(--asga-accent) !important; text-decoration: underline; }
+/* CA runs readmore.js over this block: it clamps the text to a fixed height and
+   hangs a SHOW MORE toggle underneath. The drawer already scrolls, so that is a
+   click that buys nothing. The clamp height is kept, the text scrolls inside it,
+   and the toggle is dropped. readmore.js writes height, max-height and overflow
+   as inline styles, so every one of them needs !important to answer it.
+   overscroll-behavior keeps a scroll that reaches the bottom of the description
+   from carrying on into the drawer behind it. */
+body.asga-active .popupDescription {
+  height: auto !important;
+  max-height: 29rem !important;
+  overflow-y: auto !important;
+  overscroll-behavior: contain;
+}
+body.asga-active #sidenavContent .ca_readmore,
+body.asga-active #sidenavContent .readmore-js-toggle { display: none !important; }
 
 /* section titles: small orange eyebrow labels, not 2.5rem headings */
 body.asga-active .rightTitle,

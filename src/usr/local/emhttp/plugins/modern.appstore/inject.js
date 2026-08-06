@@ -444,29 +444,95 @@
       btns.appendChild(ib);
       tile.appendChild(btns);
 
-      // when CA's feed first saw this app, bottom-right of the card
+      // when CA's feed first saw this app, and when the app itself last shipped,
+      // on one line at the foot of the card: Added at the left edge, Updated at
+      // the right. Both halves are appended even when their date is unknown, so
+      // the Updated column stays put on a card that knows only one of the two,
+      // and so every button row in a grid row still bottom-aligns.
+      var dates = document.createElement('div');
+      dates.className = 'asga-tile-dates';
       var added = addedLabel(a.fs);
+      var ad = document.createElement('div');
+      ad.className = 'asga-tile-added';
+      // The label is an interval for anything recent, so the exact date leads the
+      // tooltip: hovering is the only way back to it.
       if (added) {
-        var ad = document.createElement('div');
-        ad.className = 'asga-tile-added';
         ad.textContent = added;
-        ad.title = 'When the Community Applications feed first saw this app. Your server '
+        ad.title = absDate(a.fs, a.fs > 1433649600) + '\n'
+                 + 'When the Community Applications feed first saw this app. Your server '
                  + 'only picks it up on its next feed refresh, so an app can appear here days later.';
-        tile.appendChild(ad);
       }
+      dates.appendChild(ad);
+      var updated = updatedLabel(a.lu, a.lk);
+      var up = document.createElement('div');
+      up.className = 'asga-tile-updated';
+      if (updated) {
+        up.textContent = updated;
+        up.title = absDate(a.lu, a.lk === 'r') + '\n' + (a.lk === 'v'
+          ? 'Release date of this plugin\'s current version, read from the version number itself.'
+          : 'When this app\'s image was last published to its container registry.');
+      }
+      dates.appendChild(up);
+      tile.appendChild(dates);
       return tile;
     }
-    // CA's FirstSeen is a unix timestamp, and it floors anything older than its
-    // own record-keeping to 1433000000 (Jun 2015). For those the time of day is
-    // an artefact, so only the date is shown.
-    function addedLabel(fs) {
-      if (!fs) return '';
-      var d = new Date(fs * 1000);
+    // The absolute form. CA's FirstSeen is a unix timestamp, and it floors
+    // anything older than its own record-keeping to 1433000000 (Jun 2015); for
+    // those the time of day is an artefact, so the caller asks for date only.
+    function absDate(ts, withTime) {
+      var d = new Date(ts * 1000);
       if (isNaN(d.getTime())) return '';
       var opts = { year: 'numeric', month: 'short', day: 'numeric' };
-      if (fs > 1433649600) { opts.hour = 'numeric'; opts.minute = '2-digit'; }
-      try { return 'Added ' + d.toLocaleString(undefined, opts); }
-      catch (e) { return 'Added ' + d.toDateString(); }
+      if (withTime) { opts.hour = 'numeric'; opts.minute = '2-digit'; }
+      try { return d.toLocaleString(undefined, opts); }
+      catch (e) { return d.toDateString(); }
+    }
+    // A recent date reads better as an interval than as a timestamp: "3 hours
+    // ago" places an app against now, where "Aug 6, 2026, 2:14 PM" has to be
+    // worked out first. Past a month the interval stops helping ("94 days ago"
+    // is worse than a date), so that is where this returns nothing and the
+    // caller falls back to absDate.
+    // dayOnly is for a value that was only ever a day, such as a plugin's
+    // date-formed version number. Its clock reads midnight because that is what
+    // a bare date parses to, not because anything happened then, so those never
+    // report hours or minutes.
+    var REL_MAX_AGE = 30 * 86400;
+    function relDate(ts, dayOnly) {
+      var now = Math.floor(Date.now() / 1000);
+      var age = now - ts;
+      // a feed clock running ahead of ours would otherwise read "-2 hours ago"
+      if (age < 0 || age > REL_MAX_AGE) return '';
+      if (!dayOnly) {
+        if (age < 60) return 'just now';
+        if (age < 3600) return countOf(Math.floor(age / 60), 'minute') + ' ago';
+        if (age < 86400) return countOf(Math.floor(age / 3600), 'hour') + ' ago';
+      }
+      var days = dayGap(ts, now);
+      if (days <= 0) return 'today';
+      if (days === 1) return 'yesterday';
+      return countOf(days, 'day') + ' ago';
+    }
+    function countOf(n, unit) { return n + ' ' + unit + (n === 1 ? '' : 's'); }
+    // Calendar days apart rather than 24-hour blocks, so 11pm last night is
+    // "yesterday" to someone reading at 1am, which is what they would call it.
+    function dayGap(ts, now) {
+      var a = new Date(ts * 1000), b = new Date(now * 1000);
+      a.setHours(0, 0, 0, 0);
+      b.setHours(0, 0, 0, 0);
+      return Math.round((b - a) / 86400000);
+    }
+    function addedLabel(fs) {
+      if (!fs) return '';
+      var abs = absDate(fs, fs > 1433649600);
+      return abs ? 'Added ' + (relDate(fs, false) || abs) : '';
+    }
+    // A registry push has a real time of day and is shown with one. A plugin's
+    // date-formed version carries no time, so that variant stops at the day
+    // rather than inventing midnight.
+    function updatedLabel(lu, lk) {
+      if (!lu) return '';
+      var abs = absDate(lu, lk === 'r');
+      return abs ? 'Updated ' + (relDate(lu, lk !== 'r') || abs) : '';
     }
     function mkBtn(label, cls) {
       var b = document.createElement('span');

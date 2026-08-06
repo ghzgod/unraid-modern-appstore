@@ -10,16 +10,17 @@
  *
  * READ-ONLY. It only reads:
  *   - this plugin's own apps.json  (name/icon/category/stars/trends, our data)
- *   - CA's templates_new.json      (FirstSeen, downloads, displayable flags), never written
+ *   - CA's templates_new.json      (FirstSeen, LastUpdate, downloads, displayable flags), never written
  * It writes nothing, anywhere. All CA paths are opened read-only.
  *
  * Output: { "generated": <ts>, "feedReady": <bool>, "docker": {...},
- *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,ca,t1,t7,t30,t365 } ] }
+ *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,lu,lk,ca,t1,t7,t30,t365 } ] }
  *   p  = template path (passed to CA's showSidebarApp for Info/Install)
  *   n  = display name          sn = lowercase sort-name
  *   ic = icon URL              ct = category
  *   s  = GitHub stars (or null)  dl = Unraid downloads (or 0)
  *   fs = FirstSeen unix ts (date added; 0 if unknown)
+ *   lu = last-update unix ts (0 if unknown)   lk = its source: 'r' registry push, 'v' plugin version
  *   sa = last star-fetch attempt for this app's repo (0 = never tried)
  *   ca = repo creation unix ts (or null), for the lifetime growth-rate sort
  *   t1/t7/t30/t365 = star trend deltas (day/week/month/year)
@@ -49,6 +50,33 @@ function clip($s, $max) {
     $s = trim((string)$s);
     if (function_exists('mb_strlen')) return mb_strlen($s) > $max ? mb_substr($s, 0, $max - 1) . '…' : $s;
     return strlen($s) > $max ? substr($s, 0, $max - 1) . '…' : $s;
+}
+
+// When the app itself last shipped, and where that date came from.
+//
+// Docker apps: CA's LastUpdate is the registry push time for the image. It is
+// the repository's date, not a specific tag's, so an app pinned to a tag other
+// than :latest would be shown a date that has nothing to do with the version it
+// installs. CA's own drawer suppresses the row in exactly that case, and so does
+// this. Returns 'r' for those.
+//
+// Plugins: the feed carries no LastUpdate for them. Unraid plugin versions are
+// dates by convention (2026.06.10a), which IS the release date, so that is read
+// back out. Only the day is meaningful there, so the grid renders it without a
+// time. Returns 'v'. Semver-style plugin versions (1.3.13) yield nothing rather
+// than a guess.
+function last_update(array $t) {
+    if (!empty($t['Plugin'])) {
+        $v = (string)($t['pluginVersion'] ?? '');
+        if (preg_match('/^(20\d{2})\.(0[1-9]|1[0-2])\.(0[1-9]|[12]\d|3[01])(?![\d])/', $v, $m)) {
+            return [(int)mktime(0, 0, 0, (int)$m[2], (int)$m[3], (int)$m[1]), 'v'];
+        }
+        return [0, ''];
+    }
+    $tag = strtolower(explode(':', trim((string)($t['Repository'] ?? '')))[1] ?? '');
+    if ($tag !== '' && $tag !== 'latest') return [0, ''];
+    $lu = (int)($t['LastUpdate'] ?? 0);
+    return $lu > 1 ? [$lu, 'r'] : [0, ''];
 }
 
 // Community Applications' own docker-availability check, mirrored from its
@@ -155,6 +183,8 @@ foreach ($tmpl as $t) {
     $fs = (int)($t['FirstSeen'] ?? 0);
     if ($fs <= 1) $fs = 0;
 
+    list($lu, $lk) = last_update($t);
+
     $out[] = [
         'p'   => $path,
         'n'   => $name,
@@ -173,6 +203,8 @@ foreach ($tmpl as $t) {
         's'   => isset($mine['s']) ? $mine['s'] : null,
         'dl'  => $dl,
         'fs'  => $fs,
+        'lu'  => $lu,
+        'lk'  => $lk,
         'sa'  => $fetchedAt[strtolower($mine['rp'] ?? '')] ?? 0,
         'ca'  => $mine['ca'] ?? null,
         't1'  => $mine['t1'] ?? null,
