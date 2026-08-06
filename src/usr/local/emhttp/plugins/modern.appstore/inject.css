@@ -23,7 +23,7 @@ html.asga-pre .categoryLine,
 html.asga-pre .spinner.fixed { display: none !important; }
 
 /* our toolbar row lives in CA's search row */
-#searchFilter { margin-top: 24px; }
+#searchFilter { margin-top: 6px; }
 .asga-bar {
   display: inline-flex; align-items: center; gap: 16px;
   margin-left: 14px; vertical-align: middle;
@@ -219,6 +219,55 @@ html.asga-pre .spinner.fixed { display: none !important; }
 .ghstars-warning-x { cursor: pointer; font-weight: bold; opacity: 0.7; }
 .ghstars-warning-x:hover { opacity: 1; }
 
+/* ===== left category menu =====
+   CA's menu column starts level with the grid's heading, which leaves roughly
+   fifty pixels of empty column beside the search row and reads as a hole in the
+   page. It is pulled up onto the toolbar's line, and given the grid's own
+   language: rounded rows, an accent hover, and the entry you are actually
+   looking at marked, which CA never does. */
+/* CA paints its sticky search band across the whole width even though the left
+   195px of it is reserved, and empty, for this menu. That empty strip is the
+   gap above Home. The band is narrowed to the grid it actually belongs to, and
+   the menu is lifted into the space that frees, which puts Home on the search
+   box's line instead of a screen-width below it. */
+body.asga-active .searchArea { padding-left: 0 !important; margin-left: 195px; }
+body.asga-active .searchArea { padding-bottom: 4px; }
+/* The menu has no leading offset of its own: it starts where CA's content
+   column starts, a full search band below the toolbar. Lifting it into that
+   band means getting past two clips. .ca_display_area is a flex row, so its
+   overflow:hidden contains nothing that needs containing. .content carries
+   overflow:auto but never scrolls (its scrollHeight and clientHeight are equal,
+   because the page scrolls on the body), so that clip is vestigial too. With
+   both lifted the menu can rise onto the search box's line. It also has to
+   outrank CA's sticky band, which is z-index 6 and, since the rule above pushed
+   it off this column, transparent here. */
+body.asga-active .content.menuAdjust,
+body.asga-active .ca_display_area { overflow: visible; }
+body.asga-active .menuItems.menuAdjust { margin-top: -46px; position: relative; z-index: 7; }
+body.asga-active .caMenu { margin: 0; padding: 0; }
+/* fit-content rather than a full-width block: filling the column wraps the
+   longer category names onto two lines, and a highlight that hugs its label
+   reads better than one that runs to the column edge. It has to stay a block
+   so the entries keep one per line. */
+body.asga-active .caMenu .caMenuItem,
+body.asga-active .caMenu .startupButton {
+  display: block; width: fit-content; max-width: 100%;
+  padding: 3px 8px; margin: 1px 0 1px -8px;
+  border-radius: 6px; line-height: 1.4; cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+body.asga-active .caMenu .caMenuItem:hover,
+body.asga-active .caMenu .startupButton:hover {
+  background: rgba(255, 140, 47, 0.14); color: #ff8c2f;
+}
+body.asga-active .caMenu .asga-menu-cur {
+  background: rgba(255, 140, 47, 0.18); color: #ff8c2f; font-weight: 600;
+}
+/* CA greys an entry it cannot offer (no favourite repo set). Keep it reading as
+   unavailable instead of lighting up under the cursor like a live one. */
+body.asga-active .caMenu .caMenuItem:not(.caMenuEnabled) { opacity: 0.45; cursor: default; }
+body.asga-active .caMenu .caMenuItem:not(.caMenuEnabled):hover { background: none; color: inherit; }
+
 /* ===== modern Info drawer =====
    CA populates its own right-slide sidebar (#sidenavContent) when a tile is
    clicked. We restyle it here, scoped to body.asga-active, so it matches the
@@ -328,9 +377,13 @@ body.asga-active #sidenavContent .popUpClose.caButton:hover {
 
 /* description block. CA sets this text near-black via a more specific rule
    (.popupDescription.popup_readmore), so force the theme colour back. */
+/* CA sizes this block at width:90% and forces padding:2rem, which leaves it
+   visibly narrower than the Details card directly below it and on a different
+   inner rhythm. Both are undone here so the two blocks read as one column. */
 body.asga-active .popupDescription {
   display: block; background: var(--asga-surface); border: 1px solid var(--asga-line);
-  border-radius: 12px; padding: 16px 18px; margin: 22px 0 0;
+  border-radius: 12px; width: auto; box-sizing: border-box;
+  padding: 18px 22px !important; margin: 22px 0 0;
   font-size: 1.5rem; line-height: 1.6 !important;
 }
 body.asga-active .popupDescription,

@@ -2,14 +2,14 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.08.06a">
+<!ENTITY version "2026.08.06b">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
-##2026.08.06a
+##2026.08.06b
 - Every card now shows when the app itself last shipped, on the same line as the
   Added date: Added at the left edge of the card's foot, Updated at the right.
   For a Docker app the date is when the image was last published to its registry,
@@ -31,6 +31,18 @@
   gesture away instead of an expand followed by a scroll.
 - The drawer's close bar is now 40px, the same height as Unraid's own menu bar,
   rather than a taller strip of its own.
+- Descriptions written as hard-wrapped plain text no longer render as ragged,
+  indented fragments. Many templates carry a line break every eighty characters
+  followed by four spaces of indent, which is invisible in the editor they were
+  written in and nonsense in a panel of a different width. Those wraps are now
+  joined back into paragraphs, while a deliberate blank line between paragraphs,
+  and a short line that was meant to stand alone, are both left as written.
+- The description block is the same width as the Details card below it, instead
+  of the 90% Community Applications gives it.
+- The category menu no longer starts a search bar's height below the toolbar,
+  which left a hole in the left column. Home now sits on the search box's line.
+  The menu also picks up the grid's own styling, and marks the entry you are
+  actually looking at, which it never did before.
 
 ##2026.08.03a
 - Three rolling archives of Community Applications' own template catalog, kept in
@@ -2061,6 +2073,69 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
         openLightbox(srcs, Math.max(0, items.indexOf(scr)));
       }, true);
     }
+    // CA renders an app's Overview by turning newlines into <br> and leading
+    // indentation into &nbsp; runs. Templates are authored in a plain-text
+    // editor, so many of them carry hard-wrapped prose: a break mid-sentence
+    // every 80-odd characters, each followed by four spaces of indent. Poured
+    // into a drawer of a different width that reads as ragged, indented
+    // nonsense rather than paragraphs.
+    //
+    // This is the one place the modern view rewrites CA's markup rather than
+    // only restyling it, because the damage is in the markup: &nbsp; is a real
+    // character and a <br> is a real element, so no stylesheet can undo either.
+    // It is confined to the description block, it runs only in modern view, and
+    // it touches nothing CA reads back.
+    //
+    // A lone break inside a long line is a hard wrap and becomes a space. A run
+    // of two or more breaks is the author separating paragraphs and is left
+    // alone. A lone break after a SHORT line is left alone too, because that is
+    // how a template writes a list ("Port: 8080" on its own line), and joining
+    // those would be the same vandalism in the other direction.
+    var WRAP_MIN = 60;
+    function wireDescriptionTidy() {
+      if (document.body.__asgaDescTidy) return;
+      document.body.__asgaDescTidy = true;
+      var host = document.getElementById('sidenavContent') || document.querySelector('.sidenav');
+      if (!host) return;
+      // our own edits re-enter this, but the per-element guard makes that a
+      // no-op, and CA hands us a fresh element for every app it opens
+      new MutationObserver(tidyDescription).observe(host, { childList: true, subtree: true });
+      tidyDescription();
+    }
+    function tidyDescription() {
+      if (!isOn()) return;
+      var el = document.querySelector('#sidenavContent .popupDescription');
+      if (!el || el.__asgaTidied) return;
+      el.__asgaTidied = true;
+      // the indent first: &nbsp; does not collapse the way a space does, so it
+      // has to become one before the lines are joined
+      var walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+      var node;
+      while ((node = walk.nextNode())) {
+        if (node.nodeValue.indexOf(' ') !== -1) node.nodeValue = node.nodeValue.replace(/ +/g, ' ');
+      }
+      var brs = [].slice.call(el.querySelectorAll('br'));
+      for (var i = 0; i < brs.length; i++) {
+        var br = brs[i];
+        if (!br.parentNode) continue;
+        if (isBr(meaningBefore(br)) || isBr(meaningAfter(br))) continue;   // paragraph break
+        if (lineBefore(br).length < WRAP_MIN) continue;                    // deliberate short line
+        br.parentNode.replaceChild(document.createTextNode(' '), br);
+      }
+    }
+    function isBr(n) { return !!n && n.nodeName === 'BR'; }
+    function blankText(n) { return n && n.nodeType === 3 && !/[^\s ]/.test(n.nodeValue); }
+    function meaningBefore(n) { n = n.previousSibling; while (blankText(n)) n = n.previousSibling; return n; }
+    function meaningAfter(n) { n = n.nextSibling; while (blankText(n)) n = n.nextSibling; return n; }
+    // the text of the line this break ends, back to the previous break. Reading
+    // it after earlier joins is intended: once a paragraph starts being rebuilt
+    // its later wraps look long too, which is exactly when they should join.
+    function lineBefore(br) {
+      var s = '', n = br.previousSibling;
+      while (n && n.nodeName !== 'BR') { s = (n.textContent || '') + s; n = n.previousSibling; }
+      return s.replace(/\s+/g, ' ').trim();
+    }
+
     function openLightbox(srcs, idx) {
       if (!srcs.length) return;
       var i = idx;
@@ -2397,6 +2472,7 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       s.textContent = total ? ('  ' + from + '–' + to + ' of ' + total + ' ' + noun + (view.q ? ' matching "' + view.q + '"' : '')) : '';
       cnt.appendChild(h); cnt.appendChild(s);
       renderPager(pages);
+      markCurrentCategory();
       pageItemsNow = pageItems;
       queueScan();
       try { window.scrollTo(0, 0); } catch (e) {}
@@ -2576,6 +2652,22 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       });
     }
 
+    // CA's left menu never shows which entry you are looking at, so the grid
+    // marks it itself. Pinned and Installed are our own views and match on their
+    // data-category; everything else matches on the category we are filtered to,
+    // and an unfiltered grid marks whichever entry means "all of it".
+    function markCurrentCategory() {
+      var items = document.querySelectorAll('.caMenuItem, .startupButton');
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i], cat = it.getAttribute('data-category') || '';
+        var on;
+        if (view.special) on = (cat === (view.special === 'pinned' ? 'pinned_apps' : 'installed_apps'));
+        else if (view.cat) on = (cat === view.cat);
+        else on = it.classList.contains('allApps') || cat === 'All';
+        it.classList.toggle('asga-menu-cur', !!on);
+      }
+    }
+
     // left-menu category clicks filter our grid (capture phase, we don't stop CA)
     function wireCategories() {
       if (document.body.__asgaCatWired) return;
@@ -2733,6 +2825,7 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       wireSearch();
       wireCategories();
       wireLightbox();
+      wireDescriptionTidy();
       showWarningIfNeeded();
       applyViewMode();
       dismissCaLoading();
@@ -2794,7 +2887,7 @@ html.asga-pre .categoryLine,
 html.asga-pre .spinner.fixed { display: none !important; }
 
 /* our toolbar row lives in CA's search row */
-#searchFilter { margin-top: 24px; }
+#searchFilter { margin-top: 6px; }
 .asga-bar {
   display: inline-flex; align-items: center; gap: 16px;
   margin-left: 14px; vertical-align: middle;
@@ -2990,6 +3083,55 @@ html.asga-pre .spinner.fixed { display: none !important; }
 .ghstars-warning-x { cursor: pointer; font-weight: bold; opacity: 0.7; }
 .ghstars-warning-x:hover { opacity: 1; }
 
+/* ===== left category menu =====
+   CA's menu column starts level with the grid's heading, which leaves roughly
+   fifty pixels of empty column beside the search row and reads as a hole in the
+   page. It is pulled up onto the toolbar's line, and given the grid's own
+   language: rounded rows, an accent hover, and the entry you are actually
+   looking at marked, which CA never does. */
+/* CA paints its sticky search band across the whole width even though the left
+   195px of it is reserved, and empty, for this menu. That empty strip is the
+   gap above Home. The band is narrowed to the grid it actually belongs to, and
+   the menu is lifted into the space that frees, which puts Home on the search
+   box's line instead of a screen-width below it. */
+body.asga-active .searchArea { padding-left: 0 !important; margin-left: 195px; }
+body.asga-active .searchArea { padding-bottom: 4px; }
+/* The menu has no leading offset of its own: it starts where CA's content
+   column starts, a full search band below the toolbar. Lifting it into that
+   band means getting past two clips. .ca_display_area is a flex row, so its
+   overflow:hidden contains nothing that needs containing. .content carries
+   overflow:auto but never scrolls (its scrollHeight and clientHeight are equal,
+   because the page scrolls on the body), so that clip is vestigial too. With
+   both lifted the menu can rise onto the search box's line. It also has to
+   outrank CA's sticky band, which is z-index 6 and, since the rule above pushed
+   it off this column, transparent here. */
+body.asga-active .content.menuAdjust,
+body.asga-active .ca_display_area { overflow: visible; }
+body.asga-active .menuItems.menuAdjust { margin-top: -46px; position: relative; z-index: 7; }
+body.asga-active .caMenu { margin: 0; padding: 0; }
+/* fit-content rather than a full-width block: filling the column wraps the
+   longer category names onto two lines, and a highlight that hugs its label
+   reads better than one that runs to the column edge. It has to stay a block
+   so the entries keep one per line. */
+body.asga-active .caMenu .caMenuItem,
+body.asga-active .caMenu .startupButton {
+  display: block; width: fit-content; max-width: 100%;
+  padding: 3px 8px; margin: 1px 0 1px -8px;
+  border-radius: 6px; line-height: 1.4; cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+body.asga-active .caMenu .caMenuItem:hover,
+body.asga-active .caMenu .startupButton:hover {
+  background: rgba(255, 140, 47, 0.14); color: #ff8c2f;
+}
+body.asga-active .caMenu .asga-menu-cur {
+  background: rgba(255, 140, 47, 0.18); color: #ff8c2f; font-weight: 600;
+}
+/* CA greys an entry it cannot offer (no favourite repo set). Keep it reading as
+   unavailable instead of lighting up under the cursor like a live one. */
+body.asga-active .caMenu .caMenuItem:not(.caMenuEnabled) { opacity: 0.45; cursor: default; }
+body.asga-active .caMenu .caMenuItem:not(.caMenuEnabled):hover { background: none; color: inherit; }
+
 /* ===== modern Info drawer =====
    CA populates its own right-slide sidebar (#sidenavContent) when a tile is
    clicked. We restyle it here, scoped to body.asga-active, so it matches the
@@ -3099,9 +3241,13 @@ body.asga-active #sidenavContent .popUpClose.caButton:hover {
 
 /* description block. CA sets this text near-black via a more specific rule
    (.popupDescription.popup_readmore), so force the theme colour back. */
+/* CA sizes this block at width:90% and forces padding:2rem, which leaves it
+   visibly narrower than the Details card directly below it and on a different
+   inner rhythm. Both are undone here so the two blocks read as one column. */
 body.asga-active .popupDescription {
   display: block; background: var(--asga-surface); border: 1px solid var(--asga-line);
-  border-radius: 12px; padding: 16px 18px; margin: 22px 0 0;
+  border-radius: 12px; width: auto; box-sizing: border-box;
+  padding: 18px 22px !important; margin: 22px 0 0;
   font-size: 1.5rem; line-height: 1.6 !important;
 }
 body.asga-active .popupDescription,

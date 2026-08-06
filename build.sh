@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.08.06a}"
+VERSION="${1:-2026.08.06b}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -65,6 +65,18 @@ cat <<XMLHEAD
   gesture away instead of an expand followed by a scroll.
 - The drawer's close bar is now 40px, the same height as Unraid's own menu bar,
   rather than a taller strip of its own.
+- Descriptions written as hard-wrapped plain text no longer render as ragged,
+  indented fragments. Many templates carry a line break every eighty characters
+  followed by four spaces of indent, which is invisible in the editor they were
+  written in and nonsense in a panel of a different width. Those wraps are now
+  joined back into paragraphs, while a deliberate blank line between paragraphs,
+  and a short line that was meant to stand alone, are both left as written.
+- The description block is the same width as the Details card below it, instead
+  of the 90% Community Applications gives it.
+- The category menu no longer starts a search bar's height below the toolbar,
+  which left a hole in the left column. Home now sits on the search box's line.
+  The menu also picks up the grid's own styling, and marks the entry you are
+  actually looking at, which it never did before.
 
 ##2026.08.03a
 - Three rolling archives of Community Applications' own template catalog, kept in

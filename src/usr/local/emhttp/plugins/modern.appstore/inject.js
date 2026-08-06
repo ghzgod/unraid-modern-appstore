@@ -287,6 +287,69 @@
         openLightbox(srcs, Math.max(0, items.indexOf(scr)));
       }, true);
     }
+    // CA renders an app's Overview by turning newlines into <br> and leading
+    // indentation into &nbsp; runs. Templates are authored in a plain-text
+    // editor, so many of them carry hard-wrapped prose: a break mid-sentence
+    // every 80-odd characters, each followed by four spaces of indent. Poured
+    // into a drawer of a different width that reads as ragged, indented
+    // nonsense rather than paragraphs.
+    //
+    // This is the one place the modern view rewrites CA's markup rather than
+    // only restyling it, because the damage is in the markup: &nbsp; is a real
+    // character and a <br> is a real element, so no stylesheet can undo either.
+    // It is confined to the description block, it runs only in modern view, and
+    // it touches nothing CA reads back.
+    //
+    // A lone break inside a long line is a hard wrap and becomes a space. A run
+    // of two or more breaks is the author separating paragraphs and is left
+    // alone. A lone break after a SHORT line is left alone too, because that is
+    // how a template writes a list ("Port: 8080" on its own line), and joining
+    // those would be the same vandalism in the other direction.
+    var WRAP_MIN = 60;
+    function wireDescriptionTidy() {
+      if (document.body.__asgaDescTidy) return;
+      document.body.__asgaDescTidy = true;
+      var host = document.getElementById('sidenavContent') || document.querySelector('.sidenav');
+      if (!host) return;
+      // our own edits re-enter this, but the per-element guard makes that a
+      // no-op, and CA hands us a fresh element for every app it opens
+      new MutationObserver(tidyDescription).observe(host, { childList: true, subtree: true });
+      tidyDescription();
+    }
+    function tidyDescription() {
+      if (!isOn()) return;
+      var el = document.querySelector('#sidenavContent .popupDescription');
+      if (!el || el.__asgaTidied) return;
+      el.__asgaTidied = true;
+      // the indent first: &nbsp; does not collapse the way a space does, so it
+      // has to become one before the lines are joined
+      var walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+      var node;
+      while ((node = walk.nextNode())) {
+        if (node.nodeValue.indexOf(' ') !== -1) node.nodeValue = node.nodeValue.replace(/ +/g, ' ');
+      }
+      var brs = [].slice.call(el.querySelectorAll('br'));
+      for (var i = 0; i < brs.length; i++) {
+        var br = brs[i];
+        if (!br.parentNode) continue;
+        if (isBr(meaningBefore(br)) || isBr(meaningAfter(br))) continue;   // paragraph break
+        if (lineBefore(br).length < WRAP_MIN) continue;                    // deliberate short line
+        br.parentNode.replaceChild(document.createTextNode(' '), br);
+      }
+    }
+    function isBr(n) { return !!n && n.nodeName === 'BR'; }
+    function blankText(n) { return n && n.nodeType === 3 && !/[^\s ]/.test(n.nodeValue); }
+    function meaningBefore(n) { n = n.previousSibling; while (blankText(n)) n = n.previousSibling; return n; }
+    function meaningAfter(n) { n = n.nextSibling; while (blankText(n)) n = n.nextSibling; return n; }
+    // the text of the line this break ends, back to the previous break. Reading
+    // it after earlier joins is intended: once a paragraph starts being rebuilt
+    // its later wraps look long too, which is exactly when they should join.
+    function lineBefore(br) {
+      var s = '', n = br.previousSibling;
+      while (n && n.nodeName !== 'BR') { s = (n.textContent || '') + s; n = n.previousSibling; }
+      return s.replace(/\s+/g, ' ').trim();
+    }
+
     function openLightbox(srcs, idx) {
       if (!srcs.length) return;
       var i = idx;
@@ -623,6 +686,7 @@
       s.textContent = total ? ('  ' + from + '–' + to + ' of ' + total + ' ' + noun + (view.q ? ' matching "' + view.q + '"' : '')) : '';
       cnt.appendChild(h); cnt.appendChild(s);
       renderPager(pages);
+      markCurrentCategory();
       pageItemsNow = pageItems;
       queueScan();
       try { window.scrollTo(0, 0); } catch (e) {}
@@ -802,6 +866,22 @@
       });
     }
 
+    // CA's left menu never shows which entry you are looking at, so the grid
+    // marks it itself. Pinned and Installed are our own views and match on their
+    // data-category; everything else matches on the category we are filtered to,
+    // and an unfiltered grid marks whichever entry means "all of it".
+    function markCurrentCategory() {
+      var items = document.querySelectorAll('.caMenuItem, .startupButton');
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i], cat = it.getAttribute('data-category') || '';
+        var on;
+        if (view.special) on = (cat === (view.special === 'pinned' ? 'pinned_apps' : 'installed_apps'));
+        else if (view.cat) on = (cat === view.cat);
+        else on = it.classList.contains('allApps') || cat === 'All';
+        it.classList.toggle('asga-menu-cur', !!on);
+      }
+    }
+
     // left-menu category clicks filter our grid (capture phase, we don't stop CA)
     function wireCategories() {
       if (document.body.__asgaCatWired) return;
@@ -959,6 +1039,7 @@
       wireSearch();
       wireCategories();
       wireLightbox();
+      wireDescriptionTidy();
       showWarningIfNeeded();
       applyViewMode();
       dismissCaLoading();
