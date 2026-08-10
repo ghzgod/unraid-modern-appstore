@@ -182,22 +182,52 @@
       cat = cat.toLowerCase();
       return c === cat || c.indexOf(cat) >= 0;
     }
+    // Community Applications matches a query against a wide set of fields: the
+    // app's name, its author and repository, its categories, its FULL
+    // description, and the hidden ExtraSearchTerms many templates carry. This
+    // grid matched the name, category and repository alone, so a word like
+    // "emulator" came back empty here while CA found dozens of apps that only
+    // carry it mid-blurb. applist.php hands us that unshown text as sx. The
+    // haystack is joined once per app and kept on the record.
+    function haystack(a) {
+      if (a.__hay === undefined) {
+        a.__hay = [a.n, a.sn, a.au, a.rp, a.ri, a.ct, a.de, a.sx].join(' ').toLowerCase();
+      }
+      return a.__hay;
+    }
+    // CA's filterMatch(): every word of the query has to turn up somewhere, but
+    // any field will do, so "linuxserver plex" can match on two of them.
+    function qMatch(a, words) {
+      var h = haystack(a);
+      for (var i = 0; i < words.length; i++) if (h.indexOf(words[i]) < 0) return false;
+      return true;
+    }
+    // CA lists apps whose name matches above ones that only mention the word in
+    // their blurb, and so does this: a search for "plex" should not bury Plex
+    // under everything that talks about it. The chosen sort still orders within
+    // each of the two groups.
+    function nameMatch(a, words) {
+      var h = ((a.n || '') + ' ' + (a.sn || '') + ' ' + (a.au || '') + ' ' + (a.rp || '')).toLowerCase();
+      for (var i = 0; i < words.length; i++) if (h.indexOf(words[i]) < 0) return false;
+      return true;
+    }
     function currentList() {
-      var q = view.q.trim().toLowerCase();
+      var words = view.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
       var opt = optFor(view.sort);
       var list = APPS.filter(function (a) {
         if (view.special === 'pinned') { if (!pinnedSet || !pinnedSet.has((a.ri || '') + '&' + (a.pn || ''))) return false; }
         else if (view.special === 'installed') { if (!installedSet || !installedSet.has(stripTag(a.ri))) return false; }
         if (opt.filter && !opt.filter(a)) return false;   // e.g. trending: only movers
         if (!catMatch(a, view.cat)) return false;
-        if (q) {
-          if ((a.n || '').toLowerCase().indexOf(q) < 0 &&
-              (a.ct || '').toLowerCase().indexOf(q) < 0 &&
-              (a.rp || '').toLowerCase().indexOf(q) < 0) return false;
-        }
+        if (words.length && !qMatch(a, words)) return false;
         return true;
       });
       list.sort(opt.cmp);
+      if (words.length) {
+        var named = [], other = [];
+        for (var i = 0; i < list.length; i++) (nameMatch(list[i], words) ? named : other).push(list[i]);
+        list = named.concat(other);
+      }
       return list;
     }
 
@@ -850,6 +880,17 @@
     }
 
     // filter as the user types in CA's own search box (CA's hidden results are ignored)
+    function applySearch(q) {
+      if (!isOn()) return;
+      q = q || '';
+      if (q === view.q) return;
+      if (caSpecial) { caSpecial = false; applyViewMode(); }   // leave a CA view when searching
+      // CA disables its category menu for the duration of a search, so a search
+      // there always spans the whole store. This does the same rather than
+      // quietly searching inside whichever category was last opened.
+      view.special = ''; view.cat = ''; view.catLabel = 'All Apps';
+      view.q = q; view.page = 1; render();
+    }
     function wireSearch() {
       var box = document.getElementById('searchBox');
       if (!box || box.__asgaWired) return;
@@ -857,13 +898,16 @@
       var deb;
       box.addEventListener('input', function () {
         clearTimeout(deb);
-        deb = setTimeout(function () {
-          if (!isOn()) return;
-          if (caSpecial) { caSpecial = false; applyViewMode(); }   // leave a CA view when searching
-          view.special = '';   // search spans the whole store
-          view.q = box.value || ''; view.page = 1; render();
-        }, 120);
+        deb = setTimeout(function () { applySearch(box.value); }, 120);
       });
+      // CA's clear button empties the box with jQuery's .val(), which fires no
+      // input event, so the grid stayed filtered on a query the user could no
+      // longer see. The box is read back after CA's own handler has run.
+      document.addEventListener('click', function (e) {
+        if (!e.target || !e.target.closest) return;
+        if (!e.target.closest('.searchSubmit, #searchButton')) return;
+        setTimeout(function () { applySearch(box.value); }, 0);
+      }, true);
     }
 
     // CA's left menu never shows which entry you are looking at, so the grid
