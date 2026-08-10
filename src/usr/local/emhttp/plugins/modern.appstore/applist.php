@@ -14,7 +14,7 @@
  * It writes nothing, anywhere. All CA paths are opened read-only.
  *
  * Output: { "generated": <ts>, "feedReady": <bool>, "docker": {...},
- *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,lu,lk,ca,t1,t7,t30,t365 } ] }
+ *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,lu,lk,ca,sx,t1,t7,t30,t365 } ] }
  *   p  = template path (passed to CA's showSidebarApp for Info/Install)
  *   n  = display name          sn = lowercase sort-name
  *   ic = icon URL              ct = category
@@ -22,6 +22,7 @@
  *   fs = FirstSeen unix ts (date added; 0 if unknown)
  *   lu = last-update unix ts (0 if unknown)   lk = its source: 'r' registry push, 'v' plugin version
  *   sa = last star-fetch attempt for this app's repo (0 = never tried)
+ *   sx = text the grid searches but never shows (full description + hidden keywords)
  *   ca = repo creation unix ts (or null), for the lifetime growth-rate sort
  *   t1/t7/t30/t365 = star trend deltas (day/week/month/year)
  */
@@ -176,6 +177,16 @@ foreach ($tmpl as $t) {
     $desc = trim(preg_replace('/\s+/', ' ', strip_tags($desc)));
     if (strlen($desc) > 400) $desc = substr($desc, 0, 400) . '…';
 
+    // Text the grid searches but never shows. Community Applications matches a
+    // query against the app's FULL description and against ExtraSearchTerms, a
+    // hidden keyword list many templates carry, which is why a search for
+    // "emulator" finds apps there that never say it in their name. The blurb
+    // above is trimmed for the card (the stored copy is shorter still), so the
+    // searchable text rides along separately, capped so that one 15KB overview
+    // cannot dominate the payload.
+    $overview = trim(preg_replace('/\s+/', ' ', strip_tags((string)($t['Overview'] ?? ''))));
+    $sx = clip(trim((string)($t['ExtraSearchTerms'] ?? '') . ' ' . $overview), 2000);
+
     // CA carries FirstSeen = 1 for apps that predate its record-keeping (all of
     // binhex's catalog, 78 apps today). That is a sentinel, not a 1970 date, and
     // CA's own fixTemplates() blanks it the same way ("if Date == 1, Date = null").
@@ -193,6 +204,7 @@ foreach ($tmpl as $t) {
         'ct'  => clip($mine['ct'] ?? ($t['Category'] ?? ''), 48),
         'au'  => display_author($mine['au'] ?? '', $t),
         'de'  => $desc,
+        'sx'  => $sx,
         'pr'  => $mine['pr'] ?? ($t['Project'] ?? ''),
         'su'  => $mine['su'] ?? ($t['Support'] ?? ''),
         'ri'  => $t['Repository'] ?? '',                     // image ref, CA's pin key part 1

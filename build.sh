@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.08.06c}"
+VERSION="${1:-2026.08.10}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,27 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Fix: searching in the modern view found nothing for words that Community
+  Applications matches dozens of apps on. CA searches an app's full description
+  and its ExtraSearchTerms, a hidden keyword list many templates carry, while
+  this grid searched the name, category and repository alone. So "emulator" came
+  back empty here and listed Companion, romm, ipxbox and twenty others with
+  modern view switched off. Every word of a query is now matched the way CA
+  matches it, each word having to appear somewhere and any field counting,
+  across the name, author, repository, image, categories, the full description
+  and those hidden keywords.
+- Apps whose name matches are listed ahead of apps that only mention the word
+  further down their description, so a search for "plex" no longer buries Plex
+  under everything that talks about it. The chosen Sort By still orders each of
+  the two groups.
+- Clearing the search with Community Applications' own X button now clears the
+  grid with it. CA empties the box through jQuery, which fires no input event,
+  so the grid stayed filtered on a query that was no longer on screen.
+- A search now covers the whole store rather than the category that happened to
+  be open, which is what CA does: it disables its category menu for the duration
+  of a search.
+
+##2026.08.06c
 - Every card now shows when the app itself last shipped, on the same line as the
   Added date: Added at the left edge of the card's foot, Updated at the right.
   For a Docker app the date is when the image was last published to its registry,

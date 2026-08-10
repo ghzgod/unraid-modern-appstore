@@ -2,13 +2,34 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.08.06c">
+<!ENTITY version "2026.08.10">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
+##2026.08.10
+- Fix: searching in the modern view found nothing for words that Community
+  Applications matches dozens of apps on. CA searches an app's full description
+  and its ExtraSearchTerms, a hidden keyword list many templates carry, while
+  this grid searched the name, category and repository alone. So "emulator" came
+  back empty here and listed Companion, romm, ipxbox and twenty others with
+  modern view switched off. Every word of a query is now matched the way CA
+  matches it, each word having to appear somewhere and any field counting,
+  across the name, author, repository, image, categories, the full description
+  and those hidden keywords.
+- Apps whose name matches are listed ahead of apps that only mention the word
+  further down their description, so a search for "plex" no longer buries Plex
+  under everything that talks about it. The chosen Sort By still orders each of
+  the two groups.
+- Clearing the search with Community Applications' own X button now clears the
+  grid with it. CA empties the box through jQuery, which fires no input event,
+  so the grid stayed filtered on a query that was no longer on screen.
+- A search now covers the whole store rather than the category that happened to
+  be open, which is what CA does: it disables its category menu for the duration
+  of a search.
+
 ##2026.08.06c
 - Every card now shows when the app itself last shipped, on the same line as the
   Added date: Added at the left edge of the card's foot, Updated at the right.
@@ -1522,7 +1543,7 @@ echo json_encode(['scanned' => count($valid), 'stars' => $out ?: (object)[]], JS
  * It writes nothing, anywhere. All CA paths are opened read-only.
  *
  * Output: { "generated": <ts>, "feedReady": <bool>, "docker": {...},
- *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,lu,lk,ca,t1,t7,t30,t365 } ] }
+ *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,lu,lk,ca,sx,t1,t7,t30,t365 } ] }
  *   p  = template path (passed to CA's showSidebarApp for Info/Install)
  *   n  = display name          sn = lowercase sort-name
  *   ic = icon URL              ct = category
@@ -1530,6 +1551,7 @@ echo json_encode(['scanned' => count($valid), 'stars' => $out ?: (object)[]], JS
  *   fs = FirstSeen unix ts (date added; 0 if unknown)
  *   lu = last-update unix ts (0 if unknown)   lk = its source: 'r' registry push, 'v' plugin version
  *   sa = last star-fetch attempt for this app's repo (0 = never tried)
+ *   sx = text the grid searches but never shows (full description + hidden keywords)
  *   ca = repo creation unix ts (or null), for the lifetime growth-rate sort
  *   t1/t7/t30/t365 = star trend deltas (day/week/month/year)
  */
@@ -1684,6 +1706,16 @@ foreach ($tmpl as $t) {
     $desc = trim(preg_replace('/\s+/', ' ', strip_tags($desc)));
     if (strlen($desc) > 400) $desc = substr($desc, 0, 400) . '…';
 
+    // Text the grid searches but never shows. Community Applications matches a
+    // query against the app's FULL description and against ExtraSearchTerms, a
+    // hidden keyword list many templates carry, which is why a search for
+    // "emulator" finds apps there that never say it in their name. The blurb
+    // above is trimmed for the card (the stored copy is shorter still), so the
+    // searchable text rides along separately, capped so that one 15KB overview
+    // cannot dominate the payload.
+    $overview = trim(preg_replace('/\s+/', ' ', strip_tags((string)($t['Overview'] ?? ''))));
+    $sx = clip(trim((string)($t['ExtraSearchTerms'] ?? '') . ' ' . $overview), 2000);
+
     // CA carries FirstSeen = 1 for apps that predate its record-keeping (all of
     // binhex's catalog, 78 apps today). That is a sentinel, not a 1970 date, and
     // CA's own fixTemplates() blanks it the same way ("if Date == 1, Date = null").
@@ -1701,6 +1733,7 @@ foreach ($tmpl as $t) {
         'ct'  => clip($mine['ct'] ?? ($t['Category'] ?? ''), 48),
         'au'  => display_author($mine['au'] ?? '', $t),
         'de'  => $desc,
+        'sx'  => $sx,
         'pr'  => $mine['pr'] ?? ($t['Project'] ?? ''),
         'su'  => $mine['su'] ?? ($t['Support'] ?? ''),
         'ri'  => $t['Repository'] ?? '',                     // image ref, CA's pin key part 1
@@ -1971,22 +2004,52 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       cat = cat.toLowerCase();
       return c === cat || c.indexOf(cat) >= 0;
     }
+    // Community Applications matches a query against a wide set of fields: the
+    // app's name, its author and repository, its categories, its FULL
+    // description, and the hidden ExtraSearchTerms many templates carry. This
+    // grid matched the name, category and repository alone, so a word like
+    // "emulator" came back empty here while CA found dozens of apps that only
+    // carry it mid-blurb. applist.php hands us that unshown text as sx. The
+    // haystack is joined once per app and kept on the record.
+    function haystack(a) {
+      if (a.__hay === undefined) {
+        a.__hay = [a.n, a.sn, a.au, a.rp, a.ri, a.ct, a.de, a.sx].join(' ').toLowerCase();
+      }
+      return a.__hay;
+    }
+    // CA's filterMatch(): every word of the query has to turn up somewhere, but
+    // any field will do, so "linuxserver plex" can match on two of them.
+    function qMatch(a, words) {
+      var h = haystack(a);
+      for (var i = 0; i < words.length; i++) if (h.indexOf(words[i]) < 0) return false;
+      return true;
+    }
+    // CA lists apps whose name matches above ones that only mention the word in
+    // their blurb, and so does this: a search for "plex" should not bury Plex
+    // under everything that talks about it. The chosen sort still orders within
+    // each of the two groups.
+    function nameMatch(a, words) {
+      var h = ((a.n || '') + ' ' + (a.sn || '') + ' ' + (a.au || '') + ' ' + (a.rp || '')).toLowerCase();
+      for (var i = 0; i < words.length; i++) if (h.indexOf(words[i]) < 0) return false;
+      return true;
+    }
     function currentList() {
-      var q = view.q.trim().toLowerCase();
+      var words = view.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
       var opt = optFor(view.sort);
       var list = APPS.filter(function (a) {
         if (view.special === 'pinned') { if (!pinnedSet || !pinnedSet.has((a.ri || '') + '&' + (a.pn || ''))) return false; }
         else if (view.special === 'installed') { if (!installedSet || !installedSet.has(stripTag(a.ri))) return false; }
         if (opt.filter && !opt.filter(a)) return false;   // e.g. trending: only movers
         if (!catMatch(a, view.cat)) return false;
-        if (q) {
-          if ((a.n || '').toLowerCase().indexOf(q) < 0 &&
-              (a.ct || '').toLowerCase().indexOf(q) < 0 &&
-              (a.rp || '').toLowerCase().indexOf(q) < 0) return false;
-        }
+        if (words.length && !qMatch(a, words)) return false;
         return true;
       });
       list.sort(opt.cmp);
+      if (words.length) {
+        var named = [], other = [];
+        for (var i = 0; i < list.length; i++) (nameMatch(list[i], words) ? named : other).push(list[i]);
+        list = named.concat(other);
+      }
       return list;
     }
 
@@ -2639,6 +2702,17 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
     }
 
     // filter as the user types in CA's own search box (CA's hidden results are ignored)
+    function applySearch(q) {
+      if (!isOn()) return;
+      q = q || '';
+      if (q === view.q) return;
+      if (caSpecial) { caSpecial = false; applyViewMode(); }   // leave a CA view when searching
+      // CA disables its category menu for the duration of a search, so a search
+      // there always spans the whole store. This does the same rather than
+      // quietly searching inside whichever category was last opened.
+      view.special = ''; view.cat = ''; view.catLabel = 'All Apps';
+      view.q = q; view.page = 1; render();
+    }
     function wireSearch() {
       var box = document.getElementById('searchBox');
       if (!box || box.__asgaWired) return;
@@ -2646,13 +2720,16 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       var deb;
       box.addEventListener('input', function () {
         clearTimeout(deb);
-        deb = setTimeout(function () {
-          if (!isOn()) return;
-          if (caSpecial) { caSpecial = false; applyViewMode(); }   // leave a CA view when searching
-          view.special = '';   // search spans the whole store
-          view.q = box.value || ''; view.page = 1; render();
-        }, 120);
+        deb = setTimeout(function () { applySearch(box.value); }, 120);
       });
+      // CA's clear button empties the box with jQuery's .val(), which fires no
+      // input event, so the grid stayed filtered on a query the user could no
+      // longer see. The box is read back after CA's own handler has run.
+      document.addEventListener('click', function (e) {
+        if (!e.target || !e.target.closest) return;
+        if (!e.target.closest('.searchSubmit, #searchButton')) return;
+        setTimeout(function () { applySearch(box.value); }, 0);
+      }, true);
     }
 
     // CA's left menu never shows which entry you are looking at, so the grid
