@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.08.10}"
+VERSION="${1:-2026.08.12}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,14 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- While Community Applications is still downloading its catalog after a boot,
+  the grid shows a spinning wheel above the explanation instead of a bare line
+  of text, so the wait reads as work in progress rather than an empty store.
+- Refresh this page now spins the toolbar's refresh icon while the visible
+  apps' star data is refetched, and stops when the new numbers land. The click
+  previously gave no sign anything was happening.
+
+##2026.08.10
 - Fix: searching in the modern view found nothing for words that Community
   Applications matches dozens of apps on. CA searches an app's full description
   and its ExtraSearchTerms, a hidden keyword list many templates carry, while

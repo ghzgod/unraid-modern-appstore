@@ -2,13 +2,21 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.08.10">
+<!ENTITY version "2026.08.12">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
+##2026.08.12
+- While Community Applications is still downloading its catalog after a boot,
+  the grid shows a spinning wheel above the explanation instead of a bare line
+  of text, so the wait reads as work in progress rather than an empty store.
+- Refresh this page now spins the toolbar's refresh icon while the visible
+  apps' star data is refetched, and stops when the new numbers land. The click
+  previously gave no sign anything was happening.
+
 ##2026.08.10
 - Fix: searching in the modern view found nothing for words that Community
   Applications matches dozens of apps on. CA searches an app's full description
@@ -2516,11 +2524,19 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       if (!total) {
         var empty = document.createElement('div');
         empty.className = 'asga-empty';
-        empty.textContent = !feedReady ? feedWaitNote()
+        // while the catalog is still downloading the page is working, not
+        // empty, so it gets a wheel; the note alone reads like a dead store
+        if (!feedReady && feedWaits < FEED_MAX_WAITS) {
+          var spin = document.createElement('div');
+          spin.className = 'asga-empty-spin';
+          empty.appendChild(spin);
+        }
+        empty.appendChild(document.createTextNode(
+          !feedReady ? feedWaitNote()
           : view.special === 'pinned' ? 'No pinned apps yet. Use the Pin App button on any app to add it here.'
           : view.special === 'installed' ? 'No installed apps matched the App Store catalog.'
           : view.q ? 'No apps match "' + view.q + '".'
-          : emptySortNote() || 'No apps to show.';
+          : emptySortNote() || 'No apps to show.'));
         grid.appendChild(empty);
       } else {
         var frag = document.createDocumentFragment();
@@ -2568,7 +2584,7 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
         if (!force && scanAsked[a.p]) continue;
         want.push(a.p);
       }
-      if (!want.length) return;
+      if (!want.length) { setRefreshSpin(false); return; }
       want.forEach(function (p) { scanAsked[p] = 1; });
       scanInFlight = true;
       fetch(PREFIX + 'scanpage.php', {
@@ -2580,6 +2596,7 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
         .catch(function () { return null; })
         .then(function (j) {
           scanInFlight = false;
+          setRefreshSpin(false);
           if (scanPending) queueScan();
           var stars = (j && j.stars) || {};
           var byPath = {};
@@ -2804,6 +2821,12 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
     // ---- refresh + progress (thin top bar) ----
     // The icon offers the cheap option first: rescan what is on screen. A full
     // catalog scan is still there, with its own 3-day cooldown.
+    // The icon doubles as the page-rescan's progress wheel: it spins from the
+    // click until the request lands, since nothing else on screen moves.
+    function setRefreshSpin(on) {
+      var el = document.getElementById('asga-refresh');
+      if (el) el.classList[on ? 'add' : 'remove']('asga-spinning');
+    }
     function onRefreshClick(e) {
       if (e) { e.stopPropagation(); e.preventDefault(); }
       var host = document.getElementById('asga-refresh');
@@ -2819,7 +2842,7 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
         var item = ev.target.closest ? ev.target.closest('.asga-refitem') : null;
         if (!item) return;
         menu.remove();
-        if (item.getAttribute('data-act') === 'page') scanVisible(true);
+        if (item.getAttribute('data-act') === 'page') { setRefreshSpin(true); scanVisible(true); }
         else refreshAll();
       });
       setTimeout(function () {
@@ -3012,6 +3035,13 @@ html.asga-pre .spinner.fixed { display: none !important; }
 .asga-count-title { font-size: 1.6rem; font-weight: 700; color: var(--text-color, inherit); }
 .asga-count-sub { font-size: 1.05rem; opacity: 0.55; }
 .asga-empty { grid-column: 1 / -1; padding: 80px 8px; font-size: 1.3rem; opacity: 0.7; text-align: center; }
+/* the wheel shown while CA is still downloading its catalog; the same rotation
+   drives the toolbar's refresh icon while a page rescan is in flight */
+.asga-empty-spin { width: 34px; height: 34px; margin: 0 auto 16px; border-radius: 50%;
+  border: 3px solid rgba(255,140,47,0.25); border-top-color: #ff8c2f;
+  animation: asga-rotate 0.8s linear infinite; }
+@keyframes asga-rotate { to { transform: rotate(360deg); } }
+.asga-refreshlink.asga-spinning { display: inline-block; animation: asga-rotate 0.8s linear infinite; opacity: 1; }
 
 .asga-grid {
   display: grid;

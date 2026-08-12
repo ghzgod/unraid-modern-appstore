@@ -68,6 +68,13 @@ html.asga-pre .spinner.fixed { display: none !important; }
 .asga-count-title { font-size: 1.6rem; font-weight: 700; color: var(--text-color, inherit); }
 .asga-count-sub { font-size: 1.05rem; opacity: 0.55; }
 .asga-empty { grid-column: 1 / -1; padding: 80px 8px; font-size: 1.3rem; opacity: 0.7; text-align: center; }
+/* the wheel shown while CA is still downloading its catalog; the same rotation
+   drives the toolbar's refresh icon while a page rescan is in flight */
+.asga-empty-spin { width: 34px; height: 34px; margin: 0 auto 16px; border-radius: 50%;
+  border: 3px solid rgba(255,140,47,0.25); border-top-color: #ff8c2f;
+  animation: asga-rotate 0.8s linear infinite; }
+@keyframes asga-rotate { to { transform: rotate(360deg); } }
+.asga-refreshlink.asga-spinning { display: inline-block; animation: asga-rotate 0.8s linear infinite; opacity: 1; }
 
 .asga-grid {
   display: grid;
