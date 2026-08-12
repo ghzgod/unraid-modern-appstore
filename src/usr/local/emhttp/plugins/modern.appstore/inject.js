@@ -694,11 +694,19 @@
       if (!total) {
         var empty = document.createElement('div');
         empty.className = 'asga-empty';
-        empty.textContent = !feedReady ? feedWaitNote()
+        // while the catalog is still downloading the page is working, not
+        // empty, so it gets a wheel; the note alone reads like a dead store
+        if (!feedReady && feedWaits < FEED_MAX_WAITS) {
+          var spin = document.createElement('div');
+          spin.className = 'asga-empty-spin';
+          empty.appendChild(spin);
+        }
+        empty.appendChild(document.createTextNode(
+          !feedReady ? feedWaitNote()
           : view.special === 'pinned' ? 'No pinned apps yet. Use the Pin App button on any app to add it here.'
           : view.special === 'installed' ? 'No installed apps matched the App Store catalog.'
           : view.q ? 'No apps match "' + view.q + '".'
-          : emptySortNote() || 'No apps to show.';
+          : emptySortNote() || 'No apps to show.'));
         grid.appendChild(empty);
       } else {
         var frag = document.createDocumentFragment();
@@ -746,7 +754,7 @@
         if (!force && scanAsked[a.p]) continue;
         want.push(a.p);
       }
-      if (!want.length) return;
+      if (!want.length) { setRefreshSpin(false); return; }
       want.forEach(function (p) { scanAsked[p] = 1; });
       scanInFlight = true;
       fetch(PREFIX + 'scanpage.php', {
@@ -758,6 +766,7 @@
         .catch(function () { return null; })
         .then(function (j) {
           scanInFlight = false;
+          setRefreshSpin(false);
           if (scanPending) queueScan();
           var stars = (j && j.stars) || {};
           var byPath = {};
@@ -982,6 +991,12 @@
     // ---- refresh + progress (thin top bar) ----
     // The icon offers the cheap option first: rescan what is on screen. A full
     // catalog scan is still there, with its own 3-day cooldown.
+    // The icon doubles as the page-rescan's progress wheel: it spins from the
+    // click until the request lands, since nothing else on screen moves.
+    function setRefreshSpin(on) {
+      var el = document.getElementById('asga-refresh');
+      if (el) el.classList[on ? 'add' : 'remove']('asga-spinning');
+    }
     function onRefreshClick(e) {
       if (e) { e.stopPropagation(); e.preventDefault(); }
       var host = document.getElementById('asga-refresh');
@@ -997,7 +1012,7 @@
         var item = ev.target.closest ? ev.target.closest('.asga-refitem') : null;
         if (!item) return;
         menu.remove();
-        if (item.getAttribute('data-act') === 'page') scanVisible(true);
+        if (item.getAttribute('data-act') === 'page') { setRefreshSpin(true); scanVisible(true); }
         else refreshAll();
       });
       setTimeout(function () {
