@@ -2,13 +2,22 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.08.12">
+<!ENTITY version "2026.08.13">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
+##2026.08.13
+- The Info drawer's change log now shows every entry in full. It was clamped
+  to a preview height with its expander hidden, which left everything past the
+  first entry unreadable.
+- Plugin cards whose template ships no icon now fall back to the author's
+  GitHub avatar, the way docker apps already did. Plugins have no docker
+  repository to derive an owner from, so their project link is read instead;
+  they showed a question mark before.
+
 ##2026.08.12
 - While Community Applications is still downloading its catalog after a boot,
   the grid shows a spinning wheel above the explanation instead of a bare line
@@ -2266,9 +2275,17 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       iconWrap.className = 'asga-tile-icon';
       var img = document.createElement('img');
       var fallback = '/plugins/dynamix.docker.manager/images/question.png';
-      // icon fallback chain: the app's own icon, else the GitHub owner's avatar
-      // (many templates ship no icon URL), else CA's question mark.
-      var ghAvatar = (a.rp && a.rp.indexOf('/') > 0) ? ('https://github.com/' + a.rp.split('/')[0] + '.png?size=128') : '';
+      // owner for the avatar fallback: the starred repo when one was matched,
+      // else the app's own GitHub links. Plugins carry no docker repository to
+      // derive an owner from, so their Project or plugin URL is read instead;
+      // before this they always fell through to the question mark.
+      var ghOwner = (a.rp && a.rp.indexOf('/') > 0) ? a.rp.split('/')[0] : '';
+      if (!ghOwner) {
+        var gm = /(?:github\.com|raw\.githubusercontent\.com)\/([^\/?#]+)\//i.exec(a.pr || '') ||
+                 /(?:github\.com|raw\.githubusercontent\.com)\/([^\/?#]+)\//i.exec(a.pu || '');
+        if (gm) ghOwner = gm[1];
+      }
+      var ghAvatar = ghOwner ? ('https://github.com/' + ghOwner + '.png?size=128') : '';
       img.src = a.ic || ghAvatar || fallback; img.loading = 'lazy'; img.alt = '';
       img.onerror = function () {
         if (ghAvatar && this.src !== ghAvatar && this.src.indexOf('github.com') < 0) { this.src = ghAvatar; return; }
@@ -3393,6 +3410,16 @@ body.asga-active .popupDescription {
 }
 body.asga-active #sidenavContent .ca_readmore,
 body.asga-active #sidenavContent .readmore-js-toggle { display: none !important; }
+
+/* The changelog is the OTHER popup_readmore block (CA's skin marks exactly two:
+   the description above and this one). readmore.js clamps it with the same
+   inline styles, and with the toggle hidden everything past the fold was
+   unreachable. The drawer scrolls, so the changelog runs at full height. */
+body.asga-active .changelog {
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
 
 /* section titles: small orange eyebrow labels, not 2.5rem headings */
 body.asga-active .rightTitle,

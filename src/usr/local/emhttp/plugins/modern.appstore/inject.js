@@ -436,9 +436,17 @@
       iconWrap.className = 'asga-tile-icon';
       var img = document.createElement('img');
       var fallback = '/plugins/dynamix.docker.manager/images/question.png';
-      // icon fallback chain: the app's own icon, else the GitHub owner's avatar
-      // (many templates ship no icon URL), else CA's question mark.
-      var ghAvatar = (a.rp && a.rp.indexOf('/') > 0) ? ('https://github.com/' + a.rp.split('/')[0] + '.png?size=128') : '';
+      // owner for the avatar fallback: the starred repo when one was matched,
+      // else the app's own GitHub links. Plugins carry no docker repository to
+      // derive an owner from, so their Project or plugin URL is read instead;
+      // before this they always fell through to the question mark.
+      var ghOwner = (a.rp && a.rp.indexOf('/') > 0) ? a.rp.split('/')[0] : '';
+      if (!ghOwner) {
+        var gm = /(?:github\.com|raw\.githubusercontent\.com)\/([^\/?#]+)\//i.exec(a.pr || '') ||
+                 /(?:github\.com|raw\.githubusercontent\.com)\/([^\/?#]+)\//i.exec(a.pu || '');
+        if (gm) ghOwner = gm[1];
+      }
+      var ghAvatar = ghOwner ? ('https://github.com/' + ghOwner + '.png?size=128') : '';
       img.src = a.ic || ghAvatar || fallback; img.loading = 'lazy'; img.alt = '';
       img.onerror = function () {
         if (ghAvatar && this.src !== ghAvatar && this.src.indexOf('github.com') < 0) { this.src = ghAvatar; return; }

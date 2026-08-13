@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.08.12}"
+VERSION="${1:-2026.08.13}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,15 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- The Info drawer's change log now shows every entry in full. It was clamped
+  to a preview height with its expander hidden, which left everything past the
+  first entry unreadable.
+- Plugin cards whose template ships no icon now fall back to the author's
+  GitHub avatar, the way docker apps already did. Plugins have no docker
+  repository to derive an owner from, so their project link is read instead;
+  they showed a question mark before.
+
+##2026.08.12
 - While Community Applications is still downloading its catalog after a boot,
   the grid shows a spinning wheel above the explanation instead of a bare line
   of text, so the wait reads as work in progress rather than an empty store.

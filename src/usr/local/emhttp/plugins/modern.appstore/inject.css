@@ -427,6 +427,16 @@ body.asga-active .popupDescription {
 body.asga-active #sidenavContent .ca_readmore,
 body.asga-active #sidenavContent .readmore-js-toggle { display: none !important; }
 
+/* The changelog is the OTHER popup_readmore block (CA's skin marks exactly two:
+   the description above and this one). readmore.js clamps it with the same
+   inline styles, and with the toggle hidden everything past the fold was
+   unreachable. The drawer scrolls, so the changelog runs at full height. */
+body.asga-active .changelog {
+  height: auto !important;
+  max-height: none !important;
+  overflow: visible !important;
+}
+
 /* section titles: small orange eyebrow labels, not 2.5rem headings */
 body.asga-active .rightTitle,
 body.asga-active .popupAuthorTitle,
