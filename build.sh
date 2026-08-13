@@ -51,6 +51,9 @@ cat <<XMLHEAD
   GitHub avatar, the way docker apps already did. Plugins have no docker
   repository to derive an owner from, so their project link is read instead;
   they showed a question mark before.
+- An avatar that GitHub dropped while a screenful of cards asked for theirs at
+  once is retried before the card gives up on it. One dropped request used to
+  leave a permanent question mark on a card whose icon loads fine on reload.
 
 ##2026.08.12
 - While Community Applications is still downloading its catalog after a boot,

@@ -450,6 +450,15 @@
       img.src = a.ic || ghAvatar || fallback; img.loading = 'lazy'; img.alt = '';
       img.onerror = function () {
         if (ghAvatar && this.src !== ghAvatar && this.src.indexOf('github.com') < 0) { this.src = ghAvatar; return; }
+        // github.com drops some of the avatar requests a full screen of cards
+        // fires at once. Without a retry that transient miss became a permanent
+        // question mark, on a card whose icon works perfectly on reload.
+        if (ghAvatar && this.src.indexOf('github.com') >= 0 && !this.dataset.avatarRetry) {
+          this.dataset.avatarRetry = '1';
+          var im = this;
+          setTimeout(function () { im.src = ghAvatar + '&retry=1'; }, 1200);
+          return;
+        }
         if (this.src.indexOf('question.png') < 0) this.src = fallback;
       };
       iconWrap.appendChild(img);
