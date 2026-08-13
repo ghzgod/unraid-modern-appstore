@@ -458,6 +458,13 @@ body.asga-active .changelog {
   max-height: none !important;
   overflow: visible !important;
 }
+/* readmore.js also paints a fade over whatever it collapsed, as a mask image
+   rather than a height, so releasing the height above left the text present and
+   fading to nothing down the page. Both blocks we take over drop the mask. */
+body.asga-active #sidenavContent .readmore-js-collapsed {
+  -webkit-mask-image: none !important;
+  mask-image: none !important;
+}
 
 /* section titles: small orange eyebrow labels, not 2.5rem headings */
 body.asga-active .rightTitle,
