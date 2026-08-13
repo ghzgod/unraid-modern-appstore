@@ -9,6 +9,8 @@ appstore.github.addon.plg
 .DS_Store
 **/.DS_Store
 *.png
+# except the app icon Community Applications loads from this repo
+!icon.png
 docs/superpowers/
 .playwright-mcp/
 
