@@ -237,8 +237,20 @@ html.asga-pre .spinner.fixed { display: none !important; }
    gap above Home. The band is narrowed to the grid it actually belongs to, and
    the menu is lifted into the space that frees, which puts Home on the search
    box's line instead of a screen-width below it. */
-body.asga-active .searchArea { padding-left: 0 !important; margin-left: 195px; }
-body.asga-active .searchArea { padding-bottom: 4px; }
+body.asga-active .searchArea { padding-left: 0 !important; }
+/* The row sat 6px under the menu with 14px beneath it, so it read as hanging off
+   the navigation. Both edges are 26 here, which also puts the search box on
+   Home's line. The 10px that CA hangs under the input is what made the two
+   unequal, and dropping it puts the input, the magnifier and our toggle and sort
+   controls on one centre line. */
+body.asga-active .searchArea { padding-bottom: 26px; }
+/* wraps rather than widening the page: a flex row that cannot wrap puts the
+   toggle and sort controls past the right edge on a phone */
+body.asga-active #searchFilter { display: flex; align-items: center; flex-wrap: wrap; row-gap: 10px; margin-top: 26px; }
+body.asga-active #searchBox { margin-bottom: 0; }
+/* CA's magnifier is an inline span whose 11px of vertical padding only becomes a
+   real box once it is a flex item, where it alone made the row 55px tall */
+body.asga-active .searchSubmit { display: flex; align-items: center; padding: 0 10px; }
 /* The menu has no leading offset of its own: it starts where CA's content
    column starts, a full search band below the toolbar. Lifting it into that
    band means getting past two clips. .ca_display_area is a flex row, so its
@@ -251,6 +263,16 @@ body.asga-active .searchArea { padding-bottom: 4px; }
 body.asga-active .content.menuAdjust,
 body.asga-active .ca_display_area { overflow: visible; }
 body.asga-active .menuItems.menuAdjust { margin-top: -46px; position: relative; z-index: 7; }
+/* -70 puts Home's centre exactly on the search box's centre. Only above 1024,
+   because CA hands the menu to its mobile markup at and below that width and the
+   content column starts 46px higher there, where the deeper lift would push the
+   menu up behind the navigation. */
+@media (min-width: 1025px) {
+  body.asga-active .menuItems.menuAdjust { margin-top: -70px; }
+  /* the 195px strip only needs clearing while the menu column is there to fill
+     it; on a phone CA drops the menu and the band belongs at the left edge */
+  body.asga-active .searchArea { margin-left: 195px; }
+}
 body.asga-active .caMenu { margin: 0; padding: 0; }
 /* fit-content rather than a full-width block: filling the column wraps the
    longer category names onto two lines, and a highlight that hugs its label

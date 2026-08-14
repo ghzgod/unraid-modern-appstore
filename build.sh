@@ -54,6 +54,13 @@ cat <<XMLHEAD
 - An avatar that GitHub dropped while a screenful of cards asked for theirs at
   once is retried before the card gives up on it. One dropped request used to
   leave a permanent question mark on a card whose icon loads fine on reload.
+- The search row has equal space above and below it, and the search box now sits
+  on the same line as Home in the menu beside it. It had 6px of air on top
+  against 14 underneath, so it read as hanging off the navigation bar.
+- The search box, the magnifier, the Modern view toggle and the Sort By controls
+  share one centre line, and the row wraps instead of running off the right edge
+  on a phone. The band also stops reserving the menu's 195px on the widths where
+  Community Applications does not draw a menu.
 
 ##2026.08.12
 - While Community Applications is still downloading its catalog after a boot,
