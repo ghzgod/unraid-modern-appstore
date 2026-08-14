@@ -25,6 +25,10 @@
 - The search row has equal space above and below it, and the search box now sits
   on the same line as Home in the menu beside it. It had 6px of air on top
   against 14 underneath, so it read as hanging off the navigation bar.
+- The search box now starts on the same left edge as the All Apps heading, the
+  cards and the pager, so the page has one column edge instead of the search
+  box sitting twelve pixels inside it. The heading's own two pixel indent is
+  gone with it.
 - The search box, the magnifier, the Modern view toggle and the Sort By controls
   share one centre line, and the row wraps instead of running off the right edge
   on a phone. The band also stops reserving the menu's 195px on the widths where
@@ -3069,7 +3073,8 @@ html.asga-pre .spinner.fixed { display: none !important; }
 
 /* ---- our grid ---- */
 #asga-view { margin: 6px 10px 40px; }
-.asga-count { margin: 6px 2px 16px; }
+/* no left margin: the heading shares the cards' and the pager's left edge */
+.asga-count { margin: 6px 2px 16px 0; }
 .asga-count-title { font-size: 1.6rem; font-weight: 700; color: var(--text-color, inherit); }
 .asga-count-sub { font-size: 1.05rem; opacity: 0.55; }
 .asga-empty { grid-column: 1 / -1; padding: 80px 8px; font-size: 1.3rem; opacity: 0.7; text-align: center; }
@@ -3248,14 +3253,18 @@ body.asga-active .searchArea { padding-left: 0 !important; }
    Home's line. The 10px that CA hangs under the input is what made the two
    unequal, and dropping it puts the input, the magnifier and our toggle and sort
    controls on one centre line. */
-body.asga-active .searchArea { padding-bottom: 26px; }
+/* CA aligns the band on the baseline, and it holds two more buttons than the
+   search row itself, so the flex line reserved descender space under the input
+   and the gap below came out 6px larger than the one above. Centring the band
+   makes the line exactly as tall as its tallest control. */
+body.asga-active .searchArea { padding-bottom: 26px; align-items: center; }
 /* wraps rather than widening the page: a flex row that cannot wrap puts the
    toggle and sort controls past the right edge on a phone */
 body.asga-active #searchFilter { display: flex; align-items: center; flex-wrap: wrap; row-gap: 10px; margin-top: 26px; }
 body.asga-active #searchBox { margin-bottom: 0; }
 /* CA's magnifier is an inline span whose 11px of vertical padding only becomes a
    real box once it is a flex item, where it alone made the row 55px tall */
-body.asga-active .searchSubmit { display: flex; align-items: center; padding: 0 10px; }
+body.asga-active .searchSubmit { display: flex; align-items: center; height: 32px; padding: 0 10px; }
 /* The menu has no leading offset of its own: it starts where CA's content
    column starts, a full search band below the toolbar. Lifting it into that
    band means getting past two clips. .ca_display_area is a flex row, so its
@@ -3268,15 +3277,17 @@ body.asga-active .searchSubmit { display: flex; align-items: center; padding: 0 
 body.asga-active .content.menuAdjust,
 body.asga-active .ca_display_area { overflow: visible; }
 body.asga-active .menuItems.menuAdjust { margin-top: -46px; position: relative; z-index: 7; }
-/* -70 puts Home's centre exactly on the search box's centre. Only above 1024,
+/* -68 puts Home's centre exactly on the search box's centre. Only above 1024,
    because CA hands the menu to its mobile markup at and below that width and the
    content column starts 46px higher there, where the deeper lift would push the
    menu up behind the navigation. */
 @media (min-width: 1025px) {
-  body.asga-active .menuItems.menuAdjust { margin-top: -70px; }
-  /* the 195px strip only needs clearing while the menu column is there to fill
-     it; on a phone CA drops the menu and the band belongs at the left edge */
-  body.asga-active .searchArea { margin-left: 195px; }
+  body.asga-active .menuItems.menuAdjust { margin-top: -68px; }
+  /* 207 is where the grid's own column starts, so the search box, the All Apps
+     heading, the cards and the pager all share one left edge. The strip only
+     needs clearing while the menu column is there to fill it; on a phone CA
+     drops the menu and the band belongs at the left edge. */
+  body.asga-active .searchArea { margin-left: 207px; }
 }
 body.asga-active .caMenu { margin: 0; padding: 0; }
 /* fit-content rather than a full-width block: filling the column wraps the

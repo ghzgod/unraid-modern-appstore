@@ -59,6 +59,10 @@ cat <<XMLHEAD
 - The search row has equal space above and below it, and the search box now sits
   on the same line as Home in the menu beside it. It had 6px of air on top
   against 14 underneath, so it read as hanging off the navigation bar.
+- The search box now starts on the same left edge as the All Apps heading, the
+  cards and the pager, so the page has one column edge instead of the search
+  box sitting twelve pixels inside it. The heading's own two pixel indent is
+  gone with it.
 - The search box, the magnifier, the Modern view toggle and the Sort By controls
   share one centre line, and the row wraps instead of running off the right edge
   on a phone. The band also stops reserving the menu's 195px on the widths where
