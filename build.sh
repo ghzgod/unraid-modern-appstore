@@ -46,7 +46,9 @@ cat <<XMLHEAD
 ##$VERSION
 - The Info drawer's change log now shows every entry in full. It was clamped
   to a preview height with its expander hidden, which left everything past the
-  first entry unreadable.
+  first entry unreadable, and it was also painted with a fade that dissolved
+  the text into the background well before the end of the list. The clamp and
+  the fade are both dropped, so the log reads at one contrast to the last line.
 - Plugin cards whose template ships no icon now fall back to the author's
   GitHub avatar, the way docker apps already did. Plugins have no docker
   repository to derive an owner from, so their project link is read instead;
