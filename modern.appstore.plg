@@ -17,6 +17,9 @@
   GitHub avatar, the way docker apps already did. Plugins have no docker
   repository to derive an owner from, so their project link is read instead;
   they showed a question mark before.
+- An avatar that GitHub dropped while a screenful of cards asked for theirs at
+  once is retried before the card gives up on it. One dropped request used to
+  leave a permanent question mark on a card whose icon loads fine on reload.
 
 ##2026.08.12
 - While Community Applications is still downloading its catalog after a boot,
@@ -2289,6 +2292,15 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       img.src = a.ic || ghAvatar || fallback; img.loading = 'lazy'; img.alt = '';
       img.onerror = function () {
         if (ghAvatar && this.src !== ghAvatar && this.src.indexOf('github.com') < 0) { this.src = ghAvatar; return; }
+        // github.com drops some of the avatar requests a full screen of cards
+        // fires at once. Without a retry that transient miss became a permanent
+        // question mark, on a card whose icon works perfectly on reload.
+        if (ghAvatar && this.src.indexOf('github.com') >= 0 && !this.dataset.avatarRetry) {
+          this.dataset.avatarRetry = '1';
+          var im = this;
+          setTimeout(function () { im.src = ghAvatar + '&retry=1'; }, 1200);
+          return;
+        }
         if (this.src.indexOf('question.png') < 0) this.src = fallback;
       };
       iconWrap.appendChild(img);
