@@ -587,10 +587,15 @@ body.asga-active .ca_note.ca_bold { font-weight: 400; }
   --asga-accent: #ff8c2f;
   position: fixed; inset: 0; z-index: 10000;
   background: rgba(0,0,0,0.62); backdrop-filter: blur(2px);
-  display: flex; align-items: center; justify-content: center;
+  /* the overlay owns the gutter and the scrolling. A template's Requires field
+     can run to several paragraphs, and centring alone would then clip the top
+     of the dialog off-screen with no way to reach OK. margin:auto centres it
+     while it fits and lets it scroll from the top once it does not. */
+  display: flex; justify-content: center; overflow-y: auto; padding: 24px;
 }
 .asga-modal {
-  max-width: 560px; width: calc(100vw - 48px); padding: 32px 30px 24px;
+  box-sizing: border-box; margin: auto;
+  max-width: 560px; width: 100%; padding: 32px 30px 28px;
   border-radius: 14px; background: #1c1c1c; border: 1px solid var(--asga-line, rgba(255,255,255,0.16));
   box-shadow: 0 18px 60px rgba(0,0,0,0.6); text-align: center; color: var(--asga-fg, #f2f2f2);
 }
@@ -602,6 +607,7 @@ body.asga-active .ca_note.ca_bold { font-weight: 400; }
 .asga-modal-title { font-size: 2.6rem; font-weight: 700; margin: 0 0 14px; }
 .asga-modal-body p { font-size: 1.5rem; line-height: 1.5; margin: 0 0 10px; color: var(--asga-muted); }
 .asga-modal-body p:last-child { margin: 0; }
+.asga-modal-body p.asga-modal-break { margin-top: 20px; }
 .asga-modal-actions { display: flex; gap: 14px; justify-content: center; margin-top: 26px; }
 .asga-modal-actions .asga-btn { min-width: 128px; padding: 10px 22px; font-size: 1.5rem; cursor: pointer; }
 .asga-modal-ok {
