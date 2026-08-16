@@ -25,6 +25,8 @@
  *   sx = text the grid searches but never shows (full description + hidden keywords)
  *   ca = repo creation unix ts (or null), for the lifetime growth-rate sort
  *   t1/t7/t30/t365 = star trend deltas (day/week/month/year)
+ *   rq = install-time Attention notice text (requires/moderator comment), '' if none
+ *   po = bridge-mode host ports the template claims, for the install port-conflict warning
  */
 header('Content-Type: application/json');
 
@@ -78,6 +80,42 @@ function last_update(array $t) {
     if ($tag !== '' && $tag !== 'latest') return [0, ''];
     $lu = (int)($t['LastUpdate'] ?? 0);
     return $lu > 1 ? [$lu, 'r'] : [0, ''];
+}
+
+// CA gates the install behind an "Attention" confirm whenever a template
+// carries additional requirements or a moderator note (its popupInstallXML).
+// The modern grid installs without going through CA's own button, so the same
+// notice is rebuilt here from the template fields CA reads.
+function install_notice(array $t) {
+    $comment = trim((string)($t['ModeratorComment'] ?? '')) ?: trim((string)($t['CAComment'] ?? ''));
+    $req     = trim((string)($t['Requires'] ?? ''));
+    $parts = [];
+    if ($req !== '') {
+        $req = trim(strip_tags(str_replace(["\r\n", "\r", "&#xD;"], "\n", $req)));
+        $parts[] = "This application has additional requirements\n" . $req;
+    }
+    if ($comment !== '') $parts[] = trim(strip_tags(str_replace(["\r\n", "\r"], "\n", $comment)));
+    return implode("\n", $parts);
+}
+
+// Mirrors CA's portsUsed() (include/helpers.php): only bridge-network templates
+// publish fixed host ports worth warning about, so anything else reports none.
+// Config entries come through as either a list or, for a template with exactly
+// one, a single associative array, so that single-entry shape is normalised
+// the same way CA does before walking it.
+function template_ports(array $t) {
+    if (($t['Network'] ?? '') !== 'bridge') return [];
+    $cfg = $t['Config'] ?? [];
+    if (isset($cfg['@attributes'])) $cfg = [$cfg];
+    $ports = [];
+    foreach ((array)$cfg as $c) {
+        if (!is_array($c)) continue;
+        $attr = $c['@attributes'] ?? [];
+        if (($attr['Type'] ?? '') !== 'Port') continue;
+        $val = $c['value'] ?? ($attr['Default'] ?? '');
+        if ($val !== '' && $val !== null) $ports[] = $val;
+    }
+    return $ports;
 }
 
 // Community Applications' own docker-availability check, mirrored from its
@@ -223,6 +261,8 @@ foreach ($tmpl as $t) {
         't7'  => $mine['t7'] ?? null,
         't30' => $mine['t30'] ?? null,
         't365'=> $mine['t365'] ?? null,
+        'rq'  => install_notice($t),
+        'po'  => template_ports($t),
     ];
 }
 

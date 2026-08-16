@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.08.13}"
+VERSION="${1:-2026.08.16}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,19 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Installing an app from the modern grid works again. The grid opened the
+  template editor directly, skipping the step Community Applications always
+  runs first, which prepares the template for this specific server (falling
+  back from a custom network to br0 or eth0, remapping paths to disks the
+  server does not have, and picking the icon for the current theme). It also
+  percent-encoded the template path, which CA passes through raw. Both are
+  fixed, so the editor now opens on a template it can actually build.
+- Apps that carry additional requirements now show the same Attention notice
+  before installing that Community Applications shows, styled for the modern
+  view, along with a warning when a port the app wants is already in use on
+  this server.
+
+##2026.08.13
 - The Info drawer's change log now shows every entry in full. It was clamped
   to a preview height with its expander hidden, which left everything past the
   first entry unreadable, and it was also painted with a fade that dissolved
