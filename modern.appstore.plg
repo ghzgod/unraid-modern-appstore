@@ -2,13 +2,26 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.08.13">
+<!ENTITY version "2026.08.16">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
+##2026.08.16
+- Installing an app from the modern grid works again. The grid opened the
+  template editor directly, skipping the step Community Applications always
+  runs first, which prepares the template for this specific server (falling
+  back from a custom network to br0 or eth0, remapping paths to disks the
+  server does not have, and picking the icon for the current theme). It also
+  percent-encoded the template path, which CA passes through raw. Both are
+  fixed, so the editor now opens on a template it can actually build.
+- Apps that carry additional requirements now show the same Attention notice
+  before installing that Community Applications shows, styled for the modern
+  view, along with a warning when a port the app wants is already in use on
+  this server.
+
 ##2026.08.13
 - The Info drawer's change log now shows every entry in full. It was clamped
   to a preview height with its expander hidden, which left everything past the
@@ -1587,6 +1600,8 @@ echo json_encode(['scanned' => count($valid), 'stars' => $out ?: (object)[]], JS
  *   sx = text the grid searches but never shows (full description + hidden keywords)
  *   ca = repo creation unix ts (or null), for the lifetime growth-rate sort
  *   t1/t7/t30/t365 = star trend deltas (day/week/month/year)
+ *   rq = install-time Attention notice text (requires/moderator comment), '' if none
+ *   po = bridge-mode host ports the template claims, for the install port-conflict warning
  */
 header('Content-Type: application/json');
 
@@ -1640,6 +1655,42 @@ function last_update(array $t) {
     if ($tag !== '' && $tag !== 'latest') return [0, ''];
     $lu = (int)($t['LastUpdate'] ?? 0);
     return $lu > 1 ? [$lu, 'r'] : [0, ''];
+}
+
+// CA gates the install behind an "Attention" confirm whenever a template
+// carries additional requirements or a moderator note (its popupInstallXML).
+// The modern grid installs without going through CA's own button, so the same
+// notice is rebuilt here from the template fields CA reads.
+function install_notice(array $t) {
+    $comment = trim((string)($t['ModeratorComment'] ?? '')) ?: trim((string)($t['CAComment'] ?? ''));
+    $req     = trim((string)($t['Requires'] ?? ''));
+    $parts = [];
+    if ($req !== '') {
+        $req = trim(strip_tags(str_replace(["\r\n", "\r", "&#xD;"], "\n", $req)));
+        $parts[] = "This application has additional requirements\n" . $req;
+    }
+    if ($comment !== '') $parts[] = trim(strip_tags(str_replace(["\r\n", "\r"], "\n", $comment)));
+    return implode("\n", $parts);
+}
+
+// Mirrors CA's portsUsed() (include/helpers.php): only bridge-network templates
+// publish fixed host ports worth warning about, so anything else reports none.
+// Config entries come through as either a list or, for a template with exactly
+// one, a single associative array, so that single-entry shape is normalised
+// the same way CA does before walking it.
+function template_ports(array $t) {
+    if (($t['Network'] ?? '') !== 'bridge') return [];
+    $cfg = $t['Config'] ?? [];
+    if (isset($cfg['@attributes'])) $cfg = [$cfg];
+    $ports = [];
+    foreach ((array)$cfg as $c) {
+        if (!is_array($c)) continue;
+        $attr = $c['@attributes'] ?? [];
+        if (($attr['Type'] ?? '') !== 'Port') continue;
+        $val = $c['value'] ?? ($attr['Default'] ?? '');
+        if ($val !== '' && $val !== null) $ports[] = $val;
+    }
+    return $ports;
 }
 
 // Community Applications' own docker-availability check, mirrored from its
@@ -1785,6 +1836,8 @@ foreach ($tmpl as $t) {
         't7'  => $mine['t7'] ?? null,
         't30' => $mine['t30'] ?? null,
         't365'=> $mine['t365'] ?? null,
+        'rq'  => install_notice($t),
+        'po'  => template_ports($t),
     ];
 }
 
@@ -2257,9 +2310,94 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       document.body.appendChild(ov);
     }
 
-    // Install in a NEW tab. Docker apps open CA's template editor at
-    // /Apps/AddContainer; plugins open CA's plugin-install page. Same targets CA
-    // uses, just forced into a new tab.
+    // The modern view's own replacement for CA's Attention confirm (its
+    // popupInstallXML), shown before an install when the template carries extra
+    // requirements, a moderator note, or a port that is already taken. text is
+    // rendered as plain lines, never HTML, since it comes from a third-party
+    // template.
+    function attentionModal(text, onOk) {
+      var ov = document.createElement('div');
+      ov.className = 'asga-modal-ov';
+
+      var modal = document.createElement('div');
+      modal.className = 'asga-modal';
+
+      var icon = document.createElement('div');
+      icon.className = 'asga-modal-icon';
+      icon.textContent = '!';
+      modal.appendChild(icon);
+
+      var title = document.createElement('h2');
+      title.className = 'asga-modal-title';
+      title.textContent = 'Attention';
+      modal.appendChild(title);
+
+      var body = document.createElement('div');
+      body.className = 'asga-modal-body';
+      String(text).split('\n').forEach(function (line) {
+        if (!line.trim()) return;
+        var p = document.createElement('p');
+        p.textContent = line;
+        body.appendChild(p);
+      });
+      modal.appendChild(body);
+
+      var actions = document.createElement('div');
+      actions.className = 'asga-modal-actions';
+      var okBtn = document.createElement('button');
+      okBtn.className = 'asga-btn asga-modal-ok';
+      okBtn.textContent = 'OK';
+      var cancelBtn = document.createElement('button');
+      cancelBtn.className = 'asga-btn asga-modal-cancel';
+      cancelBtn.textContent = 'Cancel';
+      actions.appendChild(okBtn);
+      actions.appendChild(cancelBtn);
+      modal.appendChild(actions);
+
+      ov.appendChild(modal);
+
+      var close = function () { ov.remove(); document.removeEventListener('keydown', key, true); };
+      var key = function (ev) { if (ev.key === 'Escape') close(); };
+      okBtn.addEventListener('click', function () { close(); onOk(); });
+      cancelBtn.addEventListener('click', close);
+      ov.addEventListener('click', function (ev) { if (ev.target === ov) close(); });
+      document.addEventListener('keydown', key, true);
+
+      document.body.appendChild(ov);
+      okBtn.focus();
+    }
+
+    // CA never opens the template editor directly: it POSTs createXML first, which
+    // rewrites the template for THIS server (br0/eth0 fallback, missing-disk path
+    // remapping, themed icon) before the editor reads it. Skipping that step, and
+    // percent-encoding the path CA passes raw, is why the modern grid's Install
+    // used to land on an editor that could not build the container.
+    function createAndOpen(p) {
+      if (typeof window.post === 'function') {
+        window.post({ action: 'createXML', xml: p, type: 'default' }, function (r) {
+          if (r && r.status === 'ok') openTemplate(p);
+          else attentionModal((r && r.error) || 'The template could not be prepared for install.', function () {});
+        });
+        return;
+      }
+      fetch('/plugins/community.applications/include/exec.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'action=createXML&type=default&xml=' + encodeURIComponent(p),
+        credentials: 'same-origin'
+      }).then(function (r) { return r.json(); }).then(function (r) {
+        if (r && r.status === 'ok') openTemplate(p);
+      }).catch(function () {});
+    }
+
+    function openTemplate(p) {
+      try { window.open('/Apps/AddContainer?xmlTemplate=default:' + p, '_blank', 'noopener'); } catch (e) {}
+    }
+
+    // Install in a NEW tab. Docker apps run CA's createXML step (see
+    // createAndOpen) then open its template editor at /Apps/AddContainer;
+    // plugins open CA's plugin-install page. Same targets CA uses, just forced
+    // into a new tab.
     function installApp(tile) {
       var p = tile.getAttribute('data-apppath'), ty = tile.getAttribute('data-type'), pu = tile.getAttribute('data-plugurl');
       if (ty === 'plugin') {
@@ -2268,7 +2406,23 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
         return;
       }
       if (!docker.running) return;   // nothing to install into; the card says why
-      try { window.open('/Apps/AddContainer?xmlTemplate=default:' + encodeURIComponent(p), '_blank', 'noopener'); } catch (e) {}
+
+      var notice = tile.getAttribute('data-requires') || '';
+      var ports = (tile.getAttribute('data-ports') || '').split(',').filter(function (x) { return x !== ''; });
+      if (ports.length && Array.isArray(window.portsInUse)) {
+        var inUse = window.portsInUse.map(String);
+        var collides = ports.some(function (port) { return inUse.indexOf(String(port)) !== -1; });
+        if (collides) {
+          var warn = 'One or more ports used by this application are already in use by another service or app running on your server. You will need to adjust the host ports accordingly on the template.';
+          notice = notice ? (notice + '\n\n' + warn) : warn;
+        }
+      }
+
+      if (notice) {
+        attentionModal(notice, function () { createAndOpen(p); });
+      } else {
+        createAndOpen(p);
+      }
     }
 
     function makeTile(a) {
@@ -2281,6 +2435,8 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       if (a.ri) { tile.setAttribute('data-pinrepo', a.ri); tile.setAttribute('data-pinname', a.pn || a.n); }
       tile.setAttribute('data-type', a.ty || 'docker');
       if (a.pu) tile.setAttribute('data-plugurl', a.pu);
+      if (a.rq) tile.setAttribute('data-requires', a.rq);
+      if (a.po && a.po.length) tile.setAttribute('data-ports', a.po.join(','));
       tile.title = a.n;
 
       // header: icon + name/author/category
@@ -3586,6 +3742,40 @@ body.asga-active .ca_note.ca_bold { font-weight: 400; }
   position: fixed; inset: 0; z-index: 10050;
   background: rgba(0,0,0,0.9); display: flex; align-items: center; justify-content: center;
 }
+/* our own Attention confirm (replaces CA's sweetalert popupInstallXML dialog).
+   The dialog is appended to <body>, outside the drawer that carries the --asga-*
+   tokens, so it redeclares them here rather than inheriting nothing. */
+.asga-modal-ov {
+  --asga-fg: var(--sidebar-text, #f2f2f2);
+  --asga-muted: color-mix(in srgb, var(--asga-fg) 72%, transparent);
+  --asga-line: color-mix(in srgb, var(--asga-fg) 16%, transparent);
+  --asga-accent: #ff8c2f;
+  position: fixed; inset: 0; z-index: 10000;
+  background: rgba(0,0,0,0.62); backdrop-filter: blur(2px);
+  display: flex; align-items: center; justify-content: center;
+}
+.asga-modal {
+  max-width: 560px; width: calc(100vw - 48px); padding: 32px 30px 24px;
+  border-radius: 14px; background: #1c1c1c; border: 1px solid var(--asga-line, rgba(255,255,255,0.16));
+  box-shadow: 0 18px 60px rgba(0,0,0,0.6); text-align: center; color: var(--asga-fg, #f2f2f2);
+}
+.asga-modal-icon {
+  width: 84px; height: 84px; border-radius: 50%; border: 4px solid var(--asga-accent);
+  color: var(--asga-accent); font-size: 4.6rem; font-weight: 300;
+  display: flex; align-items: center; justify-content: center; margin: 0 auto 18px;
+}
+.asga-modal-title { font-size: 2.6rem; font-weight: 700; margin: 0 0 14px; }
+.asga-modal-body p { font-size: 1.5rem; line-height: 1.5; margin: 0 0 10px; color: var(--asga-muted); }
+.asga-modal-body p:last-child { margin: 0; }
+.asga-modal-actions { display: flex; gap: 14px; justify-content: center; margin-top: 26px; }
+.asga-modal-actions .asga-btn { min-width: 128px; padding: 10px 22px; font-size: 1.5rem; cursor: pointer; }
+.asga-modal-ok {
+  background: var(--asga-accent); border-color: var(--asga-accent); color: #16130f; font-weight: 600;
+}
+.asga-modal-ok:hover { background: color-mix(in srgb, var(--asga-accent) 85%, black); border-color: color-mix(in srgb, var(--asga-accent) 85%, black); }
+.asga-modal-cancel { background: transparent; color: var(--asga-muted); }
+.asga-modal-cancel:hover { border-color: var(--asga-accent); color: var(--asga-accent); }
+
 .asga-lb-img { max-width: 92vw; max-height: 88vh; object-fit: contain; border-radius: 6px; box-shadow: 0 10px 50px rgba(0,0,0,0.6); }
 .asga-lb-close {
   position: fixed; top: 18px; right: 24px; font-size: 2rem; line-height: 1; color: #fff;

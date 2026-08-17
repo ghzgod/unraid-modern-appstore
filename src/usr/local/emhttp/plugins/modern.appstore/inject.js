@@ -402,9 +402,94 @@
       document.body.appendChild(ov);
     }
 
-    // Install in a NEW tab. Docker apps open CA's template editor at
-    // /Apps/AddContainer; plugins open CA's plugin-install page. Same targets CA
-    // uses, just forced into a new tab.
+    // The modern view's own replacement for CA's Attention confirm (its
+    // popupInstallXML), shown before an install when the template carries extra
+    // requirements, a moderator note, or a port that is already taken. text is
+    // rendered as plain lines, never HTML, since it comes from a third-party
+    // template.
+    function attentionModal(text, onOk) {
+      var ov = document.createElement('div');
+      ov.className = 'asga-modal-ov';
+
+      var modal = document.createElement('div');
+      modal.className = 'asga-modal';
+
+      var icon = document.createElement('div');
+      icon.className = 'asga-modal-icon';
+      icon.textContent = '!';
+      modal.appendChild(icon);
+
+      var title = document.createElement('h2');
+      title.className = 'asga-modal-title';
+      title.textContent = 'Attention';
+      modal.appendChild(title);
+
+      var body = document.createElement('div');
+      body.className = 'asga-modal-body';
+      String(text).split('\n').forEach(function (line) {
+        if (!line.trim()) return;
+        var p = document.createElement('p');
+        p.textContent = line;
+        body.appendChild(p);
+      });
+      modal.appendChild(body);
+
+      var actions = document.createElement('div');
+      actions.className = 'asga-modal-actions';
+      var okBtn = document.createElement('button');
+      okBtn.className = 'asga-btn asga-modal-ok';
+      okBtn.textContent = 'OK';
+      var cancelBtn = document.createElement('button');
+      cancelBtn.className = 'asga-btn asga-modal-cancel';
+      cancelBtn.textContent = 'Cancel';
+      actions.appendChild(okBtn);
+      actions.appendChild(cancelBtn);
+      modal.appendChild(actions);
+
+      ov.appendChild(modal);
+
+      var close = function () { ov.remove(); document.removeEventListener('keydown', key, true); };
+      var key = function (ev) { if (ev.key === 'Escape') close(); };
+      okBtn.addEventListener('click', function () { close(); onOk(); });
+      cancelBtn.addEventListener('click', close);
+      ov.addEventListener('click', function (ev) { if (ev.target === ov) close(); });
+      document.addEventListener('keydown', key, true);
+
+      document.body.appendChild(ov);
+      okBtn.focus();
+    }
+
+    // CA never opens the template editor directly: it POSTs createXML first, which
+    // rewrites the template for THIS server (br0/eth0 fallback, missing-disk path
+    // remapping, themed icon) before the editor reads it. Skipping that step, and
+    // percent-encoding the path CA passes raw, is why the modern grid's Install
+    // used to land on an editor that could not build the container.
+    function createAndOpen(p) {
+      if (typeof window.post === 'function') {
+        window.post({ action: 'createXML', xml: p, type: 'default' }, function (r) {
+          if (r && r.status === 'ok') openTemplate(p);
+          else attentionModal((r && r.error) || 'The template could not be prepared for install.', function () {});
+        });
+        return;
+      }
+      fetch('/plugins/community.applications/include/exec.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: 'action=createXML&type=default&xml=' + encodeURIComponent(p),
+        credentials: 'same-origin'
+      }).then(function (r) { return r.json(); }).then(function (r) {
+        if (r && r.status === 'ok') openTemplate(p);
+      }).catch(function () {});
+    }
+
+    function openTemplate(p) {
+      try { window.open('/Apps/AddContainer?xmlTemplate=default:' + p, '_blank', 'noopener'); } catch (e) {}
+    }
+
+    // Install in a NEW tab. Docker apps run CA's createXML step (see
+    // createAndOpen) then open its template editor at /Apps/AddContainer;
+    // plugins open CA's plugin-install page. Same targets CA uses, just forced
+    // into a new tab.
     function installApp(tile) {
       var p = tile.getAttribute('data-apppath'), ty = tile.getAttribute('data-type'), pu = tile.getAttribute('data-plugurl');
       if (ty === 'plugin') {
@@ -413,7 +498,23 @@
         return;
       }
       if (!docker.running) return;   // nothing to install into; the card says why
-      try { window.open('/Apps/AddContainer?xmlTemplate=default:' + encodeURIComponent(p), '_blank', 'noopener'); } catch (e) {}
+
+      var notice = tile.getAttribute('data-requires') || '';
+      var ports = (tile.getAttribute('data-ports') || '').split(',').filter(function (x) { return x !== ''; });
+      if (ports.length && Array.isArray(window.portsInUse)) {
+        var inUse = window.portsInUse.map(String);
+        var collides = ports.some(function (port) { return inUse.indexOf(String(port)) !== -1; });
+        if (collides) {
+          var warn = 'One or more ports used by this application are already in use by another service or app running on your server. You will need to adjust the host ports accordingly on the template.';
+          notice = notice ? (notice + '\n\n' + warn) : warn;
+        }
+      }
+
+      if (notice) {
+        attentionModal(notice, function () { createAndOpen(p); });
+      } else {
+        createAndOpen(p);
+      }
     }
 
     function makeTile(a) {
@@ -426,6 +527,8 @@
       if (a.ri) { tile.setAttribute('data-pinrepo', a.ri); tile.setAttribute('data-pinname', a.pn || a.n); }
       tile.setAttribute('data-type', a.ty || 'docker');
       if (a.pu) tile.setAttribute('data-plugurl', a.pu);
+      if (a.rq) tile.setAttribute('data-requires', a.rq);
+      if (a.po && a.po.length) tile.setAttribute('data-ports', a.po.join(','));
       tile.title = a.n;
 
       // header: icon + name/author/category
