@@ -426,9 +426,16 @@
 
       var body = document.createElement('div');
       body.className = 'asga-modal-body';
+      // A blank line separates one notice from the next (the requirements text
+      // from the port warning, say). Dropping it would leave both reading as one
+      // run of prose, so it is carried across as extra space above the paragraph
+      // that followed it rather than as an empty paragraph.
+      var gap = false;
       String(text).split('\n').forEach(function (line) {
-        if (!line.trim()) return;
+        if (!line.trim()) { gap = true; return; }
         var p = document.createElement('p');
+        if (gap && body.firstChild) p.className = 'asga-modal-break';
+        gap = false;
         p.textContent = line;
         body.appendChild(p);
       });
@@ -456,7 +463,9 @@
       document.addEventListener('keydown', key, true);
 
       document.body.appendChild(ov);
-      okBtn.focus();
+      // preventScroll: on a short window the overlay scrolls, and focusing OK
+      // would open the dialog already scrolled past the text it is asking about.
+      try { okBtn.focus({ preventScroll: true }); } catch (e) { okBtn.focus(); }
     }
 
     // CA never opens the template editor directly: it POSTs createXML first, which
