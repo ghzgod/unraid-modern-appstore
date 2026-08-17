@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.08.16}"
+VERSION="${1:-2026.08.16a}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -54,7 +54,9 @@ cat <<XMLHEAD
 - Apps that carry additional requirements now show the same Attention notice
   before installing that Community Applications shows, styled for the modern
   view, along with a warning when a port the app wants is already in use on
-  this server.
+  this server. It sizes itself to the window rather than overflowing it on a
+  phone, and a long notice scrolls with the OK button still in reach instead
+  of running off the bottom of a short window.
 
 ##2026.08.13
 - The Info drawer's change log now shows every entry in full. It was clamped
