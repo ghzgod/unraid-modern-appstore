@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.08.22a}"
+VERSION="${1:-2026.08.23}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,14 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- On Unraid 7.2 and newer the search row from 2026.08.22a sat 12px left of the
+  cards. Those releases lift the search band to the body while the grid keeps
+  the inset Unraid draws around the content column, so the band's derived
+  offset now adds that inset back on them. Measured flush with the cards on a
+  live 7.3.2 server at every font size setting and width. 7.1 and older keep
+  the plain sum, which was measured right on a live 7.1.4 server.
+
+##2026.08.22a
 - The search box is no longer hidden behind the category menu. On Unraid 7.1 and
   older it was covered at every window size, not only narrow ones. The modern
   view cleared Community Applications' own left padding off the search row and

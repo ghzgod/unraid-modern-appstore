@@ -2,13 +2,21 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.08.22a">
+<!ENTITY version "2026.08.23">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
+##2026.08.23
+- On Unraid 7.2 and newer the search row from 2026.08.22a sat 12px left of the
+  cards. Those releases lift the search band to the body while the grid keeps
+  the inset Unraid draws around the content column, so the band's derived
+  offset now adds that inset back on them. Measured flush with the cards on a
+  live 7.3.2 server at every font size setting and width. 7.1 and older keep
+  the plain sum, which was measured right on a live 7.1.4 server.
+
 ##2026.08.22a
 - The search box is no longer hidden behind the category menu. On Unraid 7.1 and
   older it was covered at every window size, not only narrow ones. The modern
@@ -3500,8 +3508,8 @@ html.asga-pre .spinner.fixed { display: none !important; }
    the menu is lifted into the space that frees, which puts Home on the search
    box's line instead of a screen-width below it. */
 /* The offset is PADDING, never margin. On Unraid 7.1 and older CA does not load
-   its responsive stylesheet at all — Apps.page gates it on
-   $responsiveOS = version_compare(version, "7.1.9999", ">") — and pins this
+   its responsive stylesheet at all (Apps.page gates it on
+   $responsiveOS = version_compare(version, "7.1.9999", ">")) and pins this
    element instead with
      .Theme--legacyOS.Theme--nav-top .searchArea { margin: ... !important }
    at (0,3,0). No margin we can write outranks that, so a margin-based offset is
@@ -3523,6 +3531,15 @@ html.asga-pre .spinner.fixed { display: none !important; }
 body.asga-active .searchArea {
   padding-left: calc(18.5rem + 10px) !important;
   margin-left: 0 !important;
+}
+/* 7.2 and newer lift the band to the body while the grid keeps the inset Unraid
+   puts around the content column: 1rem of padding on #displaybox plus 2px on
+   .content. The band's padding crosses neither, so the plain sum above lands
+   exactly that far short of the cards there (measured 10/12/14.8px at font
+   sizes 50/62/80 against a live 7.3.2 server). legacyOS draws the page without
+   that inset and keeps the sum above. */
+html:not(.Theme--legacyOS) body.asga-active .searchArea {
+  padding-left: calc(19.5rem + 12px) !important;
 }
 /* The row sat 6px under the menu with 14px beneath it, so it read as hanging off
    the navigation. Both edges are 26 here, which also puts the search box on
@@ -3588,11 +3605,11 @@ html.Theme--legacyOS.Theme--nav-top body.asga-active .menuItems.menuAdjust {
   overflow-y: auto;
   scrollbar-width: thin;
 }
-/* Both generations take the same offset from the rule above, so the search box,
+/* Both generations take their offset from the rules above, so the search box,
    the All Apps heading, the cards and the pager share one left edge everywhere.
    All that is left per-generation is the pair of insets CA adds to the band
-   ITSELF on 7.2+ under 1025 — 2rem of padding on every theme plus 6rem of margin
-   on azure and gray, which it tags Theme--sidebar — cleared so the padding above
+   ITSELF on 7.2+ under 1025 (2rem of padding on every theme plus 6rem of margin
+   on azure and gray, which it tags Theme--sidebar), cleared so the padding above
    is the whole offset. Neither inset exists on 7.1.
    The offset stays padding on both, never margin: .searchAreaHolder has no
    background of its own, so only .searchArea paints the band, and pushing it
