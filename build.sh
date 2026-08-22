@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.08.16a}"
+VERSION="${1:-2026.08.22}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,18 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- The DockerHub and Apps buttons no longer flash into the toolbar on every page
+  load. Community Applications marks them hidden in the markup, but a later
+  rule in its own stylesheet gives them a display back at equal weight, so the
+  hiding never took and the buttons stayed on screen until CA's script reached
+  them by hand. Neither belongs in the modern view (both switch CA's own search
+  and draw into the grid this plugin replaces), so they are held down from the
+  first frame.
+- The same flash on the Docker and Plugins rows nested under Installed Apps and
+  Previous Apps is gone too. They are meant to appear only once their parent is
+  clicked, and now they do.
+
+##2026.08.16a
 - Installing an app from the modern grid works again. The grid opened the
   template editor directly, skipping the step Community Applications always
   runs first, which prepares the template for this specific server (falling

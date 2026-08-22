@@ -11,6 +11,21 @@ body.asga-active #maxPerPage { display: none !important; }
 body.asga-active .categoryLine { display: none !important; }
 /* our grid replaces CA's render, so CA's page spinner has nothing to wait for */
 body.asga-active .spinner.fixed { display: none !important; }
+/* CA's DockerHub and Apps buttons switch its own search between the store and
+   DockerHub, and both render into the grid we replace, so neither does anything
+   here. They are also the one pair CA never manages to keep down on its own:
+   the markup carries .ca_hide, but CA's later .dockerSearch/.templateSearch rule
+   sets a display in the same stylesheet at equal specificity, so the hiding
+   class loses the cascade and the buttons paint on every load until CA's own
+   script hides them by hand. */
+body.asga-active .dockerSearch,
+body.asga-active .templateSearch { display: none !important; }
+/* The Docker and Plugins rows nested under Installed Apps and Previous Apps.
+   CA opens them only once their parent is clicked, but nothing in its CSS says
+   so, so they too paint and then vanish. Our grid renders Installed Apps
+   itself, and Previous Apps hands the page back to CA, which un-classes the
+   body and shows its own menu again. */
+body.asga-active .caMenu li.subCategory { display: none !important; }
 
 /* The rules above only take effect once inject.js has classed the body, by
    which time CA's stock grid and controls have already painted and then
@@ -20,6 +35,9 @@ html.asga-pre #templates_content,
 html.asga-pre #sortIconArea,
 html.asga-pre #maxPerPage,
 html.asga-pre .categoryLine,
+html.asga-pre .dockerSearch,
+html.asga-pre .templateSearch,
+html.asga-pre .caMenu li.subCategory,
 html.asga-pre .spinner.fixed { display: none !important; }
 
 /* our toolbar row lives in CA's search row */
