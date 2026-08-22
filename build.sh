@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.08.23}"
+VERSION="${1:-2026.08.23a}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,13 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- The "All Apps" heading and its count are readable again on windows 1024px and
+  narrower. CA clamps the search band's sticky holder to a fixed height there
+  that is shorter than the band itself, so the band's overflow lay over the
+  first line of the content column and hid the heading. The holder now sizes
+  to its band and the column starts below it.
+
+##2026.08.23
 - On Unraid 7.2 and newer the search row from 2026.08.22a sat 12px left of the
   cards. Those releases lift the search band to the body while the grid keeps
   the inset Unraid draws around the content column, so the band's derived

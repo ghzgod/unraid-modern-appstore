@@ -367,6 +367,14 @@ html.Theme--legacyOS.Theme--nav-top body.asga-active .menuItems.menuAdjust {
 @media (min-width: 769px) and (max-width: 1024px) {
   html:not(.Theme--legacyOS) body.asga-active .searchAreaHolder { padding-left: 0; margin-left: 0; }
 }
+/* Under 1025 CA clamps the sticky holder to a fixed 4rem while the band inside
+   it stays 84px tall, so the band's overflow lay over the first 26px of the
+   content column and the count heading sat unreadable behind it at rest. The
+   holder sizes to its band instead and the column starts below it. On 7.1 the
+   clamp never loads, so this changes nothing there. */
+@media (max-width: 1024px) {
+  body.asga-active .searchAreaHolder { height: auto; }
+}
 /* Only 7.2+ has a width where the column goes away. There CA swaps the menu for
    a hamburger overlay below 769 and the row belongs at the left edge. On 7.1 the
    column is present at every width and html carries Theme--legacyOS rather than

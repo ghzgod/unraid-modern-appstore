@@ -2,13 +2,20 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.08.23">
+<!ENTITY version "2026.08.23a">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
+##2026.08.23a
+- The "All Apps" heading and its count are readable again on windows 1024px and
+  narrower. CA clamps the search band's sticky holder to a fixed height there
+  that is shorter than the band itself, so the band's overflow lay over the
+  first line of the content column and hid the heading. The holder now sizes
+  to its band and the column starts below it.
+
 ##2026.08.23
 - On Unraid 7.2 and newer the search row from 2026.08.22a sat 12px left of the
   cards. Those releases lift the search band to the body while the grid keeps
@@ -3617,6 +3624,14 @@ html.Theme--legacyOS.Theme--nav-top body.asga-active .menuItems.menuAdjust {
    page content to scroll through. */
 @media (min-width: 769px) and (max-width: 1024px) {
   html:not(.Theme--legacyOS) body.asga-active .searchAreaHolder { padding-left: 0; margin-left: 0; }
+}
+/* Under 1025 CA clamps the sticky holder to a fixed 4rem while the band inside
+   it stays 84px tall, so the band's overflow lay over the first 26px of the
+   content column and the count heading sat unreadable behind it at rest. The
+   holder sizes to its band instead and the column starts below it. On 7.1 the
+   clamp never loads, so this changes nothing there. */
+@media (max-width: 1024px) {
+  body.asga-active .searchAreaHolder { height: auto; }
 }
 /* Only 7.2+ has a width where the column goes away. There CA swaps the menu for
    a hamburger overlay below 769 and the row belongs at the left edge. On 7.1 the
