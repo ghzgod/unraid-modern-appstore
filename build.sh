@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.08.22}"
+VERSION="${1:-2026.08.22a}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,6 +44,40 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- The search box is no longer hidden behind the category menu. On Unraid 7.1 and
+  older it was covered at every window size, not only narrow ones. The modern
+  view cleared Community Applications' own left padding off the search row and
+  set the row's left edge itself with a margin. On 7.1 and older CA never loads
+  its responsive stylesheet, and pins that row's margin with an !important rule
+  of its own, so the replacement edge was silently discarded: the row collapsed
+  to the left of the window, where the category menu sits, and the menu was
+  drawn over it. The edge is set with padding now, which CA does not pin, so it
+  holds on every release and every theme.
+- On the azure and gray themes the row was pulled a further 85px left, well under
+  the menu, by a second Community Applications rule that was not cleared. That
+  one is cleared too.
+- The row's left edge is derived from the width of the menu column rather than
+  hard-coded, so it stays with the cards at every font size setting instead of
+  only the default.
+- Clicking a category in the left menu shows its apps again. Every category came
+  up empty in the modern view. The grid filtered on the category text it prints
+  on each card, which is the app's first category with the colons taken out of
+  it, "Network Management". Community Applications asks for categories in its own
+  raw form, which always carries a colon: "Network:" for the parent and
+  "Network:Management" for the child. The two can never match, so every category
+  selected nothing at all. The grid is handed CA's untouched category text as a
+  separate field now and matches on that, the same way CA matches it itself. The
+  card keeps its short label.
+- An app filed under several categories is found under all of them rather than
+  only the first one listed, so a category no longer hides apps that belong in
+  it. Tools / Utilities returns a couple of thousand apps where it returned none.
+- The category menu stays put while the grid scrolls, on the black and white
+  themes. It used to scroll away with the page, so changing category on a long
+  page meant scrolling back to the top first. A menu taller than the window
+  scrolls within itself and stops clear of the footer, so the entries at the
+  bottom stay reachable rather than being pinned off the edge of the screen.
+
+##2026.08.22
 - The DockerHub and Apps buttons no longer flash into the toolbar on every page
   load. Community Applications marks them hidden in the markup, but a later
   rule in its own stylesheet gives them a display back at equal weight, so the
