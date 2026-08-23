@@ -178,7 +178,16 @@
     // ---- filtering + sorting ----
     function catMatch(a, cat) {
       if (!cat) return true;
-      var c = (a.ct || '').toLowerCase();
+      // Matched against cf, CA's raw category list, and never against the ct we
+      // print on the tile. ct has had its colons stripped and everything after
+      // its first category thrown away, so it cannot match a menu key like
+      // "Network:" or "Network:Management" - the key always carries a colon and
+      // ct never does, so every category click filtered the grid to nothing.
+      // Against cf this substring test is CA's own /category/i filter, down to
+      // a parent like "MediaApp:" picking up every "MediaApp:Video" app. ct
+      // stays as the fallback so a cached payload from before cf existed
+      // degrades to the old behaviour instead of matching nothing at all.
+      var c = (a.cf || a.ct || '').toLowerCase();
       cat = cat.toLowerCase();
       return c === cat || c.indexOf(cat) >= 0;
     }

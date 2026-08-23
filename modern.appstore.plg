@@ -2,13 +2,47 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.08.22">
+<!ENTITY version "2026.08.22a">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
+##2026.08.22a
+- The search box is no longer hidden behind the category menu. On Unraid 7.1 and
+  older it was covered at every window size, not only narrow ones. The modern
+  view cleared Community Applications' own left padding off the search row and
+  set the row's left edge itself with a margin. On 7.1 and older CA never loads
+  its responsive stylesheet, and pins that row's margin with an !important rule
+  of its own, so the replacement edge was silently discarded: the row collapsed
+  to the left of the window, where the category menu sits, and the menu was
+  drawn over it. The edge is set with padding now, which CA does not pin, so it
+  holds on every release and every theme.
+- On the azure and gray themes the row was pulled a further 85px left, well under
+  the menu, by a second Community Applications rule that was not cleared. That
+  one is cleared too.
+- The row's left edge is derived from the width of the menu column rather than
+  hard-coded, so it stays with the cards at every font size setting instead of
+  only the default.
+- Clicking a category in the left menu shows its apps again. Every category came
+  up empty in the modern view. The grid filtered on the category text it prints
+  on each card, which is the app's first category with the colons taken out of
+  it, "Network Management". Community Applications asks for categories in its own
+  raw form, which always carries a colon: "Network:" for the parent and
+  "Network:Management" for the child. The two can never match, so every category
+  selected nothing at all. The grid is handed CA's untouched category text as a
+  separate field now and matches on that, the same way CA matches it itself. The
+  card keeps its short label.
+- An app filed under several categories is found under all of them rather than
+  only the first one listed, so a category no longer hides apps that belong in
+  it. Tools / Utilities returns a couple of thousand apps where it returned none.
+- The category menu stays put while the grid scrolls, on the black and white
+  themes. It used to scroll away with the page, so changing category on a long
+  page meant scrolling back to the top first. A menu taller than the window
+  scrolls within itself and stops clear of the footer, so the entries at the
+  bottom stay reachable rather than being pinned off the edge of the screen.
+
 ##2026.08.22
 - The DockerHub and Apps buttons no longer flash into the toolbar on every page
   load. Community Applications marks them hidden in the markup, but a later
@@ -1829,6 +1863,18 @@ foreach ($tmpl as $t) {
         'sn'  => strtolower($t['SortName'] ?? $name),
         'ic'  => $mine['ic'] ?? ($t['Icon'] ?? ''),
         'ct'  => clip($mine['ct'] ?? ($t['Category'] ?? ''), 48),
+        // ct is the card LABEL only. fetch_stars.php keeps just the app's first
+        // category and strips the colons out of it, which reads well on a tile
+        // ("Network Management") but matches nothing the left menu ever asks
+        // for: CA's data-category values are the raw colon form, always, and
+        // are matched as a substring - "Network:" for the parent, and
+        // "Network:Management" for the child. The grid gets CA's untouched
+        // Category string as a filter-only field so the menu can match it the
+        // way CA itself does, and so an app filed under several categories is
+        // found under all of them rather than only its first.
+        // Deliberately not clipped: the longest real value is 152 characters,
+        // and cutting it would silently drop an app's trailing categories.
+        'cf'  => (string)($t['Category'] ?? ''),
         'au'  => display_author($mine['au'] ?? '', $t),
         'de'  => $desc,
         'sx'  => $sx,
@@ -2100,7 +2146,16 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
     // ---- filtering + sorting ----
     function catMatch(a, cat) {
       if (!cat) return true;
-      var c = (a.ct || '').toLowerCase();
+      // Matched against cf, CA's raw category list, and never against the ct we
+      // print on the tile. ct has had its colons stripped and everything after
+      // its first category thrown away, so it cannot match a menu key like
+      // "Network:" or "Network:Management" - the key always carries a colon and
+      // ct never does, so every category click filtered the grid to nothing.
+      // Against cf this substring test is CA's own /category/i filter, down to
+      // a parent like "MediaApp:" picking up every "MediaApp:Video" app. ct
+      // stays as the fallback so a cached payload from before cf existed
+      // degrades to the old behaviour instead of matching nothing at all.
+      var c = (a.cf || a.ct || '').toLowerCase();
       cat = cat.toLowerCase();
       return c === cat || c.indexOf(cat) >= 0;
     }
@@ -3444,7 +3499,31 @@ html.asga-pre .spinner.fixed { display: none !important; }
    gap above Home. The band is narrowed to the grid it actually belongs to, and
    the menu is lifted into the space that frees, which puts Home on the search
    box's line instead of a screen-width below it. */
-body.asga-active .searchArea { padding-left: 0 !important; }
+/* The offset is PADDING, never margin. On Unraid 7.1 and older CA does not load
+   its responsive stylesheet at all — Apps.page gates it on
+   $responsiveOS = version_compare(version, "7.1.9999", ">") — and pins this
+   element instead with
+     .Theme--legacyOS.Theme--nav-top .searchArea { margin: ... !important }
+   at (0,3,0). No margin we can write outranks that, so a margin-based offset is
+   silently dead on every 7.1.x install: the row collapses to the left edge and
+   the menu, lifted onto its line below at z-index 7, covers the search box at
+   every width. Padding is not locked, and one declaration serves both OS
+   generations. */
+/* Derived, not copied. CA's own --search-area-left is a hand-set 19.5rem that
+   only lands on the grid at the default font size and drifts at the others.
+   The grid's left edge is CA's 14rem menu column plus the 4.5rem it pads
+   .mainArea by plus the 10px #asga-view sets above, so the same sum is used and
+   the row tracks the font-size setting with the cards.
+   margin-left is zeroed in the same rule for the sidebar themes: on legacyOS CA
+   pulls the row 8.5rem LEFT with .Theme--legacyOS.Theme--sidebar .searchArea,
+   which is a plain declaration, so !important here outranks it. On the nav-top
+   themes CA's competing margin IS !important at a higher specificity and keeps
+   winning, but it resolves to auto -> 0 for this box anyway, so both land the
+   same. */
+body.asga-active .searchArea {
+  padding-left: calc(18.5rem + 10px) !important;
+  margin-left: 0 !important;
+}
 /* The row sat 6px under the menu with 14px beneath it, so it read as hanging off
    the navigation. Both edges are 26 here, which also puts the search box on
    Home's line. The 10px that CA hangs under the input is what made the two
@@ -3475,17 +3554,61 @@ body.asga-active .content.menuAdjust,
 body.asga-active .ca_display_area { overflow: visible; }
 body.asga-active .menuItems.menuAdjust { margin-top: -46px; position: relative; z-index: 7; }
 /* -68 puts Home's centre exactly on the search box's centre. Only above 1024,
-   because CA hands the menu to its mobile markup at and below that width and the
-   content column starts 46px higher there, where the deeper lift would push the
+   because at and below that width CA clamps the band to a fixed 4rem, which
+   starts the content column 46px higher, and the deeper lift would push the
    menu up behind the navigation. */
 @media (min-width: 1025px) {
   body.asga-active .menuItems.menuAdjust { margin-top: -68px; }
-  /* 207 is where the grid's own column starts, so the search box, the All Apps
-     heading, the cards and the pager all share one left edge. The strip only
-     needs clearing while the menu column is there to fill it; on a phone CA
-     drops the menu and the band belongs at the left edge. */
-  body.asga-active .searchArea { margin-left: 207px; }
 }
+/* The menu is pinned while the grid scrolls past it. CA leaves it in normal
+   flow, so on a page of ninety-six cards it scrolls away and changing category
+   means going back to the top first.
+   Sticky rather than fixed, so it still takes its own place in the layout and
+   only pins once the page has scrolled that far. The offset is the search
+   band's own sticky offset, so once both are pinned they settle on one line,
+   which is where they already sit before scrolling. The band spans the full
+   width but paints nothing over the menu that matters: .menuItems carries its
+   own opaque background, and the band's controls start past the column.
+   max-height and overflow keep a long category list usable. Without them a menu
+   taller than the window pins with its foot off the bottom and the entries down
+   there cannot be reached at all, since the page scroll no longer moves it.
+   Scoped to legacyOS and to the nav-top themes. On 7.2 CA positions this element
+   itself. On the sidebar themes (azure and gray) --search-area-top is 0, so the
+   pinned menu would sit under Unraid's own fixed header instead of below it, and
+   there is no way to confirm the right offset for them from a nav-top server.
+   Those themes keep CA's ordinary scrolling menu.
+   The reserved space is the band's offset plus 4rem: Unraid's #footer is fixed
+   to the bottom of the viewport (default-base.css:531), so a max-height that
+   only counts the top would run the menu's last entries underneath it, where
+   they cannot be clicked. */
+html.Theme--legacyOS.Theme--nav-top body.asga-active .menuItems.menuAdjust {
+  position: sticky;
+  top: var(--search-area-top, 4rem);
+  max-height: calc(100vh - var(--search-area-top, 4rem) - 4rem);
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+/* Both generations take the same offset from the rule above, so the search box,
+   the All Apps heading, the cards and the pager share one left edge everywhere.
+   All that is left per-generation is the pair of insets CA adds to the band
+   ITSELF on 7.2+ under 1025 — 2rem of padding on every theme plus 6rem of margin
+   on azure and gray, which it tags Theme--sidebar — cleared so the padding above
+   is the whole offset. Neither inset exists on 7.1.
+   The offset stays padding on both, never margin: .searchAreaHolder has no
+   background of its own, so only .searchArea paints the band, and pushing it
+   over with a margin would leave that much of the sticky band transparent for
+   page content to scroll through. */
+@media (min-width: 769px) and (max-width: 1024px) {
+  html:not(.Theme--legacyOS) body.asga-active .searchAreaHolder { padding-left: 0; margin-left: 0; }
+}
+/* Only 7.2+ has a width where the column goes away. There CA swaps the menu for
+   a hamburger overlay below 769 and the row belongs at the left edge. On 7.1 the
+   column is present at every width and html carries Theme--legacyOS rather than
+   Theme--responsive, so this never matches and the offset correctly stays put. */
+@media (max-width: 768px) {
+  html:not(.Theme--legacyOS) body.asga-active .searchArea { padding-left: 0 !important; }
+}
+
 body.asga-active .caMenu { margin: 0; padding: 0; }
 /* fit-content rather than a full-width block: filling the column wraps the
    longer category names onto two lines, and a highlight that hugs its label

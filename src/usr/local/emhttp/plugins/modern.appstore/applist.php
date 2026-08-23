@@ -240,6 +240,18 @@ foreach ($tmpl as $t) {
         'sn'  => strtolower($t['SortName'] ?? $name),
         'ic'  => $mine['ic'] ?? ($t['Icon'] ?? ''),
         'ct'  => clip($mine['ct'] ?? ($t['Category'] ?? ''), 48),
+        // ct is the card LABEL only. fetch_stars.php keeps just the app's first
+        // category and strips the colons out of it, which reads well on a tile
+        // ("Network Management") but matches nothing the left menu ever asks
+        // for: CA's data-category values are the raw colon form, always, and
+        // are matched as a substring - "Network:" for the parent, and
+        // "Network:Management" for the child. The grid gets CA's untouched
+        // Category string as a filter-only field so the menu can match it the
+        // way CA itself does, and so an app filed under several categories is
+        // found under all of them rather than only its first.
+        // Deliberately not clipped: the longest real value is 152 characters,
+        // and cutting it would silently drop an app's trailing categories.
+        'cf'  => (string)($t['Category'] ?? ''),
         'au'  => display_author($mine['au'] ?? '', $t),
         'de'  => $desc,
         'sx'  => $sx,
