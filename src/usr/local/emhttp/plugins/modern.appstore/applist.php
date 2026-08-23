@@ -288,6 +288,11 @@ $starDates = empty($scan['stargazers_blocked']);
 // would otherwise make json_encode() return false and emit an empty body.
 echo json_encode(
     ['generated' => time(), 'count' => count($out), 'starDates' => $starDates,
-     'feedReady' => $feedReady, 'docker' => docker_state(), 'apps' => $out],
+     'feedReady' => $feedReady, 'docker' => docker_state(),
+     // when CA last synced its feed (the store's own check for new and updated
+     // apps) and when the last star scan ran, for the toolbar's Updated stamp
+     'feedAt' => (int)@filemtime("$caTmp/templates_new.json"),
+     'scanAt' => (int)($scan['ran_at'] ?? 0),
+     'apps' => $out],
     JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
 );

@@ -50,6 +50,7 @@
     // own page has re-downloaded the feed. Our grid loads first, and used to
     // paint "No apps to show" and stay that way until a manual reload.
     var feedReady = true, feedWaits = 0;
+    var stamps = { feed: 0, scan: 0 };   // unix times: CA feed sync, last star scan
     var FEED_POLL_MS = 3000, FEED_MAX_WAITS = 100;   // give up after ~5 minutes
     // CA's Pinned/Installed views are broken in the 2026.07 rewrite (they render
     // the home screen), so the modern grid renders those itself (view.special).
@@ -134,6 +135,7 @@
           APPS = dedupe((j && j.apps) || []);
           if (j && j.starDates === false) starDates = false;
           if (j && j.docker) docker = j.docker;
+          if (j) { stamps.feed = j.feedAt || 0; stamps.scan = j.scanAt || 0; updateStamp(); }
           // no answer at all counts as not ready, so a failed request retries
           // rather than freezing the grid on an empty catalog
           feedReady = !!j && j.feedReady !== false;
@@ -990,7 +992,8 @@
         '</label>' +
         '<span class="asga-sortwrap"><span class="asga-bar-label">Sort By:</span>' +
         '<select id="asga-sortsel" class="asga-sortsel">' + opts + '</select>' +
-        '<a id="asga-refresh" class="asga-refreshlink" title="Refresh GitHub star data">↻</a></span>';
+        '<a id="asga-refresh" class="asga-refreshlink" title="Refresh GitHub star data">↻</a>' +
+        '<span id="asga-updated" class="asga-updated"></span></span>';
       host.appendChild(bar);
       var sel = document.getElementById('asga-sortsel');
       sel.value = view.sort;
@@ -999,6 +1002,33 @@
       var cb = document.getElementById('asga-toggle-cb');
       cb.checked = isOn();
       cb.addEventListener('change', function () { setOn(cb.checked); });
+      updateStamp();
+      // once a minute so a page left open does not read "just now" all night
+      if (!bar.__stampTick) bar.__stampTick = setInterval(updateStamp, 60000);
+    }
+
+    // "Updated 12 min ago" beside the refresh icon. The visible time is CA's
+    // own feed sync, which is when the store last checked for new and updated
+    // apps; the tooltip carries the star scan too, since that is what the icon
+    // itself refreshes.
+    function fmtAgo(ts) {
+      var s = Math.max(0, Math.floor(Date.now() / 1000 - ts));
+      if (s < 60) return 'just now';
+      var m = Math.floor(s / 60);
+      if (m < 60) return m + ' min ago';
+      var h = Math.floor(m / 60);
+      if (h < 24) return h + (h === 1 ? ' hour ago' : ' hours ago');
+      var d = Math.floor(h / 24);
+      return d + (d === 1 ? ' day ago' : ' days ago');
+    }
+    function updateStamp() {
+      var el = document.getElementById('asga-updated');
+      if (!el) return;
+      if (!stamps.feed) { el.textContent = ''; el.title = ''; return; }
+      el.textContent = 'Updated ' + fmtAgo(stamps.feed);
+      var tip = 'App catalog synced ' + new Date(stamps.feed * 1000).toLocaleString();
+      if (stamps.scan) tip += '\nGitHub stars scanned ' + new Date(stamps.scan * 1000).toLocaleString();
+      el.title = tip;
     }
 
     // GitHub view on/off, persisted. When off, we un-hide CA's own grid and let

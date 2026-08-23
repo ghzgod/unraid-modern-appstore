@@ -2,13 +2,32 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.08.23a">
+<!ENTITY version "2026.08.23b">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" icon="star" support="&support;">
 
 <CHANGES>
+##2026.08.23b
+- The toolbar is a real header now, on Unraid 7.2 and newer: one card running
+  from the sidebar's left edge to the grid's right edge, drawn with the app
+  tiles' own background, border and corner radius so the header and the cards
+  read as one family. The search box and its magnifier join into a single
+  control, the sort dropdown is a bordered pill with air around its triangle,
+  the refresh icon is a proper button, and the category menu starts below the
+  header, level with the "All Apps" heading. 7.1 keeps its own layout, which
+  was left exactly as the previous release verified it.
+- The store says when it was last brought up to date, next to the refresh
+  button: "Updated 12 min ago", counted from Community Applications' own feed
+  sync. Hovering it shows the exact time of that sync and of the last GitHub
+  star scan.
+- The Modern view toggle sits on the header's right edge, and stays in that
+  seat when the modern view is switched off, so flipping the switch never
+  moves the switch.
+- The sort dropdown's open list follows the theme: on the dark themes it used
+  to open as a light system list.
+
 ##2026.08.23a
 - The "All Apps" heading and its count are readable again on windows 1024px and
   narrower. CA clamps the search band's sticky holder to a fixed height there
@@ -1926,7 +1945,12 @@ $starDates = empty($scan['stargazers_blocked']);
 // would otherwise make json_encode() return false and emit an empty body.
 echo json_encode(
     ['generated' => time(), 'count' => count($out), 'starDates' => $starDates,
-     'feedReady' => $feedReady, 'docker' => docker_state(), 'apps' => $out],
+     'feedReady' => $feedReady, 'docker' => docker_state(),
+     // when CA last synced its feed (the store's own check for new and updated
+     // apps) and when the last star scan ran, for the toolbar's Updated stamp
+     'feedAt' => (int)@filemtime("$caTmp/templates_new.json"),
+     'scanAt' => (int)($scan['ran_at'] ?? 0),
+     'apps' => $out],
     JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
 );
 ]]>
@@ -2033,6 +2057,7 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
     // own page has re-downloaded the feed. Our grid loads first, and used to
     // paint "No apps to show" and stay that way until a manual reload.
     var feedReady = true, feedWaits = 0;
+    var stamps = { feed: 0, scan: 0 };   // unix times: CA feed sync, last star scan
     var FEED_POLL_MS = 3000, FEED_MAX_WAITS = 100;   // give up after ~5 minutes
     // CA's Pinned/Installed views are broken in the 2026.07 rewrite (they render
     // the home screen), so the modern grid renders those itself (view.special).
@@ -2117,6 +2142,7 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
           APPS = dedupe((j && j.apps) || []);
           if (j && j.starDates === false) starDates = false;
           if (j && j.docker) docker = j.docker;
+          if (j) { stamps.feed = j.feedAt || 0; stamps.scan = j.scanAt || 0; updateStamp(); }
           // no answer at all counts as not ready, so a failed request retries
           // rather than freezing the grid on an empty catalog
           feedReady = !!j && j.feedReady !== false;
@@ -2973,7 +2999,8 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
         '</label>' +
         '<span class="asga-sortwrap"><span class="asga-bar-label">Sort By:</span>' +
         '<select id="asga-sortsel" class="asga-sortsel">' + opts + '</select>' +
-        '<a id="asga-refresh" class="asga-refreshlink" title="Refresh GitHub star data">↻</a></span>';
+        '<a id="asga-refresh" class="asga-refreshlink" title="Refresh GitHub star data">↻</a>' +
+        '<span id="asga-updated" class="asga-updated"></span></span>';
       host.appendChild(bar);
       var sel = document.getElementById('asga-sortsel');
       sel.value = view.sort;
@@ -2982,6 +3009,33 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       var cb = document.getElementById('asga-toggle-cb');
       cb.checked = isOn();
       cb.addEventListener('change', function () { setOn(cb.checked); });
+      updateStamp();
+      // once a minute so a page left open does not read "just now" all night
+      if (!bar.__stampTick) bar.__stampTick = setInterval(updateStamp, 60000);
+    }
+
+    // "Updated 12 min ago" beside the refresh icon. The visible time is CA's
+    // own feed sync, which is when the store last checked for new and updated
+    // apps; the tooltip carries the star scan too, since that is what the icon
+    // itself refreshes.
+    function fmtAgo(ts) {
+      var s = Math.max(0, Math.floor(Date.now() / 1000 - ts));
+      if (s < 60) return 'just now';
+      var m = Math.floor(s / 60);
+      if (m < 60) return m + ' min ago';
+      var h = Math.floor(m / 60);
+      if (h < 24) return h + (h === 1 ? ' hour ago' : ' hours ago');
+      var d = Math.floor(h / 24);
+      return d + (d === 1 ? ' day ago' : ' days ago');
+    }
+    function updateStamp() {
+      var el = document.getElementById('asga-updated');
+      if (!el) return;
+      if (!stamps.feed) { el.textContent = ''; el.title = ''; return; }
+      el.textContent = 'Updated ' + fmtAgo(stamps.feed);
+      var tip = 'App catalog synced ' + new Date(stamps.feed * 1000).toLocaleString();
+      if (stamps.scan) tip += '\nGitHub stars scanned ' + new Date(stamps.scan * 1000).toLocaleString();
+      el.title = tip;
     }
 
     // GitHub view on/off, persisted. When off, we un-hide CA's own grid and let
@@ -3307,9 +3361,39 @@ html.asga-pre .spinner.fixed { display: none !important; }
 }
 .asga-sortwrap { display: inline-flex; align-items: center; gap: 8px; }
 .asga-bar-label { white-space: nowrap; }
+/* 7.1 keeps the two-line layout: controls on their own line under the search
+   box, sharing its left edge. On 7.2 and newer the bar dissolves into the
+   header card (display: contents) so its children sit on the card's single
+   row. The stock row keeps CA's one-line layout when the view is off, which
+   is why both are scoped rather than set on .asga-bar. */
+html.Theme--legacyOS body.asga-active .asga-bar { flex-basis: 100%; margin-left: 0; }
+html:not(.Theme--legacyOS) body.asga-active .asga-bar { display: contents; }
+/* With the modern view off the toggle keeps the same right-edge seat it has on
+   the header card, so flipping the switch never moves the switch. Absolute
+   rather than floated, so CA's stock row is not reflowed at all; 38px lands
+   the toggle's right edge on the same x the card gives it. */
+html:not(.Theme--legacyOS) body:not(.asga-active) .searchArea { position: relative; }
+/* CA's stock #searchFilter is position: relative and only as wide as its
+   content, which would make it the toggle's containing block; static hands
+   that job to the full-width band so right: 38px means the window's right. */
+html:not(.Theme--legacyOS) body:not(.asga-active) #searchFilter { position: static; }
+html:not(.Theme--legacyOS) body:not(.asga-active) .asga-bar {
+  position: absolute; right: 38px; top: 50%; transform: translateY(-50%);
+  margin-left: 0;
+}
 /* constrain the native select's box height so its glyphs center on the same
    line as the adjacent text labels (a taller default box made it sit high) */
-.asga-sortsel { vertical-align: middle; font-size: 1.2rem; height: 1.7rem; line-height: 1.7rem; padding: 0 4px; }
+/* Unraid draws the dropdown triangle as two 4px gradients hugging the right
+   edge, so the old 4px right pad ran the text straight into it. 2rem clears
+   the glyph, the 6px inset gives it the same air the text gets on the left,
+   and the underline keeps running beneath both, matching the left side. */
+.asga-sortsel {
+  vertical-align: middle; font-size: 1.2rem; height: 1.7rem; line-height: 1.7rem;
+  padding: 0 2rem 0 0.6rem;
+  background-position: calc(100% - 6px), calc(100% - 2px);
+}
+/* same muted treatment as the count line under the heading */
+.asga-updated { font-size: 1.05rem; opacity: 0.55; white-space: nowrap; }
 .asga-refreshlink { cursor: pointer; opacity: 0.8; font-size: 1.4rem; text-decoration: none; color: inherit; }
 .asga-refreshlink:hover { opacity: 1; }
 
@@ -3539,14 +3623,27 @@ body.asga-active .searchArea {
   padding-left: calc(18.5rem + 10px) !important;
   margin-left: 0 !important;
 }
-/* 7.2 and newer lift the band to the body while the grid keeps the inset Unraid
-   puts around the content column: 1rem of padding on #displaybox plus 2px on
-   .content. The band's padding crosses neither, so the plain sum above lands
-   exactly that far short of the cards there (measured 10/12/14.8px at font
-   sizes 50/62/80 against a live 7.3.2 server). legacyOS draws the page without
-   that inset and keeps the sum above. */
+/* 7.2 and newer: the band becomes the store's header card instead of an
+   offset strip. It spans from the sidebar's left edge (x=12, where Home
+   starts) to the grid's right card edge (a 22px viewport inset, constant at
+   every width measured on a live 7.3.2 server), so the sidebar, the header
+   and the cards read as one frame. The surface tokens are the tile's own
+   (same background, border and radius), so the header and the cards are one
+   family. legacyOS keeps the offset strip above; its page has no full-width
+   band to hang a card on. */
 html:not(.Theme--legacyOS) body.asga-active .searchArea {
-  padding-left: calc(19.5rem + 12px) !important;
+  padding: 12px 16px !important;
+  margin: 0 22px 0 12px !important;
+  background: var(--background-color, #1c1c1c);
+  border: 1px solid rgba(127, 127, 127, 0.22);
+  border-radius: 8px;
+}
+/* The sticky strip behind and beside the card stays opaque so cards cannot
+   scroll through the margins around it, and the 10px below becomes the gap
+   between the pinned header and whatever is scrolling under it. */
+html:not(.Theme--legacyOS) body.asga-active .searchAreaHolder {
+  background: var(--background-color, #1c1c1c);
+  padding-bottom: 10px;
 }
 /* The row sat 6px under the menu with 14px beneath it, so it read as hanging off
    the navigation. Both edges are 26 here, which also puts the search box on
@@ -3561,10 +3658,86 @@ body.asga-active .searchArea { padding-bottom: 26px; align-items: center; }
 /* wraps rather than widening the page: a flex row that cannot wrap puts the
    toggle and sort controls past the right edge on a phone */
 body.asga-active #searchFilter { display: flex; align-items: center; flex-wrap: wrap; row-gap: 10px; margin-top: 26px; }
+/* Inside the card the filter row fills the width so the toggle can sit on the
+   card's right edge; the 26px lift belonged to the old strip layout. */
+html:not(.Theme--legacyOS) body.asga-active #searchFilter { margin-top: 0; width: 100%; }
+/* flex: none on every group: something in the host page's cascade lets the
+   row's items shrink even with free space beside them, which floored the
+   refresh button at its glyph width. Opting the groups out of flexing pins
+   every control at its designed size. */
+html:not(.Theme--legacyOS) body.asga-active .asga-sortwrap { margin-left: 16px; flex: none; }
+html:not(.Theme--legacyOS) body.asga-active #searchFilter .awesomplete { flex: none; }
+/* The bar's DOM puts the toggle before the sort group; order re-seats it as
+   the row's last item so the auto margin can pin it to the card's right edge
+   while the sort group stays beside the search control. */
+html:not(.Theme--legacyOS) body.asga-active .asga-toggle { margin-left: auto; padding-left: 16px; order: 9; }
 body.asga-active #searchBox { margin-bottom: 0; }
 /* CA's magnifier is an inline span whose 11px of vertical padding only becomes a
    real box once it is a flex item, where it alone made the row 55px tall */
 body.asga-active .searchSubmit { display: flex; align-items: center; height: 32px; padding: 0 10px; }
+/* Header controls on 7.2+ share the tile buttons' language: one 36px line,
+   the same grey pill surface, and the accent only on hover and focus. The
+   input and the magnifier join into one control (shared border, split radius).
+   The select loses its underline for the same full border, and its triangle
+   (two 4px background gradients) moves in from the edge so the text and the
+   glyph both get air. */
+html:not(.Theme--legacyOS) body.asga-active #searchBox {
+  height: 36px; width: 320px; box-sizing: border-box;
+  background: rgba(127, 127, 127, 0.08);
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  border-right: none;
+  border-radius: 8px 0 0 8px;
+  padding: 0 12px; margin: 0; font-size: 1.3rem;
+}
+html:not(.Theme--legacyOS) body.asga-active #searchBox:focus {
+  border-color: #ff8c2f; outline: none;
+  box-shadow: 0 0 0 1px rgba(255, 140, 47, 0.35);
+}
+html:not(.Theme--legacyOS) body.asga-active .searchSubmit {
+  height: 36px; width: 40px; flex: none; justify-content: center; box-sizing: border-box;
+  /* CA hangs the magnifier 10px over the input (position relative, left -10);
+     here the two are butt-joined by their radii, so the pull goes */
+  left: 0;
+  background: rgba(127, 127, 127, 0.08);
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  border-radius: 0 8px 8px 0;
+  padding: 0; cursor: pointer;
+}
+html:not(.Theme--legacyOS) body.asga-active .searchSubmit:hover { border-color: #ff8c2f; background: rgba(255, 140, 47, 0.14); }
+html:not(.Theme--legacyOS) body.asga-active .asga-sortsel {
+  height: 36px; box-sizing: border-box; line-height: 34px; font-size: 1.2rem;
+  background-color: rgba(127, 127, 127, 0.08);
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  border-radius: 8px;
+  padding: 0 30px 0 12px;
+  background-position: calc(100% - 12px), calc(100% - 8px);
+}
+html:not(.Theme--legacyOS) body.asga-active .asga-sortsel:hover { border-color: #ff8c2f; }
+/* The open list is native browser chrome: on the dark themes it painted as a
+   light system list. color-scheme lets the browser draw it dark, and the
+   options take the page's own colors. Unraid marks its dark themes with a
+   body.dark class, so the light themes keep a light list. */
+body.dark .asga-sortsel { color-scheme: dark; }
+.asga-sortsel option, .asga-sortsel optgroup {
+  background: var(--background-color, #1c1c1c);
+  color: var(--text-color, #f2f2f2);
+}
+html:not(.Theme--legacyOS) body.asga-active .asga-sortsel:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 1px; }
+html:not(.Theme--legacyOS) body.asga-active .asga-refreshlink {
+  display: inline-flex; align-items: center; justify-content: center;
+  /* min-width as well as width: something in the host page collapses this
+     anchor's width to its glyph (even inline and important widths lose), but
+     min-width holds, verified against the live page */
+  width: 36px; min-width: 36px; height: 36px; box-sizing: border-box;
+  background: rgba(127, 127, 127, 0.08);
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  border-radius: 8px; opacity: 1; font-size: 1.5rem;
+}
+html:not(.Theme--legacyOS) body.asga-active .asga-refreshlink:hover { border-color: #ff8c2f; background: rgba(255, 140, 47, 0.14); }
+html:not(.Theme--legacyOS) body.asga-active .asga-refreshlink:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 1px; }
+/* While a rescan spins the glyph, the box around it would visibly rotate too,
+   so the frame drops away for the duration. */
+html:not(.Theme--legacyOS) body.asga-active .asga-refreshlink.asga-spinning { border-color: transparent; background: transparent; }
 /* The menu has no leading offset of its own: it starts where CA's content
    column starts, a full search band below the toolbar. Lifting it into that
    band means getting past two clips. .ca_display_area is a flex row, so its
@@ -3577,13 +3750,18 @@ body.asga-active .searchSubmit { display: flex; align-items: center; height: 32p
 body.asga-active .content.menuAdjust,
 body.asga-active .ca_display_area { overflow: visible; }
 body.asga-active .menuItems.menuAdjust { margin-top: -46px; position: relative; z-index: 7; }
-/* -68 puts Home's centre exactly on the search box's centre. Only above 1024,
-   because at and below that width CA clamps the band to a fixed 4rem, which
-   starts the content column 46px higher, and the deeper lift would push the
-   menu up behind the navigation. */
+/* -100 puts Home's centre exactly on the search box's centre on 7.1, the old
+   -68 plus the 32px the band grew when the controls moved onto their own row
+   under the box. Only above 1024, because at and below that width CA clamps
+   the band to a fixed 4rem, which starts the content column 46px higher, and
+   the deeper lift would push the menu up behind the navigation. */
 @media (min-width: 1025px) {
-  body.asga-active .menuItems.menuAdjust { margin-top: -68px; }
+  body.asga-active .menuItems.menuAdjust { margin-top: -100px; }
 }
+/* On 7.2 and newer the header spans the full width, so the column the menu
+   used to be lifted into no longer exists; the menu rests where CA puts it,
+   level with the grid's heading. */
+html:not(.Theme--legacyOS) body.asga-active .menuItems.menuAdjust { margin-top: 0; }
 /* The menu is pinned while the grid scrolls past it. CA leaves it in normal
    flow, so on a page of ninety-six cards it scrolls away and changing category
    means going back to the top first.
@@ -3622,7 +3800,7 @@ html.Theme--legacyOS.Theme--nav-top body.asga-active .menuItems.menuAdjust {
    background of its own, so only .searchArea paints the band, and pushing it
    over with a margin would leave that much of the sticky band transparent for
    page content to scroll through. */
-@media (min-width: 769px) and (max-width: 1024px) {
+@media (max-width: 1024px) {
   html:not(.Theme--legacyOS) body.asga-active .searchAreaHolder { padding-left: 0; margin-left: 0; }
 }
 /* Under 1025 CA clamps the sticky holder to a fixed 4rem while the band inside
@@ -3633,13 +3811,8 @@ html.Theme--legacyOS.Theme--nav-top body.asga-active .menuItems.menuAdjust {
 @media (max-width: 1024px) {
   body.asga-active .searchAreaHolder { height: auto; }
 }
-/* Only 7.2+ has a width where the column goes away. There CA swaps the menu for
-   a hamburger overlay below 769 and the row belongs at the left edge. On 7.1 the
-   column is present at every width and html carries Theme--legacyOS rather than
-   Theme--responsive, so this never matches and the offset correctly stays put. */
-@media (max-width: 768px) {
-  html:not(.Theme--legacyOS) body.asga-active .searchArea { padding-left: 0 !important; }
-}
+/* No phone override is needed on 7.2+: the header card keeps its own padding
+   and margins at every width, and its controls wrap inside it. */
 
 body.asga-active .caMenu { margin: 0; padding: 0; }
 /* fit-content rather than a full-width block: filling the column wraps the
