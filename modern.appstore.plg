@@ -2,14 +2,29 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.08.23c">
+<!ENTITY version "2026.08.23d">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
-<PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" icon="star" support="&support;">
+<!-- No icon attribute on purpose. Community Applications copies it into the
+     field it calls IconFA and, when that field is set, draws a Font Awesome
+     glyph in the app drawer instead of the app's real icon. With it absent CA
+     falls back to the icon image, and Unraid's own Plugins page falls back to
+     plugins/<name>/<name>.png, which this package installs below. -->
+<PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" support="&support;">
 
 <CHANGES>
-##2026.08.23c
+##2026.08.23d
+- The plugin's own icon shows everywhere it should. The Settings tile under
+  Utilities, Unraid's Plugins page and the app drawer in Community
+  Applications all drew a grey star, because the package declared its icon as
+  the word "star" and Unraid reads a bare word as a Font Awesome glyph name.
+  The real icon ships with the package now and is named so that every one of
+  those three places finds it.
+- How often the star data is refreshed is a setting, under Settings, Utilities,
+  Unraid Modern App Store. It defaults to once a day. The trending orders are
+  differences between two scans, so on the old three-day schedule the
+  "today" window compared a number against itself and came up empty.
 - The sort dropdown is drawn by the plugin instead of the browser. A page can
   style a select's closed state but never the list it opens, so on Safari that
   list came up as a light system menu on every theme. The list is the plugin's
@@ -3017,7 +3032,14 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
         '<span class="asga-sortwrap"><span class="asga-bar-label">Sort By:</span>' +
         '<select id="asga-sortsel" class="asga-sortsel">' + opts + '</select>' +
         '<a id="asga-refresh" class="asga-refreshlink" title="Refresh GitHub star data">↻</a>' +
-        '<span id="asga-updated" class="asga-updated"></span></span>';
+        '<span id="asga-updated" class="asga-updated"></span></span>' +
+        // The gear lives in the bar so it is present in both view states, and
+        // it is a plain link so a middle click opens the settings in a tab.
+        '<a id="asga-settings" class="asga-settings" href="/Settings/ModernAppStore" ' +
+          'title="Unraid Modern App Store settings">' +
+          '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 4.75a3.25 3.25 0 1 0 0 6.5 3.25 3.25 0 0 0 0-6.5zm0 5a1.75 1.75 0 1 1 0-3.5 1.75 1.75 0 0 1 0 3.5z"/>' +
+          '<path d="M6.94.75a.75.75 0 0 0-.74.63l-.2 1.2a5.5 5.5 0 0 0-1.05.61l-1.14-.43a.75.75 0 0 0-.9.33l-1.06 1.82a.75.75 0 0 0 .16.94l.94.78a5.6 5.6 0 0 0 0 1.22l-.94.78a.75.75 0 0 0-.16.94l1.06 1.82c.18.31.55.44.9.33l1.14-.43c.32.24.68.45 1.05.61l.2 1.2c.06.36.38.63.74.63h2.12c.36 0 .68-.27.74-.63l.2-1.2c.37-.16.73-.37 1.05-.61l1.14.43c.35.11.72-.02.9-.33l1.06-1.82a.75.75 0 0 0-.16-.94l-.94-.78a5.6 5.6 0 0 0 0-1.22l.94-.78a.75.75 0 0 0 .16-.94l-1.06-1.82a.75.75 0 0 0-.9-.33l-1.14.43a5.5 5.5 0 0 0-1.05-.61l-.2-1.2a.75.75 0 0 0-.74-.63H6.94zm.64 1.5h.84l.17 1.02c.05.3.27.54.56.62.44.13.86.37 1.22.7.22.2.54.26.82.15l.97-.36.42.73-.8.66a.75.75 0 0 0-.26.8c.12.44.12.9 0 1.34a.75.75 0 0 0 .26.8l.8.66-.42.73-.97-.36a.75.75 0 0 0-.82.15c-.36.33-.78.57-1.22.7a.75.75 0 0 0-.56.62l-.17 1.02h-.84l-.17-1.02a.75.75 0 0 0-.56-.62 4 4 0 0 1-1.22-.7.75.75 0 0 0-.82-.15l-.97.36-.42-.73.8-.66a.75.75 0 0 0 .26-.8 3.9 3.9 0 0 1 0-1.34.75.75 0 0 0-.26-.8l-.8-.66.42-.73.97.36c.28.11.6.05.82-.15.36-.33.78-.57 1.22-.7a.75.75 0 0 0 .56-.62l.17-1.02z"/></svg>' +
+        '</a>';
       host.appendChild(bar);
       var sel = document.getElementById('asga-sortsel');
       sel.value = view.sort;
@@ -3470,6 +3492,13 @@ html.asga-pre .spinner.fixed { display: none !important; }
    row. The stock row keeps CA's one-line layout when the view is off, which
    is why both are scoped rather than set on .asga-bar. */
 html.Theme--legacyOS body.asga-active .asga-bar { flex-basis: 100%; margin-left: 0; }
+/* 7.1 keeps its inline row, so the gear just follows the toggle in flow. */
+html.Theme--legacyOS .asga-settings {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; margin-left: 10px;
+  color: inherit; text-decoration: none; opacity: 0.8;
+}
+html.Theme--legacyOS .asga-settings:hover { opacity: 1; }
 html:not(.Theme--legacyOS) body.asga-active .asga-bar { display: contents; }
 /* The toggle is pinned to the sticky holder itself, in both view states, so
    flipping it cannot move it: one containing block and one pair of offsets,
@@ -3481,9 +3510,25 @@ html:not(.Theme--legacyOS) body.asga-active .asga-bar { display: contents; }
    toggle's containing block. */
 html:not(.Theme--legacyOS) #searchFilter { position: static; }
 html:not(.Theme--legacyOS) .asga-toggle {
-  position: absolute; right: 22px; top: 31px; transform: translateY(-50%);
+  position: absolute; right: 70px; top: 31px; transform: translateY(-50%);
   margin: 0;
 }
+/* The gear takes the seat the toggle used to hold, on the grid's right edge,
+   and the toggle steps 48px left of it (its own 36px box plus a 12px gap).
+   Both are pinned the same way in both view states, so neither moves when the
+   view is switched. */
+html:not(.Theme--legacyOS) .asga-settings {
+  position: absolute; right: 22px; top: 31px; transform: translateY(-50%);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; min-width: 36px; height: 36px; box-sizing: border-box;
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.08);
+  color: inherit; text-decoration: none; opacity: 0.8;
+}
+html:not(.Theme--legacyOS) .asga-settings:hover { border-color: #ff8c2f; background: rgba(255, 140, 47, 0.14); opacity: 1; }
+html:not(.Theme--legacyOS) .asga-settings:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 1px; }
+.asga-settings svg { width: 16px; height: 16px; fill: currentColor; }
 /* constrain the native select's box height so its glyphs center on the same
    line as the adjacent text labels (a taller default box made it sit high) */
 /* Unraid draws the dropdown triangle as two 4px gradients hugging the right
@@ -4349,7 +4394,7 @@ body.asga-active .ca_note.ca_bold { font-weight: 400; }
 <![CDATA[
 Menu="Utilities"
 Title="Unraid Modern App Store"
-Icon="star"
+Icon="modern.appstore.png"
 ---
 <?php
 /* Unraid Modern App Store: settings page (Settings -> Utilities -> Unraid Modern App Store). */
@@ -4363,22 +4408,36 @@ $gas_msg  = "";
 
 if (!is_dir($gas_dir)) @mkdir($gas_dir, 0755, true);
 
-function gas_write_cfg($path, $token, $service, $datadir) {
+function gas_write_cfg($path, $token, $service, $datadir, $scanDays) {
     $token   = str_replace(["\"", "\n", "\r"], "", $token);
     $datadir = rtrim(str_replace(["\"", "\n", "\r"], "", $datadir), '/');
     if ($datadir === '') $datadir = '/boot/config/plugins/modern.appstore';
     $service = ($service === 'enabled') ? 'enabled' : 'disabled';
-    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nDATA_DIR=\"$datadir\"\n";
+    $scanDays = gas_scan_days($scanDays);
+    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nDATA_DIR=\"$datadir\"\nSCAN_DAYS=\"$scanDays\"\n";
     file_put_contents($path, $out);
     @chmod($path, 0600);
     @mkdir($datadir, 0755, true);
 }
 
-function gas_write_cron($path) {
+// Only the intervals the cron line below can express, so a hand-edited config
+// cannot write a schedule that never fires.
+function gas_scan_days($v) {
+    $v = (int)$v;
+    return in_array($v, [1, 2, 3, 7], true) ? $v : 1;
+}
+
+function gas_write_cron($path, $scanDays = 1) {
     $php = "php /usr/local/emhttp/plugins/modern.appstore/fetch_stars.php";
-    // full scan every 3 days + an hourly check that pulls only NEWLY published
-    // app-store repos (bypasses the manual-refresh cooldown)
-    $lines = "0 4 */3 * * $php >/dev/null 2>&1\n23 * * * * $php --new-only 1 >/dev/null 2>&1\n";
+    $scanDays = gas_scan_days($scanDays);
+    // A full scan on the chosen interval, plus an hourly check that pulls only
+    // NEWLY published app-store repos (it bypasses the manual-refresh cooldown).
+    // The trending orders are differences between two full scans, so the
+    // interval is also the finest trending window that can hold any data: on a
+    // three-day schedule the "today" window compares a star count against
+    // itself and every app reads as zero.
+    $day = ($scanDays === 1) ? "*" : "*/$scanDays";
+    $lines = "0 4 $day * * $php >/dev/null 2>&1\n23 * * * * $php --new-only 1 >/dev/null 2>&1\n";
     file_put_contents($path, $lines);
     @exec("/usr/local/sbin/update_cron 2>/dev/null");
 }
@@ -4388,8 +4447,9 @@ if ($_POST) {
         $token    = $_POST['TOKEN'] ?? '';
         $service  = $_POST['SERVICE'] ?? 'disabled';
         $datadir  = $_POST['DATA_DIR'] ?? '';
-        gas_write_cfg($gas_cfg, $token, $service, $datadir);
-        gas_write_cron($gas_cron);
+        $scandays = $_POST['SCAN_DAYS'] ?? '1';
+        gas_write_cfg($gas_cfg, $token, $service, $datadir, $scandays);
+        gas_write_cron($gas_cron, $scandays);
         $gas_msg = "Settings saved." . (trim($token) === '' ? " WARNING: no token set - star counts are disabled." : "");
     }
     if (isset($_POST['REFRESH'])) {
@@ -4402,6 +4462,7 @@ $cfg = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
 $token    = $cfg['TOKEN'] ?? '';
 $service  = $cfg['SERVICE'] ?? 'enabled';
 $datadir  = $cfg['DATA_DIR'] ?? '/boot/config/plugins/modern.appstore';
+$scandays = (string)gas_scan_days($cfg['SCAN_DAYS'] ?? 1);
 
 $status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/modern.appstore/status.json"), true) ?: [];
 ?>
@@ -4432,6 +4493,20 @@ _(GitHub Personal Access Token)_:
 > **Use a classic token (it starts with `ghp_`), not a fine-grained one (`github_pat_`).** GitHub refuses fine-grained tokens access to star dates, and the two "this year" trending sorts are built from those dates. Everything else, including the "all time" sorts, works with either kind.
 >
 > While this field is empty the Apps page shows a yellow warning and star counts stay disabled.
+
+_(Refresh star data)_:
+: <select name="SCAN_DAYS" size="1">
+    <?= mk_option($scandays, "1", "Every day") ?>
+    <?= mk_option($scandays, "2", "Every 2 days") ?>
+    <?= mk_option($scandays, "3", "Every 3 days") ?>
+    <?= mk_option($scandays, "7", "Every week") ?>
+  </select>
+
+> How often every app's GitHub star count is fetched. The scan runs at 4am and takes one API request per repository, roughly 2,000 of the 5,000 an hour a token allows, so a daily scan is comfortable.
+>
+> This also sets the finest trending window that can hold data, because every trending order is the difference between two scans. On a three-day schedule **Trending (today)** compares a star count against itself and shows nothing at all; on a weekly one the daily and monthly windows both go flat. Leave this at **Every day** unless you have a reason not to.
+>
+> Newly published apps are picked up every hour regardless of this setting.
 
 _(Database directory)_:
 : <input type="text" name="DATA_DIR" value="<?= htmlspecialchars($datadir) ?>" style="width:520px;max-width:90%;" spellcheck="false">
@@ -4531,6 +4606,17 @@ Set your GitHub personal access token at **Settings → Utilities → Unraid Mod
 <FILE Run="/bin/bash">
 <INLINE>
 <![CDATA[
+cat <<'ICONB64' | base64 -d > /usr/local/emhttp/plugins/modern.appstore/modern.appstore.png
+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
+ICONB64
+chmod 644 /usr/local/emhttp/plugins/modern.appstore/modern.appstore.png
+]]>
+</INLINE>
+</FILE>
+
+<FILE Run="/bin/bash">
+<INLINE>
+<![CDATA[
 # Data dir lives on the flash (like every other plugin) so it exists BEFORE the
 # array mounts. A directory created under /mnt/user at plugin-install time (which
 # runs early in boot, before the array) leaves /mnt/user non-empty and makes shfs
@@ -4563,17 +4649,30 @@ fi
 CFG=/boot/config/plugins/modern.appstore/modern.appstore.cfg
 # seed an EMPTY token only if no config exists yet (preserves an existing token)
 if [ ! -f "$CFG" ]; then
-  printf 'TOKEN=""\nSERVICE="enabled"\nDATA_DIR="%s"\n' "$APPDATA" > "$CFG"
+  printf 'TOKEN=""\nSERVICE="enabled"\nDATA_DIR="%s"\nSCAN_DAYS="1"\n' "$APPDATA" > "$CFG"
   chmod 600 "$CFG"
+fi
+# An install from before the interval was a setting has no SCAN_DAYS line. Give
+# it the daily default rather than leaving the scan on the old three-day cycle,
+# which is too coarse for the trending windows to hold anything.
+if ! grep -q '^SCAN_DAYS=' "$CFG" 2>/dev/null; then
+  printf 'SCAN_DAYS="1"\n' >> "$CFG"
 fi
 # migrate a legacy DATA_DIR under /mnt/user off the array (it breaks shfs mounting)
 if grep -q 'DATA_DIR="/mnt/user' "$CFG" 2>/dev/null; then
   sed -i 's#^DATA_DIR=.*#DATA_DIR="'"$APPDATA"'"#' "$CFG"
 fi
 CRON=/boot/config/plugins/modern.appstore/modern.appstore.cron
-# full scan every 3 days; hourly check that only pulls NEWLY published repos
+# Full scan on the configured interval, plus an hourly check that only pulls
+# NEWLY published repos. The interval is read back from the config so an
+# install never overwrites the schedule the user chose on the settings page.
+SCAN_DAYS=$(sed -n 's/^SCAN_DAYS="\([0-9]*\)".*/\1/p' "$CFG" 2>/dev/null)
+case "$SCAN_DAYS" in
+  2|3|7) SCAN_DAY_FIELD="*/$SCAN_DAYS" ;;
+  *)     SCAN_DAY_FIELD="*" ;;
+esac
 {
-  echo '0 4 */3 * * php /usr/local/emhttp/plugins/modern.appstore/fetch_stars.php >/dev/null 2>&1'
+  echo "0 4 $SCAN_DAY_FIELD * * php /usr/local/emhttp/plugins/modern.appstore/fetch_stars.php >/dev/null 2>&1"
   echo '23 * * * * php /usr/local/emhttp/plugins/modern.appstore/fetch_stars.php --new-only 1 >/dev/null 2>&1'
 } > "$CRON"
 /usr/local/sbin/update_cron 2>/dev/null

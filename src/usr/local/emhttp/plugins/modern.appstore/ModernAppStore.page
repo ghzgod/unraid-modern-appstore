@@ -1,6 +1,6 @@
 Menu="Utilities"
 Title="Unraid Modern App Store"
-Icon="star"
+Icon="modern.appstore.png"
 ---
 <?php
 /* Unraid Modern App Store: settings page (Settings -> Utilities -> Unraid Modern App Store). */
@@ -14,22 +14,36 @@ $gas_msg  = "";
 
 if (!is_dir($gas_dir)) @mkdir($gas_dir, 0755, true);
 
-function gas_write_cfg($path, $token, $service, $datadir) {
+function gas_write_cfg($path, $token, $service, $datadir, $scanDays) {
     $token   = str_replace(["\"", "\n", "\r"], "", $token);
     $datadir = rtrim(str_replace(["\"", "\n", "\r"], "", $datadir), '/');
     if ($datadir === '') $datadir = '/boot/config/plugins/modern.appstore';
     $service = ($service === 'enabled') ? 'enabled' : 'disabled';
-    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nDATA_DIR=\"$datadir\"\n";
+    $scanDays = gas_scan_days($scanDays);
+    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nDATA_DIR=\"$datadir\"\nSCAN_DAYS=\"$scanDays\"\n";
     file_put_contents($path, $out);
     @chmod($path, 0600);
     @mkdir($datadir, 0755, true);
 }
 
-function gas_write_cron($path) {
+// Only the intervals the cron line below can express, so a hand-edited config
+// cannot write a schedule that never fires.
+function gas_scan_days($v) {
+    $v = (int)$v;
+    return in_array($v, [1, 2, 3, 7], true) ? $v : 1;
+}
+
+function gas_write_cron($path, $scanDays = 1) {
     $php = "php /usr/local/emhttp/plugins/modern.appstore/fetch_stars.php";
-    // full scan every 3 days + an hourly check that pulls only NEWLY published
-    // app-store repos (bypasses the manual-refresh cooldown)
-    $lines = "0 4 */3 * * $php >/dev/null 2>&1\n23 * * * * $php --new-only 1 >/dev/null 2>&1\n";
+    $scanDays = gas_scan_days($scanDays);
+    // A full scan on the chosen interval, plus an hourly check that pulls only
+    // NEWLY published app-store repos (it bypasses the manual-refresh cooldown).
+    // The trending orders are differences between two full scans, so the
+    // interval is also the finest trending window that can hold any data: on a
+    // three-day schedule the "today" window compares a star count against
+    // itself and every app reads as zero.
+    $day = ($scanDays === 1) ? "*" : "*/$scanDays";
+    $lines = "0 4 $day * * $php >/dev/null 2>&1\n23 * * * * $php --new-only 1 >/dev/null 2>&1\n";
     file_put_contents($path, $lines);
     @exec("/usr/local/sbin/update_cron 2>/dev/null");
 }
@@ -39,8 +53,9 @@ if ($_POST) {
         $token    = $_POST['TOKEN'] ?? '';
         $service  = $_POST['SERVICE'] ?? 'disabled';
         $datadir  = $_POST['DATA_DIR'] ?? '';
-        gas_write_cfg($gas_cfg, $token, $service, $datadir);
-        gas_write_cron($gas_cron);
+        $scandays = $_POST['SCAN_DAYS'] ?? '1';
+        gas_write_cfg($gas_cfg, $token, $service, $datadir, $scandays);
+        gas_write_cron($gas_cron, $scandays);
         $gas_msg = "Settings saved." . (trim($token) === '' ? " WARNING: no token set - star counts are disabled." : "");
     }
     if (isset($_POST['REFRESH'])) {
@@ -53,6 +68,7 @@ $cfg = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
 $token    = $cfg['TOKEN'] ?? '';
 $service  = $cfg['SERVICE'] ?? 'enabled';
 $datadir  = $cfg['DATA_DIR'] ?? '/boot/config/plugins/modern.appstore';
+$scandays = (string)gas_scan_days($cfg['SCAN_DAYS'] ?? 1);
 
 $status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/modern.appstore/status.json"), true) ?: [];
 ?>
@@ -83,6 +99,20 @@ _(GitHub Personal Access Token)_:
 > **Use a classic token (it starts with `ghp_`), not a fine-grained one (`github_pat_`).** GitHub refuses fine-grained tokens access to star dates, and the two "this year" trending sorts are built from those dates. Everything else, including the "all time" sorts, works with either kind.
 >
 > While this field is empty the Apps page shows a yellow warning and star counts stay disabled.
+
+_(Refresh star data)_:
+: <select name="SCAN_DAYS" size="1">
+    <?= mk_option($scandays, "1", "Every day") ?>
+    <?= mk_option($scandays, "2", "Every 2 days") ?>
+    <?= mk_option($scandays, "3", "Every 3 days") ?>
+    <?= mk_option($scandays, "7", "Every week") ?>
+  </select>
+
+> How often every app's GitHub star count is fetched. The scan runs at 4am and takes one API request per repository, roughly 2,000 of the 5,000 an hour a token allows, so a daily scan is comfortable.
+>
+> This also sets the finest trending window that can hold data, because every trending order is the difference between two scans. On a three-day schedule **Trending (today)** compares a star count against itself and shows nothing at all; on a weekly one the daily and monthly windows both go flat. Leave this at **Every day** unless you have a reason not to.
+>
+> Newly published apps are picked up every hour regardless of this setting.
 
 _(Database directory)_:
 : <input type="text" name="DATA_DIR" value="<?= htmlspecialchars($datadir) ?>" style="width:520px;max-width:90%;" spellcheck="false">

@@ -55,6 +55,13 @@ html.asga-pre .spinner.fixed { display: none !important; }
    row. The stock row keeps CA's one-line layout when the view is off, which
    is why both are scoped rather than set on .asga-bar. */
 html.Theme--legacyOS body.asga-active .asga-bar { flex-basis: 100%; margin-left: 0; }
+/* 7.1 keeps its inline row, so the gear just follows the toggle in flow. */
+html.Theme--legacyOS .asga-settings {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; margin-left: 10px;
+  color: inherit; text-decoration: none; opacity: 0.8;
+}
+html.Theme--legacyOS .asga-settings:hover { opacity: 1; }
 html:not(.Theme--legacyOS) body.asga-active .asga-bar { display: contents; }
 /* The toggle is pinned to the sticky holder itself, in both view states, so
    flipping it cannot move it: one containing block and one pair of offsets,
@@ -66,9 +73,25 @@ html:not(.Theme--legacyOS) body.asga-active .asga-bar { display: contents; }
    toggle's containing block. */
 html:not(.Theme--legacyOS) #searchFilter { position: static; }
 html:not(.Theme--legacyOS) .asga-toggle {
-  position: absolute; right: 22px; top: 31px; transform: translateY(-50%);
+  position: absolute; right: 70px; top: 31px; transform: translateY(-50%);
   margin: 0;
 }
+/* The gear takes the seat the toggle used to hold, on the grid's right edge,
+   and the toggle steps 48px left of it (its own 36px box plus a 12px gap).
+   Both are pinned the same way in both view states, so neither moves when the
+   view is switched. */
+html:not(.Theme--legacyOS) .asga-settings {
+  position: absolute; right: 22px; top: 31px; transform: translateY(-50%);
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; min-width: 36px; height: 36px; box-sizing: border-box;
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.08);
+  color: inherit; text-decoration: none; opacity: 0.8;
+}
+html:not(.Theme--legacyOS) .asga-settings:hover { border-color: #ff8c2f; background: rgba(255, 140, 47, 0.14); opacity: 1; }
+html:not(.Theme--legacyOS) .asga-settings:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 1px; }
+.asga-settings svg { width: 16px; height: 16px; fill: currentColor; }
 /* constrain the native select's box height so its glyphs center on the same
    line as the adjacent text labels (a taller default box made it sit high) */
 /* Unraid draws the dropdown triangle as two 4px gradients hugging the right

@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.08.23c}"
+VERSION="${1:-2026.08.23d}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -22,6 +22,14 @@ FILES=(fetch_stars.php refresh.php cancel.php newscan.php scanpage.php applist.p
 for f in "${FILES[@]}"; do
   if grep -q ']]>' "$SRC/$f"; then echo "ERROR: $f contains ]]> (breaks CDATA)" >&2; exit 1; fi
 done
+
+# guard: the icon is read through a command substitution further down, where a
+# missing file yields an empty payload rather than an error, and the package
+# would install a zero-byte icon. Fail here instead.
+if [ ! -s icon.png ]; then
+  echo "ERROR: icon.png is missing or empty; the plugin icon would ship as a zero-byte file" >&2
+  exit 1
+fi
 
 emit_payload() {
   local f="$1"
@@ -40,10 +48,25 @@ cat <<XMLHEAD
 <!ENTITY plugin  "$PLUGIN_URL">
 <!ENTITY support "$SUPPORT_URL">
 ]>
-<PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" icon="star" support="&support;">
+<!-- No icon attribute on purpose. Community Applications copies it into the
+     field it calls IconFA and, when that field is set, draws a Font Awesome
+     glyph in the app drawer instead of the app's real icon. With it absent CA
+     falls back to the icon image, and Unraid's own Plugins page falls back to
+     plugins/<name>/<name>.png, which this package installs below. -->
+<PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" support="&support;">
 
 <CHANGES>
 ##$VERSION
+- The plugin's own icon shows everywhere it should. The Settings tile under
+  Utilities, Unraid's Plugins page and the app drawer in Community
+  Applications all drew a grey star, because the package declared its icon as
+  the word "star" and Unraid reads a bare word as a Font Awesome glyph name.
+  The real icon ships with the package now and is named so that every one of
+  those three places finds it.
+- How often the star data is refreshed is a setting, under Settings, Utilities,
+  Unraid Modern App Store. It defaults to once a day. The trending orders are
+  differences between two scans, so on the old three-day schedule the
+  "today" window compared a number against itself and came up empty.
 - The sort dropdown is drawn by the plugin instead of the browser. A page can
   style a select's closed state but never the list it opens, so on Safari that
   list came up as a light system menu on every theme. The list is the plugin's
@@ -511,6 +534,24 @@ XMLHEAD
 
 for f in "${FILES[@]}"; do emit_payload "$f"; done
 
+# The icon is a binary PNG, so it cannot ride in a CDATA payload like the text
+# files above. It is base64 encoded into an install script instead and decoded
+# in place. The name matches the plugin's, which is where both Unraid's Plugins
+# page and the Settings tile look for it.
+cat <<ICONBLOCK
+<FILE Run="/bin/bash">
+<INLINE>
+<![CDATA[
+cat <<'ICONB64' | base64 -d > /usr/local/emhttp/plugins/$NAME/$NAME.png
+$(base64 < icon.png)
+ICONB64
+chmod 644 /usr/local/emhttp/plugins/$NAME/$NAME.png
+]]>
+</INLINE>
+</FILE>
+
+ICONBLOCK
+
 cat <<'POSTINSTALL'
 <FILE Run="/bin/bash">
 <INLINE>
@@ -547,17 +588,30 @@ fi
 CFG=/boot/config/plugins/modern.appstore/modern.appstore.cfg
 # seed an EMPTY token only if no config exists yet (preserves an existing token)
 if [ ! -f "$CFG" ]; then
-  printf 'TOKEN=""\nSERVICE="enabled"\nDATA_DIR="%s"\n' "$APPDATA" > "$CFG"
+  printf 'TOKEN=""\nSERVICE="enabled"\nDATA_DIR="%s"\nSCAN_DAYS="1"\n' "$APPDATA" > "$CFG"
   chmod 600 "$CFG"
+fi
+# An install from before the interval was a setting has no SCAN_DAYS line. Give
+# it the daily default rather than leaving the scan on the old three-day cycle,
+# which is too coarse for the trending windows to hold anything.
+if ! grep -q '^SCAN_DAYS=' "$CFG" 2>/dev/null; then
+  printf 'SCAN_DAYS="1"\n' >> "$CFG"
 fi
 # migrate a legacy DATA_DIR under /mnt/user off the array (it breaks shfs mounting)
 if grep -q 'DATA_DIR="/mnt/user' "$CFG" 2>/dev/null; then
   sed -i 's#^DATA_DIR=.*#DATA_DIR="'"$APPDATA"'"#' "$CFG"
 fi
 CRON=/boot/config/plugins/modern.appstore/modern.appstore.cron
-# full scan every 3 days; hourly check that only pulls NEWLY published repos
+# Full scan on the configured interval, plus an hourly check that only pulls
+# NEWLY published repos. The interval is read back from the config so an
+# install never overwrites the schedule the user chose on the settings page.
+SCAN_DAYS=$(sed -n 's/^SCAN_DAYS="\([0-9]*\)".*/\1/p' "$CFG" 2>/dev/null)
+case "$SCAN_DAYS" in
+  2|3|7) SCAN_DAY_FIELD="*/$SCAN_DAYS" ;;
+  *)     SCAN_DAY_FIELD="*" ;;
+esac
 {
-  echo '0 4 */3 * * php /usr/local/emhttp/plugins/modern.appstore/fetch_stars.php >/dev/null 2>&1'
+  echo "0 4 $SCAN_DAY_FIELD * * php /usr/local/emhttp/plugins/modern.appstore/fetch_stars.php >/dev/null 2>&1"
   echo '23 * * * * php /usr/local/emhttp/plugins/modern.appstore/fetch_stars.php --new-only 1 >/dev/null 2>&1'
 } > "$CRON"
 /usr/local/sbin/update_cron 2>/dev/null

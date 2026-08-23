@@ -997,7 +997,14 @@
         '<span class="asga-sortwrap"><span class="asga-bar-label">Sort By:</span>' +
         '<select id="asga-sortsel" class="asga-sortsel">' + opts + '</select>' +
         '<a id="asga-refresh" class="asga-refreshlink" title="Refresh GitHub star data">↻</a>' +
-        '<span id="asga-updated" class="asga-updated"></span></span>';
+        '<span id="asga-updated" class="asga-updated"></span></span>' +
+        // The gear lives in the bar so it is present in both view states, and
+        // it is a plain link so a middle click opens the settings in a tab.
+        '<a id="asga-settings" class="asga-settings" href="/Settings/ModernAppStore" ' +
+          'title="Unraid Modern App Store settings">' +
+          '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 4.75a3.25 3.25 0 1 0 0 6.5 3.25 3.25 0 0 0 0-6.5zm0 5a1.75 1.75 0 1 1 0-3.5 1.75 1.75 0 0 1 0 3.5z"/>' +
+          '<path d="M6.94.75a.75.75 0 0 0-.74.63l-.2 1.2a5.5 5.5 0 0 0-1.05.61l-1.14-.43a.75.75 0 0 0-.9.33l-1.06 1.82a.75.75 0 0 0 .16.94l.94.78a5.6 5.6 0 0 0 0 1.22l-.94.78a.75.75 0 0 0-.16.94l1.06 1.82c.18.31.55.44.9.33l1.14-.43c.32.24.68.45 1.05.61l.2 1.2c.06.36.38.63.74.63h2.12c.36 0 .68-.27.74-.63l.2-1.2c.37-.16.73-.37 1.05-.61l1.14.43c.35.11.72-.02.9-.33l1.06-1.82a.75.75 0 0 0-.16-.94l-.94-.78a5.6 5.6 0 0 0 0-1.22l.94-.78a.75.75 0 0 0 .16-.94l-1.06-1.82a.75.75 0 0 0-.9-.33l-1.14.43a5.5 5.5 0 0 0-1.05-.61l-.2-1.2a.75.75 0 0 0-.74-.63H6.94zm.64 1.5h.84l.17 1.02c.05.3.27.54.56.62.44.13.86.37 1.22.7.22.2.54.26.82.15l.97-.36.42.73-.8.66a.75.75 0 0 0-.26.8c.12.44.12.9 0 1.34a.75.75 0 0 0 .26.8l.8.66-.42.73-.97-.36a.75.75 0 0 0-.82.15c-.36.33-.78.57-1.22.7a.75.75 0 0 0-.56.62l-.17 1.02h-.84l-.17-1.02a.75.75 0 0 0-.56-.62 4 4 0 0 1-1.22-.7.75.75 0 0 0-.82-.15l-.97.36-.42-.73.8-.66a.75.75 0 0 0 .26-.8 3.9 3.9 0 0 1 0-1.34.75.75 0 0 0-.26-.8l-.8-.66.42-.73.97.36c.28.11.6.05.82-.15.36-.33.78-.57 1.22-.7a.75.75 0 0 0 .56-.62l.17-1.02z"/></svg>' +
+        '</a>';
       host.appendChild(bar);
       var sel = document.getElementById('asga-sortsel');
       sel.value = view.sort;
