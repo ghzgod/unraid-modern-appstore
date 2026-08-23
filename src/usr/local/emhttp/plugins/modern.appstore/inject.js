@@ -77,22 +77,26 @@
     // Trending sorts also FILTER to apps that actually moved in that window, so
     // the view is a real "what's hot" list, not the whole catalog with a few
     // movers on top and everything else in feed order.
+    // GitHub's own 16x16 mark, inlined so it draws in currentColor and follows
+    // the menu header's muted text on the dark and light themes alike.
+    var GH_MARK = '<svg class="asga-gh-mark" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>';
     var SORT_OPTS = [
       { g: 'Name', v: 'name_asc',  label: 'Name Ascending',  cmp: function (a, b) { return a.sn < b.sn ? -1 : a.sn > b.sn ? 1 : 0; } },
       { g: 'Name', v: 'name_desc', label: 'Name Descending', cmp: function (a, b) { return a.sn < b.sn ? 1 : a.sn > b.sn ? -1 : 0; } },
       { g: 'Popularity', v: 'downloads', label: 'Unraid Downloads', cmp: numDesc('dl') },
       { g: 'Popularity', v: 'new',       label: 'Newest to the App Store', cmp: numDesc('fs') },
+      { g: 'Popularity', v: 'updated',   label: 'Recently Updated', cmp: numDesc('lu'), hint: 'Latest app update first; apps with no update date in the feed sort last' },
       { g: 'Popularity', v: 'ghstars',   label: 'GitHub Stars',    cmp: numDesc('s') },
-      { g: 'Trending', v: 'ght1',    label: 'Trending (today)',      cmp: numDesc('t1'),   filter: hasTrend('t1'),   hint: 'Stars gained in the last day' },
-      { g: 'Trending', v: 'ght7',    label: 'Trending (this week)',  cmp: numDesc('t7'),   filter: hasTrend('t7'),   hint: 'Stars gained in the last 7 days' },
-      { g: 'Trending', v: 'ght30',   label: 'Trending (this month)', cmp: numDesc('t30'),  filter: hasTrend('t30'),  hint: 'Stars gained in the last 30 days' },
-      { g: 'Trending', v: 'ght365',  label: 'Trending (this year)',  cmp: numDesc('t365'), filter: hasTrend('t365'), hint: 'Stars gained in the last 365 days' },
-      { g: 'Trending', v: 'ghtall',  label: 'Trending (all time)',   cmp: numDesc('s'),    filter: hasStars,         hint: 'Every star the repo has ever gained' },
-      { g: 'Trending %', v: 'ghp1',   label: 'Trending % (today)',      cmp: pctDesc('t1'),   filter: hasPct('t1'),   hint: 'Growth today, against the star count a day ago' },
-      { g: 'Trending %', v: 'ghp7',   label: 'Trending % (this week)',  cmp: pctDesc('t7'),   filter: hasPct('t7'),   hint: 'Growth this week, against the star count 7 days ago' },
-      { g: 'Trending %', v: 'ghp30',  label: 'Trending % (this month)', cmp: pctDesc('t30'),  filter: hasPct('t30'),  hint: 'Growth this month, against the star count 30 days ago' },
-      { g: 'Trending %', v: 'ghp365', label: 'Trending % (this year)',  cmp: pctDesc('t365'), filter: hasPct('t365'), hint: 'Growth this year, against the star count a year ago' },
-      { g: 'Trending %', v: 'ghpall', label: 'Trending % (all time)',   cmp: rateDesc,        filter: hasRate,        hint: 'Lifetime growth rate: stars per year since the repo was created' }
+      { g: 'GitHub Trending', v: 'ght1',    label: 'Trending (today)',      cmp: numDesc('t1'),   filter: hasTrend('t1'),   hint: 'Stars gained in the last day' },
+      { g: 'GitHub Trending', v: 'ght7',    label: 'Trending (this week)',  cmp: numDesc('t7'),   filter: hasTrend('t7'),   hint: 'Stars gained in the last 7 days' },
+      { g: 'GitHub Trending', v: 'ght30',   label: 'Trending (this month)', cmp: numDesc('t30'),  filter: hasTrend('t30'),  hint: 'Stars gained in the last 30 days' },
+      { g: 'GitHub Trending', v: 'ght365',  label: 'Trending (this year)',  cmp: numDesc('t365'), filter: hasTrend('t365'), hint: 'Stars gained in the last 365 days' },
+      { g: 'GitHub Trending', v: 'ghtall',  label: 'Trending (all time)',   cmp: numDesc('s'),    filter: hasStars,         hint: 'Every star the repo has ever gained' },
+      { g: 'GitHub Trending %', v: 'ghp1',   label: 'Trending % (today)',      cmp: pctDesc('t1'),   filter: hasPct('t1'),   hint: 'Growth today, against the star count a day ago' },
+      { g: 'GitHub Trending %', v: 'ghp7',   label: 'Trending % (this week)',  cmp: pctDesc('t7'),   filter: hasPct('t7'),   hint: 'Growth this week, against the star count 7 days ago' },
+      { g: 'GitHub Trending %', v: 'ghp30',  label: 'Trending % (this month)', cmp: pctDesc('t30'),  filter: hasPct('t30'),  hint: 'Growth this month, against the star count 30 days ago' },
+      { g: 'GitHub Trending %', v: 'ghp365', label: 'Trending % (this year)',  cmp: pctDesc('t365'), filter: hasPct('t365'), hint: 'Growth this year, against the star count a year ago' },
+      { g: 'GitHub Trending %', v: 'ghpall', label: 'Trending % (all time)',   cmp: rateDesc,        filter: hasRate,        hint: 'Lifetime growth rate: stars per year since the repo was created' }
     ];
     function optFor(v) { for (var i = 0; i < SORT_OPTS.length; i++) if (SORT_OPTS[i].v === v) return SORT_OPTS[i]; return SORT_OPTS[0]; }
     // numeric descending; null/undefined sinks to the bottom
@@ -998,6 +1002,7 @@
       var sel = document.getElementById('asga-sortsel');
       sel.value = view.sort;
       sel.addEventListener('change', function (e) { view.sort = e.target.value; view.page = 1; saveSort(); render(); });
+      wireSortMenu(sel);
       document.getElementById('asga-refresh').addEventListener('click', onRefreshClick);
       var cb = document.getElementById('asga-toggle-cb');
       cb.checked = isOn();
@@ -1005,6 +1010,91 @@
       updateStamp();
       // once a minute so a page left open does not read "just now" all night
       if (!bar.__stampTick) bar.__stampTick = setInterval(updateStamp, 60000);
+    }
+
+    // Safari renders a <select>'s open list as a native macOS menu that no CSS
+    // can theme, so on 7.2+ the select becomes the state holder for a menu of
+    // our own, drawn with the refresh menu's language. 7.1 keeps the native
+    // select, since its layout is verified and left alone.
+    function wireSortMenu(sel) {
+      if (document.documentElement.classList.contains('Theme--legacyOS')) return;
+      var wrap = sel.parentNode;   // .asga-sortwrap
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.id = 'asga-sortbtn';
+      btn.className = 'asga-sortbtn';
+      btn.title = 'Change the sort order';
+      wrap.insertBefore(btn, sel);
+      sel.classList.add('asga-sortsel-hidden');
+      function label() {
+        var o = sel.options[sel.selectedIndex];
+        btn.textContent = o ? o.text : '';
+      }
+      label();
+      sel.addEventListener('change', label);
+      // The button is as wide as the widest entry, measured in its own font,
+      // so changing the selection never resizes it and the open list can
+      // share its exact box.
+      var probe = document.createElement('span');
+      probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;';
+      wrap.appendChild(probe);
+      probe.style.font = getComputedStyle(btn).font;
+      var maxW = 0;
+      SORT_OPTS.forEach(function (o) {
+        probe.textContent = o.label;
+        maxW = Math.max(maxW, probe.getBoundingClientRect().width);
+      });
+      wrap.removeChild(probe);
+      // 12px left padding plus 30px right padding, and a little slack so a
+      // fractional measurement never wraps the longest label
+      btn.style.width = Math.ceil(maxW + 42 + 4) + 'px';
+      btn.addEventListener('click', function (e) {
+        e.stopPropagation(); e.preventDefault();
+        var open = document.querySelector('.asga-sortmenu');
+        if (open) { open.remove(); return; }
+        var menu = document.createElement('div');
+        menu.className = 'asga-refmenu asga-sortmenu';
+        var group = '';
+        SORT_OPTS.forEach(function (o) {
+          if (o.g !== group) {
+            group = o.g;
+            var h = document.createElement('div');
+            h.className = 'asga-sortmenu-group';
+            // the GitHub groups carry the mark to say where the numbers come from
+            if (o.g.indexOf('GitHub') === 0) {
+              h.innerHTML = GH_MARK;
+              h.appendChild(document.createTextNode(' ' + o.g));
+            } else {
+              h.textContent = o.g;
+            }
+            menu.appendChild(h);
+          }
+          var it = document.createElement('span');
+          it.className = 'asga-refitem asga-sortmenu-item' + (o.v === view.sort ? ' asga-sortmenu-cur' : '');
+          it.setAttribute('data-v', o.v);
+          if (o.hint) it.title = o.hint;
+          it.textContent = o.label;
+          menu.appendChild(it);
+        });
+        wrap.insertBefore(menu, btn.nextSibling);
+        // the open list wears the button's exact left edge and width
+        menu.style.left = btn.offsetLeft + 'px';
+        menu.style.width = btn.offsetWidth + 'px';
+        menu.addEventListener('click', function (ev) {
+          var item = ev.target.closest ? ev.target.closest('.asga-sortmenu-item') : null;
+          if (!item) return;
+          menu.remove();
+          sel.value = item.getAttribute('data-v');
+          view.sort = sel.value; view.page = 1; saveSort(); label(); render();
+        });
+        setTimeout(function () {
+          document.addEventListener('click', function close(ev) {
+            if (menu.contains(ev.target)) return;
+            menu.remove();
+            document.removeEventListener('click', close, true);
+          }, true);
+        }, 0);
+      });
     }
 
     // "Updated 12 min ago" beside the refresh icon. The visible time is CA's

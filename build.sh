@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.08.23b}"
+VERSION="${1:-2026.08.23c}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -44,23 +44,36 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
-- The toolbar is a real header now, on Unraid 7.2 and newer: one card running
-  from the sidebar's left edge to the grid's right edge, drawn with the app
-  tiles' own background, border and corner radius so the header and the cards
-  read as one family. The search box and its magnifier join into a single
-  control, the sort dropdown is a bordered pill with air around its triangle,
-  the refresh icon is a proper button, and the category menu starts below the
-  header, level with the "All Apps" heading. 7.1 keeps its own layout, which
-  was left exactly as the previous release verified it.
+- The sort dropdown is drawn by the plugin instead of the browser. A page can
+  style a select's closed state but never the list it opens, so on Safari that
+  list came up as a light system menu on every theme. The list is the plugin's
+  own now: the field is sized to its longest entry, the list opens at exactly
+  that width and left edge, and the sort you are on is named in the accent
+  colour rather than marked with a tick that pushed its label out of line.
+- A "Recently Updated" sort, ordering the grid by when each app was last
+  updated. Apps the feed carries no update date for sort last.
+- The trending groups are named "GitHub Trending" and "GitHub Trending %",
+  each with GitHub's mark, since every one of those orders is counted from a
+  repository's stars. The mark is drawn in the menu's own text colour, so it
+  reads on the light and dark themes alike.
+- The toolbar row shares the grid's width: the search box starts on the first
+  card's left edge and the Modern view toggle ends on the last card's right
+  edge, at every window width and font size. Nothing is drawn around the row
+  itself, so the controls carry that alignment on their own.
+- Flipping Modern view off and back on no longer nudges the toggle. It is
+  anchored to the search band in both views, so the two layouts cannot move
+  it between them.
+
+##2026.08.23b
+- The toolbar became a header: the search box and its magnifier join into a
+  single control, the sort dropdown is a pill with air around its triangle,
+  the refresh icon is a proper button, and the category menu sits beside the
+  row rather than under it. 7.1 keeps its own layout, which was left exactly
+  as the previous release verified it.
 - The store says when it was last brought up to date, next to the refresh
   button: "Updated 12 min ago", counted from Community Applications' own feed
   sync. Hovering it shows the exact time of that sync and of the last GitHub
   star scan.
-- The Modern view toggle sits on the header's right edge, and stays in that
-  seat when the modern view is switched off, so flipping the switch never
-  moves the switch.
-- The sort dropdown's open list follows the theme: on the dark themes it used
-  to open as a light system list.
 
 ##2026.08.23a
 - The "All Apps" heading and its count are readable again on windows 1024px and

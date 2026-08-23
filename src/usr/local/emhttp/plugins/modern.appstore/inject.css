@@ -56,18 +56,18 @@ html.asga-pre .spinner.fixed { display: none !important; }
    is why both are scoped rather than set on .asga-bar. */
 html.Theme--legacyOS body.asga-active .asga-bar { flex-basis: 100%; margin-left: 0; }
 html:not(.Theme--legacyOS) body.asga-active .asga-bar { display: contents; }
-/* With the modern view off the toggle keeps the same right-edge seat it has on
-   the header card, so flipping the switch never moves the switch. Absolute
-   rather than floated, so CA's stock row is not reflowed at all; 38px lands
-   the toggle's right edge on the same x the card gives it. */
-html:not(.Theme--legacyOS) body:not(.asga-active) .searchArea { position: relative; }
-/* CA's stock #searchFilter is position: relative and only as wide as its
-   content, which would make it the toggle's containing block; static hands
-   that job to the full-width band so right: 38px means the window's right. */
-html:not(.Theme--legacyOS) body:not(.asga-active) #searchFilter { position: static; }
-html:not(.Theme--legacyOS) body:not(.asga-active) .asga-bar {
-  position: absolute; right: 38px; top: 50%; transform: translateY(-50%);
-  margin-left: 0;
+/* The toggle is pinned to the sticky holder itself, in both view states, so
+   flipping it cannot move it: one containing block and one pair of offsets,
+   whatever the two layouts do around it. 22px is the grid's own right inset,
+   the same one the cards end on; 31px is the row's 12px padding plus half of
+   its 36px controls, which is the line the rest of the row sits on. The
+   filter goes static in both states because CA makes it position:
+   relative and only as wide as its content, which would otherwise become the
+   toggle's containing block. */
+html:not(.Theme--legacyOS) #searchFilter { position: static; }
+html:not(.Theme--legacyOS) .asga-toggle {
+  position: absolute; right: 22px; top: 31px; transform: translateY(-50%);
+  margin: 0;
 }
 /* constrain the native select's box height so its glyphs center on the same
    line as the adjacent text labels (a taller default box made it sit high) */
@@ -320,15 +320,22 @@ body.asga-active .searchArea {
    family. legacyOS keeps the offset strip above; its page has no full-width
    band to hang a card on. */
 html:not(.Theme--legacyOS) body.asga-active .searchArea {
-  padding: 12px 16px !important;
-  margin: 0 22px 0 12px !important;
-  background: var(--background-color, #1c1c1c);
-  border: 1px solid rgba(127, 127, 127, 0.22);
-  border-radius: 8px;
+  /* CA fixes this element's height at 5.6rem, 20px more than the control row,
+     which centred the row in a puffy band; released so the row sets its own */
+  height: auto !important;
+  /* No horizontal padding, and no frame of its own: with nothing drawn around
+     the controls, the controls themselves carry the alignment, so the search
+     box starts exactly on the grid's left edge (the content inset plus the
+     menu column plus the grid's margins, 19.5rem + 12px, the same sum the
+     cards start at) and the toggle ends on its right edge. */
+  padding: 12px 0 !important;
+  margin: 0 22px 0 calc(19.5rem + 12px) !important;
+  background: none;
+  border: none;
 }
-/* The sticky strip behind and beside the card stays opaque so cards cannot
-   scroll through the margins around it, and the 10px below becomes the gap
-   between the pinned header and whatever is scrolling under it. */
+/* The holder carries the opaque band instead. Nothing is drawn around the
+   controls, but the strip still has to be solid: it is sticky, so the grid
+   scrolls underneath it and would otherwise show through the row. */
 html:not(.Theme--legacyOS) body.asga-active .searchAreaHolder {
   background: var(--background-color, #1c1c1c);
   padding-bottom: 10px;
@@ -348,17 +355,18 @@ body.asga-active .searchArea { padding-bottom: 26px; align-items: center; }
 body.asga-active #searchFilter { display: flex; align-items: center; flex-wrap: wrap; row-gap: 10px; margin-top: 26px; }
 /* Inside the card the filter row fills the width so the toggle can sit on the
    card's right edge; the 26px lift belonged to the old strip layout. */
-html:not(.Theme--legacyOS) body.asga-active #searchFilter { margin-top: 0; width: 100%; }
+/* height released here too: CA fixes the filter at 5.6rem, and the card's own
+   released height just wraps whatever the filter says */
+html:not(.Theme--legacyOS) body.asga-active #searchFilter { margin-top: 0; width: 100%; height: auto !important; }
 /* flex: none on every group: something in the host page's cascade lets the
    row's items shrink even with free space beside them, which floored the
    refresh button at its glyph width. Opting the groups out of flexing pins
    every control at its designed size. */
-html:not(.Theme--legacyOS) body.asga-active .asga-sortwrap { margin-left: 16px; flex: none; }
+/* height pinned to the control row: the host cascade hands this span 56px
+   (the same family of quirk that ate the refresh button's width), which was
+   the one tall item stretching the card's flex line */
+html:not(.Theme--legacyOS) body.asga-active .asga-sortwrap { margin-left: 16px; flex: none; height: 36px; }
 html:not(.Theme--legacyOS) body.asga-active #searchFilter .awesomplete { flex: none; }
-/* The bar's DOM puts the toggle before the sort group; order re-seats it as
-   the row's last item so the auto margin can pin it to the card's right edge
-   while the sort group stays beside the search control. */
-html:not(.Theme--legacyOS) body.asga-active .asga-toggle { margin-left: auto; padding-left: 16px; order: 9; }
 body.asga-active #searchBox { margin-bottom: 0; }
 /* CA's magnifier is an inline span whose 11px of vertical padding only becomes a
    real box once it is a flex item, where it alone made the row 55px tall */
@@ -410,6 +418,53 @@ body.dark .asga-sortsel { color-scheme: dark; }
   background: var(--background-color, #1c1c1c);
   color: var(--text-color, #f2f2f2);
 }
+/* The custom sort control: the button wears the select's exact clothes, and
+   the open list wears the refresh menu's, so nothing native shows through on
+   any browser. The select stays in the DOM as the state holder, off screen
+   rather than display none so a script reading it still finds a live control. */
+.asga-sortsel-hidden { position: absolute !important; left: -9999px !important; width: 1px !important; height: 1px !important; opacity: 0; pointer-events: none; }
+html:not(.Theme--legacyOS) body.asga-active .asga-sortbtn {
+  height: 36px; box-sizing: border-box; font-size: 1.2rem; line-height: 34px;
+  color: inherit; font-family: inherit; cursor: pointer;
+  /* Unraid's global button styling would shout this in spaced uppercase; the
+     control wears the select's plain text instead */
+  text-transform: none; letter-spacing: normal; font-weight: normal;
+  background-color: rgba(127, 127, 127, 0.08);
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  border-radius: 8px;
+  padding: 0 30px 0 12px;
+  /* the same two-gradient triangle Unraid draws on its selects, at the same
+     inset the select carried */
+  background-image: linear-gradient(66.6deg, transparent 60%, var(--input-border-color, #999) 40%),
+    linear-gradient(113.4deg, var(--input-border-color, #999) 40%, transparent 60%);
+  background-position: calc(100% - 12px), calc(100% - 8px);
+  background-size: 4px 6px, 4px 6px;
+  background-repeat: no-repeat;
+  white-space: nowrap;
+}
+html:not(.Theme--legacyOS) body.asga-active .asga-sortbtn:hover { border-color: #ff8c2f; }
+html:not(.Theme--legacyOS) body.asga-active .asga-sortbtn:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 1px; }
+/* the open list: the refresh menu's surface, left-anchored under the button */
+.asga-sortmenu {
+  left: 0; right: auto; top: 44px;
+  /* border-box, because the script hands it the button's border-box width so
+     the two boxes match edge for edge */
+  box-sizing: border-box;
+  /* no min-width floor: the script hands this the field's own width, and a
+     floor of its own would make the list wider than the field it drops from.
+     The field is already sized to the longest entry, so nothing wraps. */
+  min-width: 0; max-height: 60vh; overflow-y: auto; scrollbar-width: thin;
+  padding: 4px 0;
+}
+.asga-sortmenu-group {
+  padding: 8px 14px 3px; font-size: 1rem; opacity: 0.5;
+  text-transform: uppercase; letter-spacing: 0.05em;
+}
+.asga-gh-mark { width: 12px; height: 12px; fill: currentColor; vertical-align: -2px; margin-right: 3px; }
+.asga-sortmenu-item { padding-left: 22px; }
+/* the current sort is named in the accent colour alone: a tick would push its
+   label out of line with every other entry in the list */
+.asga-sortmenu-cur { color: #ff8c2f; }
 html:not(.Theme--legacyOS) body.asga-active .asga-sortsel:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 1px; }
 html:not(.Theme--legacyOS) body.asga-active .asga-refreshlink {
   display: inline-flex; align-items: center; justify-content: center;
@@ -446,10 +501,14 @@ body.asga-active .menuItems.menuAdjust { margin-top: -46px; position: relative; 
 @media (min-width: 1025px) {
   body.asga-active .menuItems.menuAdjust { margin-top: -100px; }
 }
-/* On 7.2 and newer the header spans the full width, so the column the menu
-   used to be lifted into no longer exists; the menu rests where CA puts it,
-   level with the grid's heading. */
+/* With the card starting at the grid's edge, the column beside it is empty
+   again, so the menu lifts back into it: Home's centre lands on the search
+   box's centre. Only above 1024, for CA's 4rem band clamp reason above; below
+   that the menu rests level with the heading. */
 html:not(.Theme--legacyOS) body.asga-active .menuItems.menuAdjust { margin-top: 0; }
+@media (min-width: 1025px) {
+  html:not(.Theme--legacyOS) body.asga-active .menuItems.menuAdjust { margin-top: -67px; }
+}
 /* The menu is pinned while the grid scrolls past it. CA leaves it in normal
    flow, so on a page of ninety-six cards it scrolls away and changing category
    means going back to the top first.
