@@ -1048,13 +1048,12 @@
     }
     function dots() { var s = document.createElement('span'); s.className = 'asga-dots'; s.textContent = '…'; return s; }
 
-    // ---- our toolbar (toggle + dropdown + refresh) in CA's search row ----
-    function addSortBar() {
-      var host = document.getElementById('searchFilter');
-      if (!host || document.getElementById('asga-bar')) return;
-      // grouped by data source, with the two name orders ungrouped at the top
-      // since they belong to neither; a flat list of twenty near-identical
-      // labels would otherwise be a wall of text
+    // Builds the <option>/<optgroup> markup for a sort dropdown straight from
+    // SORT_OPTS: grouped by data source, with the two name orders ungrouped
+    // at the top since they belong to neither. Shared by the toolbar's own
+    // sort select and the settings panel's Default Sort Order field, so the
+    // two lists are read off the one array and can never drift apart.
+    function sortOptionsHtml() {
       var opts = '', group = '';
       SORT_OPTS.forEach(function (o) {
         if (o.g !== group) {
@@ -1067,6 +1066,14 @@
         opts += '<option value="' + o.v + '"' + (o.hint ? ' title="' + o.hint + '"' : '') + '>' + o.label + '</option>';
       });
       if (group) opts += '</optgroup>';
+      return opts;
+    }
+
+    // ---- our toolbar (toggle + dropdown + refresh) in CA's search row ----
+    function addSortBar() {
+      var host = document.getElementById('searchFilter');
+      if (!host || document.getElementById('asga-bar')) return;
+      var opts = sortOptionsHtml();
       var bar = document.createElement('span');
       bar.id = 'asga-bar';
       bar.className = 'asga-bar';
@@ -1090,9 +1097,11 @@
           '<path d="M5.255 5.786a.237.237 0 0 0 .241.247h.825c.138 0 .248-.113.266-.25.09-.656.54-1.134 1.342-1.134.686 0 1.314.343 1.314 1.168 0 .635-.374.927-.965 1.371-.673.489-1.206 1.06-1.168 1.987l.003.217a.25.25 0 0 0 .25.246h.811a.25.25 0 0 0 .25-.25v-.105c0-.718.273-.927 1.01-1.486.609-.463 1.244-.977 1.244-2.056 0-1.511-1.276-2.241-2.673-2.241-1.267 0-2.655.59-2.75 2.286zm1.557 5.763c0 .533.425.927 1 .927.609 0 1.028-.394 1.028-.927 0-.552-.42-.94-1.028-.94-.575 0-1 .388-1 .94z"/></svg>' +
         '</button>' +
         // The gear lives in the bar so it is present in both view states, and
-        // it is a plain link so a middle click opens the settings in a tab.
+        // it stays a plain link (see the click handler below) so a middle
+        // click or a ctrl/cmd click still opens the real settings page in a
+        // tab; only a plain left click is taken over to open the panel.
         '<a id="asga-settings" class="asga-settings" href="/Settings/ModernAppStore" ' +
-          'title="Unraid Modern App Store settings">' +
+          'title="Unraid Modern App Store settings (opens here; middle-click or Ctrl/Cmd-click for the full settings page)">' +
           '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 4.75a3.25 3.25 0 1 0 0 6.5 3.25 3.25 0 0 0 0-6.5zm0 5a1.75 1.75 0 1 1 0-3.5 1.75 1.75 0 0 1 0 3.5z"/>' +
           '<path d="M6.94.75a.75.75 0 0 0-.74.63l-.2 1.2a5.5 5.5 0 0 0-1.05.61l-1.14-.43a.75.75 0 0 0-.9.33l-1.06 1.82a.75.75 0 0 0 .16.94l.94.78a5.6 5.6 0 0 0 0 1.22l-.94.78a.75.75 0 0 0-.16.94l1.06 1.82c.18.31.55.44.9.33l1.14-.43c.32.24.68.45 1.05.61l.2 1.2c.06.36.38.63.74.63h2.12c.36 0 .68-.27.74-.63l.2-1.2c.37-.16.73-.37 1.05-.61l1.14.43c.35.11.72-.02.9-.33l1.06-1.82a.75.75 0 0 0-.16-.94l-.94-.78a5.6 5.6 0 0 0 0-1.22l.94-.78a.75.75 0 0 0 .16-.94l-1.06-1.82a.75.75 0 0 0-.9-.33l-1.14.43a5.5 5.5 0 0 0-1.05-.61l-.2-1.2a.75.75 0 0 0-.74-.63H6.94zm.64 1.5h.84l.17 1.02c.05.3.27.54.56.62.44.13.86.37 1.22.7.22.2.54.26.82.15l.97-.36.42.73-.8.66a.75.75 0 0 0-.26.8c.12.44.12.9 0 1.34a.75.75 0 0 0 .26.8l.8.66-.42.73-.97-.36a.75.75 0 0 0-.82.15c-.36.33-.78.57-1.22.7a.75.75 0 0 0-.56.62l-.17 1.02h-.84l-.17-1.02a.75.75 0 0 0-.56-.62 4 4 0 0 1-1.22-.7.75.75 0 0 0-.82-.15l-.97.36-.42-.73.8-.66a.75.75 0 0 0 .26-.8 3.9 3.9 0 0 1 0-1.34.75.75 0 0 0-.26-.8l-.8-.66.42-.73.97.36c.28.11.6.05.82-.15.36-.33.78-.57 1.22-.7a.75.75 0 0 0 .56-.62l.17-1.02z"/></svg>' +
         '</a>';
@@ -1103,6 +1112,15 @@
       wireSortMenu(sel);
       document.getElementById('asga-refresh').addEventListener('click', onRefreshClick);
       document.getElementById('asga-help').addEventListener('click', openAboutPanel);
+      document.getElementById('asga-settings').addEventListener('click', function (e) {
+        // a modifier key or a non-left click is the browser being asked to
+        // open the real settings page itself (new tab, new window); only a
+        // plain left click is taken over to open the panel instead, so the
+        // anchor still behaves like a normal link in every other case
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        openSettingsPanel(e.currentTarget);
+      });
       var cb = document.getElementById('asga-toggle-cb');
       cb.checked = isOn();
       cb.addEventListener('change', function () { setOn(cb.checked); });
@@ -1202,55 +1220,93 @@
       });
     }
 
-    // ---- About / Help panel: what the plugin is, its last few changelog
-    // entries, and when it was last updated. The panel and its backdrop are
-    // built once, the first time the help button is clicked, and reused after
-    // that (unlike the attention modal or the lightbox, which are thrown away
-    // on close), so opening it a second time never rebuilds the DOM or refires
-    // the network request. ----
-    var aboutData = null;    // about.php's answer, or the string 'error' after a failed fetch; null means "not fetched yet"
-    var aboutPanel = null;   // { backdrop, panel, body, closeBtn }, built lazily by ensureAboutPanel()
-    var aboutOpener = null;  // the button to hand focus back to once the panel closes
-    function aboutEscHandler(ev) { if (ev.key === 'Escape') closeAboutPanel(); }
+    // ---- drawer shell: a right-edge slide-in panel with a backdrop, a
+    // sticky header (title + close), a scrollable body, Escape to close,
+    // backdrop click to close, focus into the panel on open and back to the
+    // opener on close, and a body.asga-drawer-open scroll lock. The About
+    // panel and the Settings panel are both built from this, so all of that
+    // is written, and fixed, exactly once. Only one drawer is ever open at a
+    // time: opening one closes whichever other one is already open first. ----
+    var openDrawerNow = null;   // the drawer object currently open, or null
+    function drawerEscHandler(ev) { if (ev.key === 'Escape') closeDrawer(openDrawerNow); }
 
-    function ensureAboutPanel() {
-      if (aboutPanel) return aboutPanel;
+    function makeDrawer(id, titleText) {
+      var d = {};
       var backdrop = document.createElement('div');
-      backdrop.className = 'asga-about-backdrop';
-      backdrop.addEventListener('click', closeAboutPanel);
+      backdrop.className = 'asga-drawer-backdrop';
+      backdrop.addEventListener('click', function () { closeDrawer(d); });
 
       var panel = document.createElement('div');
-      panel.id = 'asga-about-panel';
-      panel.className = 'asga-about-panel';
+      panel.id = id;
+      panel.className = 'asga-drawer-panel';
       panel.setAttribute('role', 'dialog');
       panel.setAttribute('aria-modal', 'true');
-      panel.setAttribute('aria-labelledby', 'asga-about-title');
+      var titleId = id + '-title';
+      panel.setAttribute('aria-labelledby', titleId);
 
       var header = document.createElement('div');
-      header.className = 'asga-about-header';
+      header.className = 'asga-drawer-header';
       var title = document.createElement('h2');
-      title.id = 'asga-about-title';
-      title.className = 'asga-about-title';
-      title.textContent = 'Unraid Modern App Store';
+      title.id = titleId;
+      title.className = 'asga-drawer-title';
+      title.textContent = titleText;
       var closeBtn = document.createElement('button');
       closeBtn.type = 'button';
-      closeBtn.className = 'asga-about-close';
+      closeBtn.className = 'asga-drawer-close';
       closeBtn.title = 'Close';
       closeBtn.setAttribute('aria-label', 'Close');
       closeBtn.textContent = '✕';
-      closeBtn.addEventListener('click', closeAboutPanel);
+      closeBtn.addEventListener('click', function () { closeDrawer(d); });
       header.appendChild(title);
       header.appendChild(closeBtn);
 
       var body = document.createElement('div');
-      body.className = 'asga-about-body';
+      body.className = 'asga-drawer-body';
 
       panel.appendChild(header);
       panel.appendChild(body);
       document.body.appendChild(backdrop);
       document.body.appendChild(panel);
 
-      aboutPanel = { backdrop: backdrop, panel: panel, body: body, closeBtn: closeBtn };
+      d.backdrop = backdrop; d.panel = panel; d.body = body; d.closeBtn = closeBtn; d.opener = null;
+      return d;
+    }
+    function openDrawer(d, opener) {
+      // only one drawer at a time: close whatever else is open first, so the
+      // two never fight over the Escape handler or the scroll lock
+      if (openDrawerNow && openDrawerNow !== d) closeDrawer(openDrawerNow);
+      d.opener = opener || null;
+      openDrawerNow = d;
+      document.body.classList.add('asga-drawer-open');
+      d.backdrop.classList.add('asga-open');
+      d.panel.classList.add('asga-open');
+      document.addEventListener('keydown', drawerEscHandler, true);
+      // preventScroll: the button that opened this can sit far down the
+      // sticky toolbar, and a plain focus() would otherwise scroll the page
+      // back to it
+      try { d.closeBtn.focus({ preventScroll: true }); } catch (e) { d.closeBtn.focus(); }
+    }
+    function closeDrawer(d) {
+      if (!d) return;
+      d.backdrop.classList.remove('asga-open');
+      d.panel.classList.remove('asga-open');
+      document.body.classList.remove('asga-drawer-open');
+      document.removeEventListener('keydown', drawerEscHandler, true);
+      if (openDrawerNow === d) openDrawerNow = null;
+      if (d.opener) try { d.opener.focus({ preventScroll: true }); } catch (e) { d.opener.focus(); }
+    }
+
+    // ---- About / Help panel: what the plugin is, its last few changelog
+    // entries, and when it was last updated. Built once, the first time the
+    // help button is clicked, and reused after that (unlike the attention
+    // modal or the lightbox, which are thrown away on close), so opening it a
+    // second time never rebuilds the DOM or refires the network request. ----
+    var aboutData = null;    // about.php's answer, or the string 'error' after a failed fetch; null means "not fetched yet"
+    var aboutPanel = null;   // the drawer object, built lazily by ensureAboutPanel()
+
+    function ensureAboutPanel() {
+      if (aboutPanel) return aboutPanel;
+      aboutPanel = makeDrawer('asga-about-panel', 'Unraid Modern App Store');
       return aboutPanel;
     }
 
@@ -1350,7 +1406,6 @@
     }
 
     function openAboutPanel() {
-      aboutOpener = document.getElementById('asga-help');
       ensureAboutPanel();
       renderAboutBody();
       // fetched once per page load and cached in aboutData; reopening just
@@ -1361,21 +1416,245 @@
           .then(function (j) { aboutData = j || 'error'; renderAboutBody(); })
           .catch(function () { aboutData = 'error'; renderAboutBody(); });
       }
-      document.body.classList.add('asga-about-open');
-      aboutPanel.backdrop.classList.add('asga-open');
-      aboutPanel.panel.classList.add('asga-open');
-      document.addEventListener('keydown', aboutEscHandler, true);
-      // preventScroll: the button that opened this sits far down the sticky
-      // toolbar, and a plain focus() would otherwise scroll the page back to it
-      try { aboutPanel.closeBtn.focus({ preventScroll: true }); } catch (e) { aboutPanel.closeBtn.focus(); }
+      openDrawer(aboutPanel, document.getElementById('asga-help'));
     }
-    function closeAboutPanel() {
-      if (!aboutPanel) return;
-      aboutPanel.backdrop.classList.remove('asga-open');
-      aboutPanel.panel.classList.remove('asga-open');
-      document.body.classList.remove('asga-about-open');
-      document.removeEventListener('keydown', aboutEscHandler, true);
-      if (aboutOpener) try { aboutOpener.focus({ preventScroll: true }); } catch (e) { aboutOpener.focus(); }
+
+    // ---- Settings panel: the same fields as the Unraid settings page
+    // (Settings, Utilities, Unraid Modern App Store), read and written
+    // through the shared settings.php endpoint the settings page itself
+    // uses, so the two are true mirrors of one another rather than two
+    // copies of the same config. This panel never touches the config file
+    // directly, and it re-reads settings.php every time it OPENS rather than
+    // caching them like the About panel does, since the settings page may
+    // have changed them in another tab. ----
+    var settingsPanel = null;   // the drawer object, plus .els (the form controls), built lazily by ensureSettingsPanel()
+
+    // one label above one full-width control, appended to body; returns the control
+    function addSettingsField(body, id, labelText, control) {
+      var field = document.createElement('div');
+      field.className = 'asga-settings-field';
+      var label = document.createElement('label');
+      label.className = 'asga-settings-label';
+      label.setAttribute('for', id);
+      label.textContent = labelText;
+      control.id = id;
+      field.appendChild(label);
+      field.appendChild(control);
+      body.appendChild(field);
+      return control;
+    }
+    function addSettingsSelect(body, id, labelText, options) {
+      var sel = document.createElement('select');
+      sel.className = 'asga-settings-select';
+      options.forEach(function (o) {
+        var opt = document.createElement('option');
+        opt.value = o.v; opt.textContent = o.label;
+        sel.appendChild(opt);
+      });
+      return addSettingsField(body, id, labelText, sel);
+    }
+
+    function setSettingsStatus(text) {
+      var el = document.getElementById('asga-set-status');
+      if (el) el.textContent = text || '';
+    }
+
+    function ensureSettingsPanel() {
+      if (settingsPanel) return settingsPanel;
+      var d = makeDrawer('asga-settings-panel', 'Unraid Modern App Store Settings');
+      var body = d.body;
+      var els = {};
+
+      els.service = addSettingsSelect(body, 'asga-set-service', 'Enable Unraid Modern App Store', [
+        { v: 'enabled', label: 'Yes' }, { v: 'disabled', label: 'No' }
+      ]);
+      els.notif = addSettingsSelect(body, 'asga-set-notif', 'Enable Notifications', [
+        { v: 'enabled', label: 'Yes' }, { v: 'disabled', label: 'No' }
+      ]);
+
+      // token: a password input that never carries the saved secret (the
+      // endpoint never returns it either), plus a clear-token control that
+      // only shows once a token is actually on file
+      var tokInput = document.createElement('input');
+      tokInput.type = 'password';
+      tokInput.autocomplete = 'new-password';
+      tokInput.className = 'asga-settings-input';
+      addSettingsField(body, 'asga-set-token', 'GitHub Personal Access Token', tokInput);
+      var clearWrap = document.createElement('div');
+      clearWrap.className = 'asga-settings-clearwrap';
+      clearWrap.style.display = 'none';
+      var clearBtn = document.createElement('button');
+      clearBtn.type = 'button';
+      clearBtn.className = 'asga-settings-clearbtn';
+      clearBtn.textContent = 'Clear saved token';
+      clearBtn.addEventListener('click', clearSettingsToken);
+      clearWrap.appendChild(clearBtn);
+      tokInput.parentNode.appendChild(clearWrap);
+      els.token = tokInput; els.clearWrap = clearWrap;
+
+      els.scanDays = addSettingsSelect(body, 'asga-set-scandays', 'Refresh GitHub Trending Data', [
+        { v: '1', label: 'Every day' }, { v: '2', label: 'Every 2 days' },
+        { v: '3', label: 'Every 3 days' }, { v: '7', label: 'Every week' }
+      ]);
+
+      // built FROM SORT_OPTS via the same helper the toolbar's own sort
+      // select uses, so this list is exactly the grid's own sort menu and
+      // cannot drift out of step with it
+      var sortSel = document.createElement('select');
+      sortSel.className = 'asga-settings-select';
+      sortSel.innerHTML = sortOptionsHtml();
+      els.sort = addSettingsField(body, 'asga-set-sort', 'Default sort order', sortSel);
+
+      var dataDirInput = document.createElement('input');
+      dataDirInput.type = 'text';
+      dataDirInput.className = 'asga-settings-input';
+      els.dataDir = addSettingsField(body, 'asga-set-datadir', 'Database directory', dataDirInput);
+
+      var actions = document.createElement('div');
+      actions.className = 'asga-settings-actions';
+      var applyBtn = document.createElement('button');
+      applyBtn.type = 'button';
+      applyBtn.className = 'asga-settings-apply';
+      applyBtn.textContent = 'Apply';
+      applyBtn.addEventListener('click', applySettingsPanel);
+      var refreshBtn = document.createElement('button');
+      refreshBtn.type = 'button';
+      refreshBtn.className = 'asga-settings-refreshbtn';
+      refreshBtn.textContent = 'Refresh now';
+      refreshBtn.addEventListener('click', refreshFromSettingsPanel);
+      actions.appendChild(applyBtn);
+      actions.appendChild(refreshBtn);
+      body.appendChild(actions);
+
+      var status = document.createElement('div');
+      status.id = 'asga-set-status';
+      status.className = 'asga-settings-status';
+      body.appendChild(status);
+
+      d.els = els;
+      settingsPanel = d;
+      return settingsPanel;
+    }
+
+    // fills the form from settings.php's own response shape; called after
+    // every GET (panel open) and every successful POST (apply / clear token),
+    // so the form always shows exactly what is now on disk
+    function fillSettingsForm(j) {
+      var els = settingsPanel.els;
+      els.service.value = (j.service === 'disabled') ? 'disabled' : 'enabled';
+      els.notif.value = (j.notifications === 'disabled') ? 'disabled' : 'enabled';
+      els.scanDays.value = j.scanDays || '1';
+      // same validity test optFor() backs the saved-sort read with, so a
+      // value this select doesn't recognise leaves the field as it was
+      // rather than selecting nothing
+      if (j.defaultSort && optFor(j.defaultSort).v === j.defaultSort) els.sort.value = j.defaultSort;
+      els.dataDir.value = j.dataDir || '';
+      // the token field is ALWAYS rendered empty: the endpoint never sends
+      // the saved value back, and echoing whatever the user last typed here
+      // across a reopen would be the one place this panel disagreed with the
+      // settings page, which never does that either
+      els.token.value = '';
+      els.token.placeholder = j.hasToken
+        ? 'A token is saved. Leave this box blank to keep it.'
+        : '';
+      els.clearWrap.style.display = j.hasToken ? '' : 'none';
+    }
+
+    function openSettingsPanel(opener) {
+      var d = ensureSettingsPanel();
+      openDrawer(d, opener);
+      // re-read every time the panel opens, never cached: the settings page
+      // may have changed these in another tab, and this panel claims to
+      // mirror it, so it has to ask again rather than trust a stale copy
+      setSettingsStatus('Loading…');
+      fetch(PREFIX + 'settings.php?_=' + Date.now())
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          if (!j) { setSettingsStatus('Could not load settings.'); return; }
+          fillSettingsForm(j);
+          setSettingsStatus('');
+        })
+        .catch(function () { setSettingsStatus('Could not load settings.'); });
+    }
+
+    // Unraid's webGui drops any POST that doesn't carry its CSRF token: the
+    // request still answers HTTP 200, but with a zero-length body and
+    // nothing saved, which is otherwise indistinguishable from success. The
+    // token is exposed as window.csrf_token on every webGui page, including
+    // this one, so it is appended to every settings.php POST here.
+    function csrfBody(params) {
+      if (window.csrf_token) params.set('csrf_token', window.csrf_token);
+      return params.toString();
+    }
+    // POSTs params to settings.php and hands cb the parsed JSON, or null for
+    // ANY failure: a network error, a non-2xx response, or a response body
+    // that doesn't parse as JSON, which is exactly what the silent
+    // empty-body CSRF failure above looks like. cb is always reached with
+    // something, so a click handler never has to guard its own call, and a
+    // bad body can never throw uncaught inside it.
+    function postSettingsForm(params, cb) {
+      fetch(PREFIX + 'settings.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: csrfBody(params),
+        credentials: 'same-origin'
+      })
+        .then(function (r) { return r.ok ? r.text() : ''; })
+        .then(function (txt) {
+          var j = null;
+          if (txt) { try { j = JSON.parse(txt); } catch (e) { j = null; } }
+          cb(j);
+        })
+        .catch(function () { cb(null); });
+    }
+
+    function applySettingsPanel() {
+      var els = settingsPanel.els;
+      setSettingsStatus('Applying…');
+      var params = new URLSearchParams();
+      params.set('SERVICE', els.service.value);
+      params.set('NOTIFICATIONS', els.notif.value);
+      // an empty TOKEN means "leave the saved token alone" on the server
+      // side too, but it is left off the request entirely here rather than
+      // relied on, so nothing is ever sent for a field the user didn't touch
+      if (els.token.value) params.set('TOKEN', els.token.value);
+      params.set('SCAN_DAYS', els.scanDays.value);
+      params.set('DEFAULT_SORT', els.sort.value);
+      params.set('DATA_DIR', els.dataDir.value);
+      postSettingsForm(params, function (j) {
+        // an empty or unparsable body lands here as j === null, same as any
+        // other failure, so a silently-dropped CSRF-less POST reads as an
+        // error instead of a false "Settings applied."
+        if (!j || !j.saved) { setSettingsStatus('Could not save settings. Try again.'); return; }
+        fillSettingsForm(j);
+        // the grid's own notion of the configured default follows the save
+        // immediately, without reloading the page or touching whatever sort
+        // the user is currently looking at
+        if (j.defaultSort && optFor(j.defaultSort).v === j.defaultSort) defaultSort = j.defaultSort;
+        setSettingsStatus('Settings applied.');
+      });
+    }
+
+    function clearSettingsToken() {
+      setSettingsStatus('Clearing the saved token…');
+      var params = new URLSearchParams();
+      params.set('CLEAR_TOKEN', '1');
+      postSettingsForm(params, function (j) {
+        if (!j || !j.saved) { setSettingsStatus('Could not clear the token. Try again.'); return; }
+        fillSettingsForm(j);
+        setSettingsStatus('Token cleared.');
+      });
+    }
+
+    function refreshFromSettingsPanel() {
+      setSettingsStatus('Starting a scan…');
+      var params = new URLSearchParams();
+      params.set('action', 'refresh');
+      postSettingsForm(params, function (j) {
+        if (!j || !j.started) { setSettingsStatus('Could not start a scan. Try again.'); return; }
+        setSettingsStatus('Scan started.');
+        startPolling();   // same progress bar the toolbar's own refresh uses
+      });
     }
 
     // "Updated 12 min ago" beside the refresh icon. The visible time is CA's

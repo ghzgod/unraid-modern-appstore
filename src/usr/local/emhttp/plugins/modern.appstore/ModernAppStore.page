@@ -5,6 +5,9 @@ Icon="modern.appstore.png"
 <?php
 /* Unraid Modern App Store: settings page (Settings -> Utilities -> Unraid Modern App Store). */
 require_once "$docroot/plugins/dynamix/include/Wrappers.php";
+// shared with settings.php (the Apps page's slide-in panel), so both surfaces
+// validate, default, and write the same way and can never disagree.
+require_once "$docroot/plugins/modern.appstore/config.php";
 
 $gas_dir  = "/boot/config/plugins/modern.appstore";
 $gas_cfg  = "$gas_dir/modern.appstore.cfg";
@@ -13,52 +16,6 @@ $gas_php  = "/usr/local/emhttp/plugins/modern.appstore/fetch_stars.php";
 $gas_msg  = "";
 
 if (!is_dir($gas_dir)) @mkdir($gas_dir, 0755, true);
-
-function gas_write_cfg($path, $token, $service, $notifications, $datadir, $scanDays, $defaultSort) {
-    $token   = str_replace(["\"", "\n", "\r"], "", $token);
-    $datadir = rtrim(str_replace(["\"", "\n", "\r"], "", $datadir), '/');
-    if ($datadir === '') $datadir = '/boot/config/plugins/modern.appstore';
-    $service = ($service === 'enabled') ? 'enabled' : 'disabled';
-    $notifications = ($notifications === 'disabled') ? 'disabled' : 'enabled';
-    $scanDays = gas_scan_days($scanDays);
-    $defaultSort = gas_default_sort($defaultSort);
-    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nNOTIFICATIONS=\"$notifications\"\nDATA_DIR=\"$datadir\"\nSCAN_DAYS=\"$scanDays\"\nDEFAULT_SORT=\"$defaultSort\"\n";
-    file_put_contents($path, $out);
-    @chmod($path, 0600);
-    @mkdir($datadir, 0755, true);
-}
-
-// Only the intervals the cron line below can express, so a hand-edited config
-// cannot write a schedule that never fires.
-function gas_scan_days($v) {
-    $v = (int)$v;
-    return in_array($v, [1, 2, 3, 7], true) ? $v : 1;
-}
-
-// The grid's own SORT_OPTS list, mirrored here so a hand-edited config cannot
-// name a sort order the grid does not have; anything unrecognised opens on
-// Newest to the App Store instead.
-function gas_default_sort($v) {
-    $valid = ['name_asc', 'name_desc', 'downloads', 'new', 'updated', 'spotlight', 'trending',
-              'newinstalls', 'popplugins', 'ghstars', 'ght1', 'ght7', 'ght30', 'ght365',
-              'ghp1', 'ghp7', 'ghp30', 'ghp365', 'ghpall'];
-    return in_array($v, $valid, true) ? $v : 'new';
-}
-
-function gas_write_cron($path, $scanDays = 1) {
-    $php = "php /usr/local/emhttp/plugins/modern.appstore/fetch_stars.php";
-    $scanDays = gas_scan_days($scanDays);
-    // A full scan on the chosen interval, plus an hourly check that pulls only
-    // NEWLY published app-store repos (it bypasses the manual-refresh cooldown).
-    // The trending orders are differences between two full scans, so the
-    // interval is also the finest trending window that can hold any data: on a
-    // three-day schedule the "today" window compares a star count against
-    // itself and every app reads as zero.
-    $day = ($scanDays === 1) ? "*" : "*/$scanDays";
-    $lines = "0 4 $day * * $php >/dev/null 2>&1\n23 * * * * $php --new-only 1 >/dev/null 2>&1\n";
-    file_put_contents($path, $lines);
-    @exec("/usr/local/sbin/update_cron 2>/dev/null");
-}
 
 if ($_POST) {
     if (isset($_POST['SAVE'])) {
@@ -81,13 +38,13 @@ if ($_POST) {
     }
 }
 
-$cfg = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
-$token         = $cfg['TOKEN'] ?? '';
-$service       = $cfg['SERVICE'] ?? 'enabled';
-$notifications = (($cfg['NOTIFICATIONS'] ?? 'enabled') === 'disabled') ? 'disabled' : 'enabled';
-$datadir       = $cfg['DATA_DIR'] ?? '/boot/config/plugins/modern.appstore';
-$scandays      = (string)gas_scan_days($cfg['SCAN_DAYS'] ?? 1);
-$defsort       = gas_default_sort($cfg['DEFAULT_SORT'] ?? 'new');
+$cfg           = gas_read_cfg($gas_cfg);
+$token         = $cfg['token'];
+$service       = $cfg['service'];
+$notifications = $cfg['notifications'];
+$datadir       = $cfg['datadir'];
+$scandays      = $cfg['scandays'];
+$defsort       = $cfg['defaultsort'];
 
 $status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/modern.appstore/status.json"), true) ?: [];
 ?>
