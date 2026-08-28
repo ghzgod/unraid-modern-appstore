@@ -100,7 +100,7 @@ _(GitHub Personal Access Token)_:
 >
 > While this field is empty the Apps page shows a yellow warning and star counts stay disabled.
 
-_(Refresh star data)_:
+_(Refresh GitHub Trending Data)_:
 : <select name="SCAN_DAYS" size="1">
     <?= mk_option($scandays, "1", "Every day") ?>
     <?= mk_option($scandays, "2", "Every 2 days") ?>
