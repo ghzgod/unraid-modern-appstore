@@ -483,10 +483,15 @@ html:not(.Theme--legacyOS) body.asga-active .asga-sortbtn:focus-visible { outlin
   padding: 8px 14px 3px; font-size: 1rem; opacity: 0.5;
   text-transform: uppercase; letter-spacing: 0.05em;
 }
-/* Both marks TRAIL their group's name instead of leading it, so that every
-   group label in the list starts on one left edge. Led, they started on three:
-   the two marks are different widths and General carries none at all, which
-   put the labels at 14px, 29px and 41px in the same short list. */
+/* The two ungrouped name orders open the list with no header above them, so
+   the first one sat flush against the menu's own 4px top padding instead of
+   the header row every later group gets. A few extra pixels put it on
+   roughly the same footing as a group's own first entry. */
+.asga-sortmenu-item:first-child { margin-top: 4px; }
+/* Both marks TRAIL their group's name instead of leading it, so both group
+   headers (Unraid, GitHub) start on one left edge. Led, they would not: the
+   two marks are different widths, so leading them would push the two headers
+   to different edges instead. */
 .asga-gh-mark { width: 12px; height: 12px; fill: currentColor; vertical-align: -2px; margin-left: 7px; }
 /* the Unraid mark is a wide, short bar block (133.52 x 76.97), not a square
    like the GitHub glyph, so it gets its own box. It is nine separate bars

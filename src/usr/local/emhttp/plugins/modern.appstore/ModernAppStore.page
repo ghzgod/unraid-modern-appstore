@@ -14,14 +14,15 @@ $gas_msg  = "";
 
 if (!is_dir($gas_dir)) @mkdir($gas_dir, 0755, true);
 
-function gas_write_cfg($path, $token, $service, $datadir, $scanDays, $defaultSort) {
+function gas_write_cfg($path, $token, $service, $notifications, $datadir, $scanDays, $defaultSort) {
     $token   = str_replace(["\"", "\n", "\r"], "", $token);
     $datadir = rtrim(str_replace(["\"", "\n", "\r"], "", $datadir), '/');
     if ($datadir === '') $datadir = '/boot/config/plugins/modern.appstore';
     $service = ($service === 'enabled') ? 'enabled' : 'disabled';
+    $notifications = ($notifications === 'disabled') ? 'disabled' : 'enabled';
     $scanDays = gas_scan_days($scanDays);
     $defaultSort = gas_default_sort($defaultSort);
-    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nDATA_DIR=\"$datadir\"\nSCAN_DAYS=\"$scanDays\"\nDEFAULT_SORT=\"$defaultSort\"\n";
+    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nNOTIFICATIONS=\"$notifications\"\nDATA_DIR=\"$datadir\"\nSCAN_DAYS=\"$scanDays\"\nDEFAULT_SORT=\"$defaultSort\"\n";
     file_put_contents($path, $out);
     @chmod($path, 0600);
     @mkdir($datadir, 0755, true);
@@ -61,12 +62,13 @@ function gas_write_cron($path, $scanDays = 1) {
 
 if ($_POST) {
     if (isset($_POST['SAVE'])) {
-        $token    = $_POST['TOKEN'] ?? '';
-        $service  = $_POST['SERVICE'] ?? 'disabled';
-        $datadir  = $_POST['DATA_DIR'] ?? '';
-        $scandays = $_POST['SCAN_DAYS'] ?? '1';
-        $defsort  = $_POST['DEFAULT_SORT'] ?? 'new';
-        gas_write_cfg($gas_cfg, $token, $service, $datadir, $scandays, $defsort);
+        $token         = $_POST['TOKEN'] ?? '';
+        $service       = $_POST['SERVICE'] ?? 'disabled';
+        $notifications = $_POST['NOTIFICATIONS'] ?? 'enabled';
+        $datadir       = $_POST['DATA_DIR'] ?? '';
+        $scandays      = $_POST['SCAN_DAYS'] ?? '1';
+        $defsort       = $_POST['DEFAULT_SORT'] ?? 'new';
+        gas_write_cfg($gas_cfg, $token, $service, $notifications, $datadir, $scandays, $defsort);
         gas_write_cron($gas_cron, $scandays);
         $gas_msg = "Settings saved." . (trim($token) === '' ? " WARNING: no token set - star counts are disabled." : "");
     }
@@ -77,11 +79,12 @@ if ($_POST) {
 }
 
 $cfg = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
-$token    = $cfg['TOKEN'] ?? '';
-$service  = $cfg['SERVICE'] ?? 'enabled';
-$datadir  = $cfg['DATA_DIR'] ?? '/boot/config/plugins/modern.appstore';
-$scandays = (string)gas_scan_days($cfg['SCAN_DAYS'] ?? 1);
-$defsort  = gas_default_sort($cfg['DEFAULT_SORT'] ?? 'new');
+$token         = $cfg['TOKEN'] ?? '';
+$service       = $cfg['SERVICE'] ?? 'enabled';
+$notifications = (($cfg['NOTIFICATIONS'] ?? 'enabled') === 'disabled') ? 'disabled' : 'enabled';
+$datadir       = $cfg['DATA_DIR'] ?? '/boot/config/plugins/modern.appstore';
+$scandays      = (string)gas_scan_days($cfg['SCAN_DAYS'] ?? 1);
+$defsort       = gas_default_sort($cfg['DEFAULT_SORT'] ?? 'new');
 
 $status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/modern.appstore/status.json"), true) ?: [];
 ?>
@@ -101,6 +104,14 @@ _(Enable Unraid Modern App Store)_:
   </select>
 
 > Turn the plugin on or off. When on, it adds GitHub star badges to the Community Applications app tiles and a sortable GitHub view.
+
+_(Enable Notifications)_:
+: <select name="NOTIFICATIONS" size="1">
+    <?= mk_option($notifications, "enabled", "Yes") ?>
+    <?= mk_option($notifications, "disabled", "No") ?>
+  </select>
+
+> When this is on, the plugin posts a notification to Unraid's own notification area if something needs attention: no GitHub token is configured, or the configured token cannot read star dates, which leaves the two "this year" sorts empty. Each of these is raised once when it starts, not on every scan.
 
 _(GitHub Personal Access Token)_:
 : <input type="password" name="TOKEN" value="<?= htmlspecialchars($token) ?>" style="width:520px;max-width:90%;" autocomplete="off" spellcheck="false">
@@ -129,30 +140,24 @@ _(Refresh GitHub Trending Data)_:
 
 _(Default sort order)_:
 : <select name="DEFAULT_SORT" size="1">
-    <optgroup label="General">
-    <?= mk_option($defsort, "name_asc", "Name Ascending") ?>
-    <?= mk_option($defsort, "name_desc", "Name Descending") ?>
-    </optgroup>
+    <?= mk_option($defsort, "name_asc", "Name (A to Z)") ?>
+    <?= mk_option($defsort, "name_desc", "Name (Z to A)") ?>
     <optgroup label="Unraid">
-    <?= mk_option($defsort, "downloads", "Unraid Downloads") ?>
-    <?= mk_option($defsort, "new", "Newest to the App Store") ?>
+    <?= mk_option($defsort, "downloads", "Most Downloaded") ?>
+    <?= mk_option($defsort, "new", "Recently Added") ?>
     <?= mk_option($defsort, "updated", "Recently Updated") ?>
-    <?= mk_option($defsort, "spotlight", "Spotlight Apps") ?>
+    <?= mk_option($defsort, "spotlight", "Spotlight") ?>
     <?= mk_option($defsort, "trending", "Top Trending") ?>
     <?= mk_option($defsort, "newinstalls", "Top New Installs") ?>
     <?= mk_option($defsort, "popplugins", "Most Popular Plugins") ?>
     </optgroup>
     <optgroup label="GitHub">
-    <?= mk_option($defsort, "ghstars", "GitHub Stars") ?>
-    </optgroup>
-    <optgroup label="GitHub Trending">
+    <?= mk_option($defsort, "ghstars", "Most Stars") ?>
     <?= mk_option($defsort, "ght1", "Trending (today)") ?>
     <?= mk_option($defsort, "ght7", "Trending (this week)") ?>
     <?= mk_option($defsort, "ght30", "Trending (this month)") ?>
     <?= mk_option($defsort, "ght365", "Trending (this year)") ?>
     <?= mk_option($defsort, "ghtall", "Trending (all time)") ?>
-    </optgroup>
-    <optgroup label="GitHub Trending %">
     <?= mk_option($defsort, "ghp1", "Trending % (today)") ?>
     <?= mk_option($defsort, "ghp7", "Trending % (this week)") ?>
     <?= mk_option($defsort, "ghp30", "Trending % (this month)") ?>

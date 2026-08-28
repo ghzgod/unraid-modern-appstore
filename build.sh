@@ -62,10 +62,19 @@ cat <<XMLHEAD
   Plugins. They are worked out from the same feed and the same thresholds the
   App Store uses itself, so a list here holds every app that qualifies rather
   than the handful a front-page row has space for.
-- The sort menu is grouped by where its numbers come from. Name ordering sits
-  under General, everything counted by the App Store sits under Unraid with
-  Unraid's mark beside it, and the star orders keep GitHub's mark. Reading a
-  label no longer means guessing which of the two sources it came from.
+- The sort menu is grouped by where its numbers come from. The two name orders
+  belong to neither source, so they sit at the top under no heading at all.
+  Below them is one section per source, Unraid and GitHub, each carrying its
+  own mark. The source is named once, in the heading, so no entry underneath
+  repeats it: "Unraid Downloads" is now "Most Downloaded" and "GitHub Stars"
+  is "Most Stars".
+- The plugin says something when it needs attention, through Unraid's own
+  notifications, rather than leaving it on a settings page nobody has a reason
+  to open. Two cases raise one: no GitHub token is configured, and a token
+  that cannot read star dates, which is what leaves both "this year" sorts
+  empty. Each is raised once when it starts and not again until it clears, and
+  clicking it opens the settings page that explains the fix. There is a switch
+  to turn them off next to the one that turns the plugin on.
 - Plugins show how many servers have installed them. Every plugin in the store
   reported zero, because the count is thrown away for any image published
   without an owner name (that number belongs to a base image like nginx, not

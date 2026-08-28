@@ -29,6 +29,7 @@ error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
 
 const UA = 'unraid-modern-appstore/1.0 (+https://github.com/ghzgod/unraid-modern-appstore)';
 const PLUGIN = 'modern.appstore';
+const NOTIFY_BIN = '/usr/local/emhttp/webGui/scripts/notify';
 
 $cfgPath = '/boot/config/plugins/' . PLUGIN . '/' . PLUGIN . '.cfg';
 
@@ -71,6 +72,9 @@ $trendsOnly  = ((int)$opt['trends-only'] === 1);   // recompute trends from hist
 $cfg = is_file($opt['cfg']) ? @parse_ini_file($opt['cfg']) : [];
 $token = trim($cfg['TOKEN'] ?? '');
 $cfgDataDir = trim($cfg['DATA_DIR'] ?? '');
+// on unless the cfg says otherwise: an absent key is every install made
+// before this setting existed, and those should keep getting notified
+$notifyEnabled = (($cfg['NOTIFICATIONS'] ?? '') !== 'disabled');
 
 $appdataDefault = '/boot/config/plugins/modern.appstore';
 $dataDir = $opt['data-dir'] !== '' ? $opt['data-dir'] : ($cfgDataDir !== '' ? $cfgDataDir : $appdataDefault);
@@ -84,6 +88,25 @@ $status = [
     'missing' => 0, 'rate_remaining' => null, 'errors' => [],
 ];
 
+// ---- notification ledger, carried forward from the last run ---------------
+// This scan is driven by cron once a day, so a condition that stays broken
+// (no token, a blocked stargazers endpoint) would otherwise raise the same
+// notification again on every single run: noise the user tunes out well
+// before they get around to fixing the actual problem. 'notified' in
+// status.json is the fix: it remembers which keys have already fired, so a
+// condition notifies only on the run where it turns newly true, stays silent
+// for as long as it remains true, and is free to notify again if it clears
+// and later comes back. A resolved condition is never announced; that
+// direction is not worth a notification. Read $dataDir first, since that is
+// the durable copy on the appdata SSD; $outDir's tmpfs copy is only a
+// fallback for the very first run, before $dataDir has ever been written. A
+// missing or corrupt previous file just yields an empty ledger, not an error.
+$prevStatusPath = $dataDir . '/status.json';
+if (!is_file($prevStatusPath)) $prevStatusPath = $outDir . '/status.json';
+$prevStatus = @json_decode((string)@file_get_contents($prevStatusPath), true);
+$status['notified'] = (is_array($prevStatus) && is_array($prevStatus['notified'] ?? null))
+    ? $prevStatus['notified'] : [];
+
 function write_status(array $status, string $outDir, string $dataDir): void {
     $json = json_encode($status, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     @file_put_contents($outDir . '/status.json', $json);
@@ -96,6 +119,40 @@ function write_progress(string $outDir, bool $running, int $done, int $total, ar
         'missing' => $status['missing'], 'errors' => count($status['errors']),
         'updated_at' => time(),
     ], JSON_UNESCAPED_SLASHES));
+}
+
+/**
+ * Surfaces a scan problem through Unraid's own notification system, since
+ * status.json is read by nobody but this plugin's own settings page: a token
+ * can go bad on a run driven by cron, with no browser open, and sit broken
+ * for days before anyone happens to look. -l points the click target at the
+ * settings page, the one place that explains the fix, so seeing the toast is
+ * enough to reach it. -x files a single ticket rather than a running
+ * broadcast. escapeshellarg() wraps every value with no exception, because
+ * $description is partly built out of this scan's own text and must never
+ * reach the shell unescaped. Guarded on both the setting and the binary's
+ * presence, and run through @exec() with its output thrown away, so a moved
+ * binary or a disabled setting can never fail or slow the scan that calls it.
+ */
+function notify_unraid(string $subject, string $description, string $severity, bool $notifyEnabled): void {
+    if (!$notifyEnabled) return;
+    if (!is_executable(NOTIFY_BIN)) return;
+    $cmd = escapeshellarg(NOTIFY_BIN)
+        . ' -e ' . escapeshellarg('Unraid Modern App Store')
+        . ' -s ' . escapeshellarg($subject)
+        . ' -d ' . escapeshellarg($description)
+        . ' -i ' . escapeshellarg($severity)
+        . ' -m ' . escapeshellarg($description)
+        . ' -l ' . escapeshellarg('/Settings/ModernAppStore');
+    // Deliberately NOT -x. That flag names the file after the event instead of
+    // the timestamp, and notify bails out ("if (file_exists($archive)) break")
+    // when a ticket of that name is already archived, which it is from the
+    // moment the first one is written. Every condition here shares one event
+    // name, so -x would let whichever fired first be the only notification
+    // this plugin ever raises, and silently drop the rest. The notified ledger
+    // above is what stops repeats, and it does it per condition rather than
+    // per event, so it re-arms once a condition clears.
+    @exec($cmd . ' >/dev/null 2>&1');
 }
 
 // ---- single-instance lock --------------------------------------------------
@@ -170,10 +227,30 @@ $status['archives'] = archive_state($dataDir);
 
 if ($token === '' && !$trendsOnly) {
     $status['errors'][] = 'No GitHub token configured.';
+    // newly-true only (see the ledger comment above write_status): notify the
+    // first run that finds no token, then stay quiet through every daily
+    // rerun until a token is set, which is what drops the key in the else
+    // branch below and lets it fire again if the token is ever cleared.
+    if (!isset($status['notified']['no_token'])) {
+        notify_unraid(
+            'No GitHub token configured',
+            'Star counts and every GitHub sort stay empty until a token is set. '
+                . 'The settings page explains how to make one.',
+            'warning',
+            $notifyEnabled
+        );
+        $status['notified']['no_token'] = time();
+    }
     write_status($status, $outDir, $dataDir);
     write_progress($outDir, false, 0, 0, $status);
     fwrite(STDERR, "fetch_stars: no token; aborting.\n");
     exit(0);
+} elseif ($token !== '') {
+    // Cleared only on proof that a token now exists, never merely because this
+    // branch was skipped. A --trends-only run makes no GitHub calls at all and
+    // so takes the same else path with the token still empty; clearing on that
+    // would re-arm the notification and fire it again on the next real scan.
+    unset($status['notified']['no_token']);
 }
 if (!is_file($opt['ca-cache'])) {
     $status['errors'][] = 'CA catalog cache not found at ' . $opt['ca-cache'];
@@ -998,6 +1075,32 @@ $appsJson  = json_encode(['generated' => $now, 'apps' => $catalog], JSON_UNESCAP
 foreach ([$outDir, $dataDir] as $d) {
     @file_put_contents($d . '/stars.json', $starsJson);
     @file_put_contents($d . '/apps.json', $appsJson);
+}
+
+// newly-true only, same ledger as the no-token check near the top: this flag
+// is only known once stargazers_readable() has actually probed the token
+// against a live repo, so it cannot be decided any earlier than here, right
+// before this run's status is written for good. Dropping the key in the
+// else branch means swapping in a working token silences it, and swapping
+// back to a fine-grained one raises it again rather than staying silent.
+if (!empty($status['stargazers_blocked'])) {
+    if (!isset($status['notified']['stargazers_blocked'])) {
+        notify_unraid(
+            'GitHub star dates unavailable',
+            'The two "this year" trending sorts stay empty. This is how GitHub treats '
+                . 'fine-grained tokens (github_pat_...); a classic token (ghp_...) with '
+                . 'no scopes reads them.',
+            'warning',
+            $notifyEnabled
+        );
+        $status['notified']['stargazers_blocked'] = time();
+    }
+} elseif ($sgOk) {
+    // $sgOk is the probe actually coming back readable, which is the only
+    // evidence that clears this. An absent blocked flag is NOT that evidence:
+    // a --trends-only run never probes at all, so treating "not flagged" as
+    // "fixed" would clear the ledger and re-notify on the next real scan.
+    unset($status['notified']['stargazers_blocked']);
 }
 
 write_status($status, $outDir, $dataDir);

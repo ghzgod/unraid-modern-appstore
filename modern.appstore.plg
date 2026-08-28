@@ -20,10 +20,19 @@
   Plugins. They are worked out from the same feed and the same thresholds the
   App Store uses itself, so a list here holds every app that qualifies rather
   than the handful a front-page row has space for.
-- The sort menu is grouped by where its numbers come from. Name ordering sits
-  under General, everything counted by the App Store sits under Unraid with
-  Unraid's mark beside it, and the star orders keep GitHub's mark. Reading a
-  label no longer means guessing which of the two sources it came from.
+- The sort menu is grouped by where its numbers come from. The two name orders
+  belong to neither source, so they sit at the top under no heading at all.
+  Below them is one section per source, Unraid and GitHub, each carrying its
+  own mark. The source is named once, in the heading, so no entry underneath
+  repeats it: "Unraid Downloads" is now "Most Downloaded" and "GitHub Stars"
+  is "Most Stars".
+- The plugin says something when it needs attention, through Unraid's own
+  notifications, rather than leaving it on a settings page nobody has a reason
+  to open. Two cases raise one: no GitHub token is configured, and a token
+  that cannot read star dates, which is what leaves both "this year" sorts
+  empty. Each is raised once when it starts and not again until it clears, and
+  clicking it opens the settings page that explains the fix. There is a switch
+  to turn them off next to the one that turns the plugin on.
 - Plugins show how many servers have installed them. Every plugin in the store
   reported zero, because the count is thrown away for any image published
   without an owner name (that number belongs to a base image like nginx, not
@@ -535,6 +544,7 @@ error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
 
 const UA = 'unraid-modern-appstore/1.0 (+https://github.com/ghzgod/unraid-modern-appstore)';
 const PLUGIN = 'modern.appstore';
+const NOTIFY_BIN = '/usr/local/emhttp/webGui/scripts/notify';
 
 $cfgPath = '/boot/config/plugins/' . PLUGIN . '/' . PLUGIN . '.cfg';
 
@@ -577,6 +587,9 @@ $trendsOnly  = ((int)$opt['trends-only'] === 1);   // recompute trends from hist
 $cfg = is_file($opt['cfg']) ? @parse_ini_file($opt['cfg']) : [];
 $token = trim($cfg['TOKEN'] ?? '');
 $cfgDataDir = trim($cfg['DATA_DIR'] ?? '');
+// on unless the cfg says otherwise: an absent key is every install made
+// before this setting existed, and those should keep getting notified
+$notifyEnabled = (($cfg['NOTIFICATIONS'] ?? '') !== 'disabled');
 
 $appdataDefault = '/boot/config/plugins/modern.appstore';
 $dataDir = $opt['data-dir'] !== '' ? $opt['data-dir'] : ($cfgDataDir !== '' ? $cfgDataDir : $appdataDefault);
@@ -590,6 +603,25 @@ $status = [
     'missing' => 0, 'rate_remaining' => null, 'errors' => [],
 ];
 
+// ---- notification ledger, carried forward from the last run ---------------
+// This scan is driven by cron once a day, so a condition that stays broken
+// (no token, a blocked stargazers endpoint) would otherwise raise the same
+// notification again on every single run: noise the user tunes out well
+// before they get around to fixing the actual problem. 'notified' in
+// status.json is the fix: it remembers which keys have already fired, so a
+// condition notifies only on the run where it turns newly true, stays silent
+// for as long as it remains true, and is free to notify again if it clears
+// and later comes back. A resolved condition is never announced; that
+// direction is not worth a notification. Read $dataDir first, since that is
+// the durable copy on the appdata SSD; $outDir's tmpfs copy is only a
+// fallback for the very first run, before $dataDir has ever been written. A
+// missing or corrupt previous file just yields an empty ledger, not an error.
+$prevStatusPath = $dataDir . '/status.json';
+if (!is_file($prevStatusPath)) $prevStatusPath = $outDir . '/status.json';
+$prevStatus = @json_decode((string)@file_get_contents($prevStatusPath), true);
+$status['notified'] = (is_array($prevStatus) && is_array($prevStatus['notified'] ?? null))
+    ? $prevStatus['notified'] : [];
+
 function write_status(array $status, string $outDir, string $dataDir): void {
     $json = json_encode($status, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     @file_put_contents($outDir . '/status.json', $json);
@@ -602,6 +634,40 @@ function write_progress(string $outDir, bool $running, int $done, int $total, ar
         'missing' => $status['missing'], 'errors' => count($status['errors']),
         'updated_at' => time(),
     ], JSON_UNESCAPED_SLASHES));
+}
+
+/**
+ * Surfaces a scan problem through Unraid's own notification system, since
+ * status.json is read by nobody but this plugin's own settings page: a token
+ * can go bad on a run driven by cron, with no browser open, and sit broken
+ * for days before anyone happens to look. -l points the click target at the
+ * settings page, the one place that explains the fix, so seeing the toast is
+ * enough to reach it. -x files a single ticket rather than a running
+ * broadcast. escapeshellarg() wraps every value with no exception, because
+ * $description is partly built out of this scan's own text and must never
+ * reach the shell unescaped. Guarded on both the setting and the binary's
+ * presence, and run through @exec() with its output thrown away, so a moved
+ * binary or a disabled setting can never fail or slow the scan that calls it.
+ */
+function notify_unraid(string $subject, string $description, string $severity, bool $notifyEnabled): void {
+    if (!$notifyEnabled) return;
+    if (!is_executable(NOTIFY_BIN)) return;
+    $cmd = escapeshellarg(NOTIFY_BIN)
+        . ' -e ' . escapeshellarg('Unraid Modern App Store')
+        . ' -s ' . escapeshellarg($subject)
+        . ' -d ' . escapeshellarg($description)
+        . ' -i ' . escapeshellarg($severity)
+        . ' -m ' . escapeshellarg($description)
+        . ' -l ' . escapeshellarg('/Settings/ModernAppStore');
+    // Deliberately NOT -x. That flag names the file after the event instead of
+    // the timestamp, and notify bails out ("if (file_exists($archive)) break")
+    // when a ticket of that name is already archived, which it is from the
+    // moment the first one is written. Every condition here shares one event
+    // name, so -x would let whichever fired first be the only notification
+    // this plugin ever raises, and silently drop the rest. The notified ledger
+    // above is what stops repeats, and it does it per condition rather than
+    // per event, so it re-arms once a condition clears.
+    @exec($cmd . ' >/dev/null 2>&1');
 }
 
 // ---- single-instance lock --------------------------------------------------
@@ -676,10 +742,30 @@ $status['archives'] = archive_state($dataDir);
 
 if ($token === '' && !$trendsOnly) {
     $status['errors'][] = 'No GitHub token configured.';
+    // newly-true only (see the ledger comment above write_status): notify the
+    // first run that finds no token, then stay quiet through every daily
+    // rerun until a token is set, which is what drops the key in the else
+    // branch below and lets it fire again if the token is ever cleared.
+    if (!isset($status['notified']['no_token'])) {
+        notify_unraid(
+            'No GitHub token configured',
+            'Star counts and every GitHub sort stay empty until a token is set. '
+                . 'The settings page explains how to make one.',
+            'warning',
+            $notifyEnabled
+        );
+        $status['notified']['no_token'] = time();
+    }
     write_status($status, $outDir, $dataDir);
     write_progress($outDir, false, 0, 0, $status);
     fwrite(STDERR, "fetch_stars: no token; aborting.\n");
     exit(0);
+} elseif ($token !== '') {
+    // Cleared only on proof that a token now exists, never merely because this
+    // branch was skipped. A --trends-only run makes no GitHub calls at all and
+    // so takes the same else path with the token still empty; clearing on that
+    // would re-arm the notification and fire it again on the next real scan.
+    unset($status['notified']['no_token']);
 }
 if (!is_file($opt['ca-cache'])) {
     $status['errors'][] = 'CA catalog cache not found at ' . $opt['ca-cache'];
@@ -1506,6 +1592,32 @@ foreach ([$outDir, $dataDir] as $d) {
     @file_put_contents($d . '/apps.json', $appsJson);
 }
 
+// newly-true only, same ledger as the no-token check near the top: this flag
+// is only known once stargazers_readable() has actually probed the token
+// against a live repo, so it cannot be decided any earlier than here, right
+// before this run's status is written for good. Dropping the key in the
+// else branch means swapping in a working token silences it, and swapping
+// back to a fine-grained one raises it again rather than staying silent.
+if (!empty($status['stargazers_blocked'])) {
+    if (!isset($status['notified']['stargazers_blocked'])) {
+        notify_unraid(
+            'GitHub star dates unavailable',
+            'The two "this year" trending sorts stay empty. This is how GitHub treats '
+                . 'fine-grained tokens (github_pat_...); a classic token (ghp_...) with '
+                . 'no scopes reads them.',
+            'warning',
+            $notifyEnabled
+        );
+        $status['notified']['stargazers_blocked'] = time();
+    }
+} elseif ($sgOk) {
+    // $sgOk is the probe actually coming back readable, which is the only
+    // evidence that clears this. An absent blocked flag is NOT that evidence:
+    // a --trends-only run never probes at all, so treating "not flagged" as
+    // "fixed" would clear the ledger and re-notify on the next real scan.
+    unset($status['notified']['stargazers_blocked']);
+}
+
 write_status($status, $outDir, $dataDir);
 write_progress($outDir, false, $scanned, $total, $status);
 
@@ -2167,32 +2279,37 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
     // Unraid's own mark (the nine bars from its logo), inlined the same way so
     // it too draws in currentColor and reads correctly on both themes.
     var UN_MARK = '<svg class="asga-un-mark" viewBox="0 0 133.52 76.97" aria-hidden="true"><path d="M0 19.24h6.54v38.49H0zM15.87 45.84h6.54v23.78h-6.54zM31.74 62.27h6.55v14.73h-6.55zM47.62 45.84h6.54v23.78h-6.54zM63.49 19.24h6.51v38.49h-6.51zM79.36 7.35h6.54v23.79h-6.54zM95.23 0h6.54v14.7h-6.54zM111.1 7.35h6.55v23.79h-6.55zM127 19.24h6.52v38.49H127z"/></svg>';
+    // Three tiers, top to bottom. The two name orders are global, belonging to
+    // neither data source, so they carry no group heading and sit above every
+    // section. Everything else is grouped by the source its numbers actually
+    // come from (Unraid's own feed, or GitHub), and that source is named once,
+    // in the heading, so no label underneath repeats it.
     var SORT_OPTS = [
-      { g: 'General', v: 'name_asc',  label: 'Name Ascending',  cmp: function (a, b) { return a.sn < b.sn ? -1 : a.sn > b.sn ? 1 : 0; } },
-      { g: 'General', v: 'name_desc', label: 'Name Descending', cmp: function (a, b) { return a.sn < b.sn ? 1 : a.sn > b.sn ? -1 : 0; } },
-      { g: 'Unraid', m: 'un', v: 'downloads', label: 'Unraid Downloads', cmp: numDesc('dl') },
-      { g: 'Unraid', m: 'un', v: 'new',       label: 'Newest to the App Store', cmp: numDesc('fs') },
+      { g: '', v: 'name_asc',  label: 'Name (A to Z)', cmp: function (a, b) { return a.sn < b.sn ? -1 : a.sn > b.sn ? 1 : 0; } },
+      { g: '', v: 'name_desc', label: 'Name (Z to A)', cmp: function (a, b) { return a.sn < b.sn ? 1 : a.sn > b.sn ? -1 : 0; } },
+      { g: 'Unraid', m: 'un', v: 'downloads', label: 'Most Downloaded', cmp: numDesc('dl') },
+      { g: 'Unraid', m: 'un', v: 'new',       label: 'Recently Added',  cmp: numDesc('fs') },
       { g: 'Unraid', m: 'un', v: 'updated',   label: 'Recently Updated', cmp: numDesc('lu'), hint: 'Latest app update first; apps with no update date in the feed sort last' },
       // These four mirror Community Applications' own homepage sections
       // (appOfDay() and mySort() in its include/exec.php and include/helpers.php),
       // so the numbers behind them come straight from CA's own feed, never from
       // GitHub. The thresholds each one filters on are CA's own, and since this
       // menu is the only place they show up, they are spelled out in the hints.
-      { g: 'Unraid', m: 'un', v: 'spotlight',   label: 'Spotlight Apps',       cmp: numDesc('rd'), filter: hasSpotlight,             hint: 'Apps recommended by the Unraid team, most recently featured first' },
+      { g: 'Unraid', m: 'un', v: 'spotlight',   label: 'Spotlight',            cmp: numDesc('rd'), filter: hasSpotlight,             hint: 'Apps recommended by the Unraid team, most recently featured first' },
       { g: 'Unraid', m: 'un', v: 'trending',    label: 'Top Trending',         cmp: numDesc('td'), filter: caTrend('td', 3, 10000, false),  hint: 'Up and coming apps: the biggest week-on-week jump in install rate, over apps with 3+ weeks of data and 10,000+ installs' },
       { g: 'Unraid', m: 'un', v: 'newinstalls', label: 'Top New Installs',     cmp: numDesc('dt'), filter: caTrend('dt', 6, 100000, true),  hint: 'The highest percentage of new installs this week, over apps with 6+ weeks of data and 100,000+ installs' },
       { g: 'Unraid', m: 'un', v: 'popplugins',  label: 'Most Popular Plugins', cmp: numDesc('dl'), filter: isCountedPlugin,          hint: 'Plugins only, ranked by Unraid downloads; plugins with no download count are left out' },
-      { g: 'GitHub', m: 'gh', v: 'ghstars',   label: 'GitHub Stars',    cmp: numDesc('s') },
-      { g: 'GitHub Trending', m: 'gh', v: 'ght1',    label: 'Trending (today)',      cmp: numDesc('t1'),   filter: hasTrend('t1'),   hint: 'Stars gained in the last day' },
-      { g: 'GitHub Trending', m: 'gh', v: 'ght7',    label: 'Trending (this week)',  cmp: numDesc('t7'),   filter: hasTrend('t7'),   hint: 'Stars gained in the last 7 days' },
-      { g: 'GitHub Trending', m: 'gh', v: 'ght30',   label: 'Trending (this month)', cmp: numDesc('t30'),  filter: hasTrend('t30'),  hint: 'Stars gained in the last 30 days' },
-      { g: 'GitHub Trending', m: 'gh', v: 'ght365',  label: 'Trending (this year)',  cmp: numDesc('t365'), filter: hasTrend('t365'), hint: 'Stars gained in the last 365 days' },
-      { g: 'GitHub Trending', m: 'gh', v: 'ghtall',  label: 'Trending (all time)',   cmp: numDesc('s'),    filter: hasStars,         hint: 'Every star the repo has ever gained' },
-      { g: 'GitHub Trending %', m: 'gh', v: 'ghp1',   label: 'Trending % (today)',      cmp: pctDesc('t1'),   filter: hasPct('t1'),   hint: 'Growth today, against the star count a day ago' },
-      { g: 'GitHub Trending %', m: 'gh', v: 'ghp7',   label: 'Trending % (this week)',  cmp: pctDesc('t7'),   filter: hasPct('t7'),   hint: 'Growth this week, against the star count 7 days ago' },
-      { g: 'GitHub Trending %', m: 'gh', v: 'ghp30',  label: 'Trending % (this month)', cmp: pctDesc('t30'),  filter: hasPct('t30'),  hint: 'Growth this month, against the star count 30 days ago' },
-      { g: 'GitHub Trending %', m: 'gh', v: 'ghp365', label: 'Trending % (this year)',  cmp: pctDesc('t365'), filter: hasPct('t365'), hint: 'Growth this year, against the star count a year ago' },
-      { g: 'GitHub Trending %', m: 'gh', v: 'ghpall', label: 'Trending % (all time)',   cmp: rateDesc,        filter: hasRate,        hint: 'Lifetime growth rate: stars per year since the repo was created' }
+      { g: 'GitHub', m: 'gh', v: 'ghstars', label: 'Most Stars',              cmp: numDesc('s') },
+      { g: 'GitHub', m: 'gh', v: 'ght1',    label: 'Trending (today)',        cmp: numDesc('t1'),   filter: hasTrend('t1'),   hint: 'Stars gained in the last day' },
+      { g: 'GitHub', m: 'gh', v: 'ght7',    label: 'Trending (this week)',    cmp: numDesc('t7'),   filter: hasTrend('t7'),   hint: 'Stars gained in the last 7 days' },
+      { g: 'GitHub', m: 'gh', v: 'ght30',   label: 'Trending (this month)',   cmp: numDesc('t30'),  filter: hasTrend('t30'),  hint: 'Stars gained in the last 30 days' },
+      { g: 'GitHub', m: 'gh', v: 'ght365',  label: 'Trending (this year)',    cmp: numDesc('t365'), filter: hasTrend('t365'), hint: 'Stars gained in the last 365 days' },
+      { g: 'GitHub', m: 'gh', v: 'ghtall',  label: 'Trending (all time)',     cmp: numDesc('s'),    filter: hasStars,         hint: 'Every star the repo has ever gained' },
+      { g: 'GitHub', m: 'gh', v: 'ghp1',    label: 'Trending % (today)',      cmp: pctDesc('t1'),   filter: hasPct('t1'),   hint: 'Growth today, against the star count a day ago' },
+      { g: 'GitHub', m: 'gh', v: 'ghp7',    label: 'Trending % (this week)',  cmp: pctDesc('t7'),   filter: hasPct('t7'),   hint: 'Growth this week, against the star count 7 days ago' },
+      { g: 'GitHub', m: 'gh', v: 'ghp30',   label: 'Trending % (this month)', cmp: pctDesc('t30'),  filter: hasPct('t30'),  hint: 'Growth this month, against the star count 30 days ago' },
+      { g: 'GitHub', m: 'gh', v: 'ghp365',  label: 'Trending % (this year)',  cmp: pctDesc('t365'), filter: hasPct('t365'), hint: 'Growth this year, against the star count a year ago' },
+      { g: 'GitHub', m: 'gh', v: 'ghpall',  label: 'Trending % (all time)',   cmp: rateDesc,        filter: hasRate,        hint: 'Lifetime growth rate: stars per year since the repo was created' }
     ];
     function optFor(v) { for (var i = 0; i < SORT_OPTS.length; i++) if (SORT_OPTS[i].v === v) return SORT_OPTS[i]; return SORT_OPTS[0]; }
     // numeric descending; null/undefined sinks to the bottom
@@ -2218,7 +2335,7 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
     function hasPct(k) { return function (a) { return pct(a, k) > 0; }; }
     function hasStars(a) { return a.s != null && a.s > 0; }
     function hasRate(a) { return rate(a) > 0; }
-    // Spotlight Apps: CA's RecommendedDate, 0 meaning the app was never recommended
+    // Spotlight: CA's RecommendedDate, 0 meaning the app was never recommended
     function hasSpotlight(a) { return a.rd > 0; }
     // ich777/steamcmd backs dozens of unrelated game-server apps under one
     // shared image, so without this exclusion both trending sorts would fill
@@ -3115,11 +3232,18 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
     function addSortBar() {
       var host = document.getElementById('searchFilter');
       if (!host || document.getElementById('asga-bar')) return;
-      // grouped, because a flat list of fifteen orders is a wall of near-identical
-      // labels; the four Trending/Trending % families read at a glance this way
+      // grouped by data source, with the two name orders ungrouped at the top
+      // since they belong to neither; a flat list of twenty near-identical
+      // labels would otherwise be a wall of text
       var opts = '', group = '';
       SORT_OPTS.forEach(function (o) {
-        if (o.g !== group) { if (group) opts += '</optgroup>'; opts += '<optgroup label="' + o.g + '">'; group = o.g; }
+        if (o.g !== group) {
+          if (group) opts += '</optgroup>';
+          // g: '' is the ungrouped tier, so no optgroup ever opens for it,
+          // not even an empty-labelled one
+          if (o.g) opts += '<optgroup label="' + o.g + '">';
+          group = o.g;
+        }
         opts += '<option value="' + o.v + '"' + (o.hint ? ' title="' + o.hint + '"' : '') + '>' + o.label + '</option>';
       });
       if (group) opts += '</optgroup>';
@@ -3202,18 +3326,22 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
         SORT_OPTS.forEach(function (o) {
           if (o.g !== group) {
             group = o.g;
-            var h = document.createElement('div');
-            h.className = 'asga-sortmenu-group';
-            // the group header carries a mark to say where its numbers come
-            // from, off the option's own m property rather than a string test
-            // on the group name: a rename would silently break a test like that.
-            // It goes AFTER the name, not before: the two marks are different
-            // widths and General has none, so leading them started the five
-            // labels on three different left edges in one short list.
-            var mark = o.m === 'un' ? UN_MARK : o.m === 'gh' ? GH_MARK : '';
-            h.textContent = o.g;
-            if (mark) h.insertAdjacentHTML('beforeend', mark);
-            menu.appendChild(h);
+            // g: '' is the ungrouped tier (the two name orders): no header div
+            // is ever built for it, so the list opens straight on an item
+            if (group) {
+              var h = document.createElement('div');
+              h.className = 'asga-sortmenu-group';
+              // the group header carries a mark to say where its numbers come
+              // from, off the option's own m property rather than a string test
+              // on the group name: a rename would silently break a test like that.
+              // It goes AFTER the name, not before: the two marks are different
+              // widths, so leading them would start the two headers on
+              // different left edges instead of one.
+              var mark = o.m === 'un' ? UN_MARK : o.m === 'gh' ? GH_MARK : '';
+              h.textContent = o.g;
+              if (mark) h.insertAdjacentHTML('beforeend', mark);
+              menu.appendChild(h);
+            }
           }
           var it = document.createElement('span');
           it.className = 'asga-refitem asga-sortmenu-item' + (o.v === view.sort ? ' asga-sortmenu-cur' : '');
@@ -4027,10 +4155,15 @@ html:not(.Theme--legacyOS) body.asga-active .asga-sortbtn:focus-visible { outlin
   padding: 8px 14px 3px; font-size: 1rem; opacity: 0.5;
   text-transform: uppercase; letter-spacing: 0.05em;
 }
-/* Both marks TRAIL their group's name instead of leading it, so that every
-   group label in the list starts on one left edge. Led, they started on three:
-   the two marks are different widths and General carries none at all, which
-   put the labels at 14px, 29px and 41px in the same short list. */
+/* The two ungrouped name orders open the list with no header above them, so
+   the first one sat flush against the menu's own 4px top padding instead of
+   the header row every later group gets. A few extra pixels put it on
+   roughly the same footing as a group's own first entry. */
+.asga-sortmenu-item:first-child { margin-top: 4px; }
+/* Both marks TRAIL their group's name instead of leading it, so both group
+   headers (Unraid, GitHub) start on one left edge. Led, they would not: the
+   two marks are different widths, so leading them would push the two headers
+   to different edges instead. */
 .asga-gh-mark { width: 12px; height: 12px; fill: currentColor; vertical-align: -2px; margin-left: 7px; }
 /* the Unraid mark is a wide, short bar block (133.52 x 76.97), not a square
    like the GitHub glyph, so it gets its own box. It is nine separate bars
@@ -4525,14 +4658,15 @@ $gas_msg  = "";
 
 if (!is_dir($gas_dir)) @mkdir($gas_dir, 0755, true);
 
-function gas_write_cfg($path, $token, $service, $datadir, $scanDays, $defaultSort) {
+function gas_write_cfg($path, $token, $service, $notifications, $datadir, $scanDays, $defaultSort) {
     $token   = str_replace(["\"", "\n", "\r"], "", $token);
     $datadir = rtrim(str_replace(["\"", "\n", "\r"], "", $datadir), '/');
     if ($datadir === '') $datadir = '/boot/config/plugins/modern.appstore';
     $service = ($service === 'enabled') ? 'enabled' : 'disabled';
+    $notifications = ($notifications === 'disabled') ? 'disabled' : 'enabled';
     $scanDays = gas_scan_days($scanDays);
     $defaultSort = gas_default_sort($defaultSort);
-    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nDATA_DIR=\"$datadir\"\nSCAN_DAYS=\"$scanDays\"\nDEFAULT_SORT=\"$defaultSort\"\n";
+    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nNOTIFICATIONS=\"$notifications\"\nDATA_DIR=\"$datadir\"\nSCAN_DAYS=\"$scanDays\"\nDEFAULT_SORT=\"$defaultSort\"\n";
     file_put_contents($path, $out);
     @chmod($path, 0600);
     @mkdir($datadir, 0755, true);
@@ -4572,12 +4706,13 @@ function gas_write_cron($path, $scanDays = 1) {
 
 if ($_POST) {
     if (isset($_POST['SAVE'])) {
-        $token    = $_POST['TOKEN'] ?? '';
-        $service  = $_POST['SERVICE'] ?? 'disabled';
-        $datadir  = $_POST['DATA_DIR'] ?? '';
-        $scandays = $_POST['SCAN_DAYS'] ?? '1';
-        $defsort  = $_POST['DEFAULT_SORT'] ?? 'new';
-        gas_write_cfg($gas_cfg, $token, $service, $datadir, $scandays, $defsort);
+        $token         = $_POST['TOKEN'] ?? '';
+        $service       = $_POST['SERVICE'] ?? 'disabled';
+        $notifications = $_POST['NOTIFICATIONS'] ?? 'enabled';
+        $datadir       = $_POST['DATA_DIR'] ?? '';
+        $scandays      = $_POST['SCAN_DAYS'] ?? '1';
+        $defsort       = $_POST['DEFAULT_SORT'] ?? 'new';
+        gas_write_cfg($gas_cfg, $token, $service, $notifications, $datadir, $scandays, $defsort);
         gas_write_cron($gas_cron, $scandays);
         $gas_msg = "Settings saved." . (trim($token) === '' ? " WARNING: no token set - star counts are disabled." : "");
     }
@@ -4588,11 +4723,12 @@ if ($_POST) {
 }
 
 $cfg = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
-$token    = $cfg['TOKEN'] ?? '';
-$service  = $cfg['SERVICE'] ?? 'enabled';
-$datadir  = $cfg['DATA_DIR'] ?? '/boot/config/plugins/modern.appstore';
-$scandays = (string)gas_scan_days($cfg['SCAN_DAYS'] ?? 1);
-$defsort  = gas_default_sort($cfg['DEFAULT_SORT'] ?? 'new');
+$token         = $cfg['TOKEN'] ?? '';
+$service       = $cfg['SERVICE'] ?? 'enabled';
+$notifications = (($cfg['NOTIFICATIONS'] ?? 'enabled') === 'disabled') ? 'disabled' : 'enabled';
+$datadir       = $cfg['DATA_DIR'] ?? '/boot/config/plugins/modern.appstore';
+$scandays      = (string)gas_scan_days($cfg['SCAN_DAYS'] ?? 1);
+$defsort       = gas_default_sort($cfg['DEFAULT_SORT'] ?? 'new');
 
 $status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/modern.appstore/status.json"), true) ?: [];
 ?>
@@ -4612,6 +4748,14 @@ _(Enable Unraid Modern App Store)_:
   </select>
 
 > Turn the plugin on or off. When on, it adds GitHub star badges to the Community Applications app tiles and a sortable GitHub view.
+
+_(Enable Notifications)_:
+: <select name="NOTIFICATIONS" size="1">
+    <?= mk_option($notifications, "enabled", "Yes") ?>
+    <?= mk_option($notifications, "disabled", "No") ?>
+  </select>
+
+> When this is on, the plugin posts a notification to Unraid's own notification area if something needs attention: no GitHub token is configured, or the configured token cannot read star dates, which leaves the two "this year" sorts empty. Each of these is raised once when it starts, not on every scan.
 
 _(GitHub Personal Access Token)_:
 : <input type="password" name="TOKEN" value="<?= htmlspecialchars($token) ?>" style="width:520px;max-width:90%;" autocomplete="off" spellcheck="false">
@@ -4640,30 +4784,24 @@ _(Refresh GitHub Trending Data)_:
 
 _(Default sort order)_:
 : <select name="DEFAULT_SORT" size="1">
-    <optgroup label="General">
-    <?= mk_option($defsort, "name_asc", "Name Ascending") ?>
-    <?= mk_option($defsort, "name_desc", "Name Descending") ?>
-    </optgroup>
+    <?= mk_option($defsort, "name_asc", "Name (A to Z)") ?>
+    <?= mk_option($defsort, "name_desc", "Name (Z to A)") ?>
     <optgroup label="Unraid">
-    <?= mk_option($defsort, "downloads", "Unraid Downloads") ?>
-    <?= mk_option($defsort, "new", "Newest to the App Store") ?>
+    <?= mk_option($defsort, "downloads", "Most Downloaded") ?>
+    <?= mk_option($defsort, "new", "Recently Added") ?>
     <?= mk_option($defsort, "updated", "Recently Updated") ?>
-    <?= mk_option($defsort, "spotlight", "Spotlight Apps") ?>
+    <?= mk_option($defsort, "spotlight", "Spotlight") ?>
     <?= mk_option($defsort, "trending", "Top Trending") ?>
     <?= mk_option($defsort, "newinstalls", "Top New Installs") ?>
     <?= mk_option($defsort, "popplugins", "Most Popular Plugins") ?>
     </optgroup>
     <optgroup label="GitHub">
-    <?= mk_option($defsort, "ghstars", "GitHub Stars") ?>
-    </optgroup>
-    <optgroup label="GitHub Trending">
+    <?= mk_option($defsort, "ghstars", "Most Stars") ?>
     <?= mk_option($defsort, "ght1", "Trending (today)") ?>
     <?= mk_option($defsort, "ght7", "Trending (this week)") ?>
     <?= mk_option($defsort, "ght30", "Trending (this month)") ?>
     <?= mk_option($defsort, "ght365", "Trending (this year)") ?>
     <?= mk_option($defsort, "ghtall", "Trending (all time)") ?>
-    </optgroup>
-    <optgroup label="GitHub Trending %">
     <?= mk_option($defsort, "ghp1", "Trending % (today)") ?>
     <?= mk_option($defsort, "ghp7", "Trending % (this week)") ?>
     <?= mk_option($defsort, "ghp30", "Trending % (this month)") ?>

@@ -90,32 +90,37 @@
     // Unraid's own mark (the nine bars from its logo), inlined the same way so
     // it too draws in currentColor and reads correctly on both themes.
     var UN_MARK = '<svg class="asga-un-mark" viewBox="0 0 133.52 76.97" aria-hidden="true"><path d="M0 19.24h6.54v38.49H0zM15.87 45.84h6.54v23.78h-6.54zM31.74 62.27h6.55v14.73h-6.55zM47.62 45.84h6.54v23.78h-6.54zM63.49 19.24h6.51v38.49h-6.51zM79.36 7.35h6.54v23.79h-6.54zM95.23 0h6.54v14.7h-6.54zM111.1 7.35h6.55v23.79h-6.55zM127 19.24h6.52v38.49H127z"/></svg>';
+    // Three tiers, top to bottom. The two name orders are global, belonging to
+    // neither data source, so they carry no group heading and sit above every
+    // section. Everything else is grouped by the source its numbers actually
+    // come from (Unraid's own feed, or GitHub), and that source is named once,
+    // in the heading, so no label underneath repeats it.
     var SORT_OPTS = [
-      { g: 'General', v: 'name_asc',  label: 'Name Ascending',  cmp: function (a, b) { return a.sn < b.sn ? -1 : a.sn > b.sn ? 1 : 0; } },
-      { g: 'General', v: 'name_desc', label: 'Name Descending', cmp: function (a, b) { return a.sn < b.sn ? 1 : a.sn > b.sn ? -1 : 0; } },
-      { g: 'Unraid', m: 'un', v: 'downloads', label: 'Unraid Downloads', cmp: numDesc('dl') },
-      { g: 'Unraid', m: 'un', v: 'new',       label: 'Newest to the App Store', cmp: numDesc('fs') },
+      { g: '', v: 'name_asc',  label: 'Name (A to Z)', cmp: function (a, b) { return a.sn < b.sn ? -1 : a.sn > b.sn ? 1 : 0; } },
+      { g: '', v: 'name_desc', label: 'Name (Z to A)', cmp: function (a, b) { return a.sn < b.sn ? 1 : a.sn > b.sn ? -1 : 0; } },
+      { g: 'Unraid', m: 'un', v: 'downloads', label: 'Most Downloaded', cmp: numDesc('dl') },
+      { g: 'Unraid', m: 'un', v: 'new',       label: 'Recently Added',  cmp: numDesc('fs') },
       { g: 'Unraid', m: 'un', v: 'updated',   label: 'Recently Updated', cmp: numDesc('lu'), hint: 'Latest app update first; apps with no update date in the feed sort last' },
       // These four mirror Community Applications' own homepage sections
       // (appOfDay() and mySort() in its include/exec.php and include/helpers.php),
       // so the numbers behind them come straight from CA's own feed, never from
       // GitHub. The thresholds each one filters on are CA's own, and since this
       // menu is the only place they show up, they are spelled out in the hints.
-      { g: 'Unraid', m: 'un', v: 'spotlight',   label: 'Spotlight Apps',       cmp: numDesc('rd'), filter: hasSpotlight,             hint: 'Apps recommended by the Unraid team, most recently featured first' },
+      { g: 'Unraid', m: 'un', v: 'spotlight',   label: 'Spotlight',            cmp: numDesc('rd'), filter: hasSpotlight,             hint: 'Apps recommended by the Unraid team, most recently featured first' },
       { g: 'Unraid', m: 'un', v: 'trending',    label: 'Top Trending',         cmp: numDesc('td'), filter: caTrend('td', 3, 10000, false),  hint: 'Up and coming apps: the biggest week-on-week jump in install rate, over apps with 3+ weeks of data and 10,000+ installs' },
       { g: 'Unraid', m: 'un', v: 'newinstalls', label: 'Top New Installs',     cmp: numDesc('dt'), filter: caTrend('dt', 6, 100000, true),  hint: 'The highest percentage of new installs this week, over apps with 6+ weeks of data and 100,000+ installs' },
       { g: 'Unraid', m: 'un', v: 'popplugins',  label: 'Most Popular Plugins', cmp: numDesc('dl'), filter: isCountedPlugin,          hint: 'Plugins only, ranked by Unraid downloads; plugins with no download count are left out' },
-      { g: 'GitHub', m: 'gh', v: 'ghstars',   label: 'GitHub Stars',    cmp: numDesc('s') },
-      { g: 'GitHub Trending', m: 'gh', v: 'ght1',    label: 'Trending (today)',      cmp: numDesc('t1'),   filter: hasTrend('t1'),   hint: 'Stars gained in the last day' },
-      { g: 'GitHub Trending', m: 'gh', v: 'ght7',    label: 'Trending (this week)',  cmp: numDesc('t7'),   filter: hasTrend('t7'),   hint: 'Stars gained in the last 7 days' },
-      { g: 'GitHub Trending', m: 'gh', v: 'ght30',   label: 'Trending (this month)', cmp: numDesc('t30'),  filter: hasTrend('t30'),  hint: 'Stars gained in the last 30 days' },
-      { g: 'GitHub Trending', m: 'gh', v: 'ght365',  label: 'Trending (this year)',  cmp: numDesc('t365'), filter: hasTrend('t365'), hint: 'Stars gained in the last 365 days' },
-      { g: 'GitHub Trending', m: 'gh', v: 'ghtall',  label: 'Trending (all time)',   cmp: numDesc('s'),    filter: hasStars,         hint: 'Every star the repo has ever gained' },
-      { g: 'GitHub Trending %', m: 'gh', v: 'ghp1',   label: 'Trending % (today)',      cmp: pctDesc('t1'),   filter: hasPct('t1'),   hint: 'Growth today, against the star count a day ago' },
-      { g: 'GitHub Trending %', m: 'gh', v: 'ghp7',   label: 'Trending % (this week)',  cmp: pctDesc('t7'),   filter: hasPct('t7'),   hint: 'Growth this week, against the star count 7 days ago' },
-      { g: 'GitHub Trending %', m: 'gh', v: 'ghp30',  label: 'Trending % (this month)', cmp: pctDesc('t30'),  filter: hasPct('t30'),  hint: 'Growth this month, against the star count 30 days ago' },
-      { g: 'GitHub Trending %', m: 'gh', v: 'ghp365', label: 'Trending % (this year)',  cmp: pctDesc('t365'), filter: hasPct('t365'), hint: 'Growth this year, against the star count a year ago' },
-      { g: 'GitHub Trending %', m: 'gh', v: 'ghpall', label: 'Trending % (all time)',   cmp: rateDesc,        filter: hasRate,        hint: 'Lifetime growth rate: stars per year since the repo was created' }
+      { g: 'GitHub', m: 'gh', v: 'ghstars', label: 'Most Stars',              cmp: numDesc('s') },
+      { g: 'GitHub', m: 'gh', v: 'ght1',    label: 'Trending (today)',        cmp: numDesc('t1'),   filter: hasTrend('t1'),   hint: 'Stars gained in the last day' },
+      { g: 'GitHub', m: 'gh', v: 'ght7',    label: 'Trending (this week)',    cmp: numDesc('t7'),   filter: hasTrend('t7'),   hint: 'Stars gained in the last 7 days' },
+      { g: 'GitHub', m: 'gh', v: 'ght30',   label: 'Trending (this month)',   cmp: numDesc('t30'),  filter: hasTrend('t30'),  hint: 'Stars gained in the last 30 days' },
+      { g: 'GitHub', m: 'gh', v: 'ght365',  label: 'Trending (this year)',    cmp: numDesc('t365'), filter: hasTrend('t365'), hint: 'Stars gained in the last 365 days' },
+      { g: 'GitHub', m: 'gh', v: 'ghtall',  label: 'Trending (all time)',     cmp: numDesc('s'),    filter: hasStars,         hint: 'Every star the repo has ever gained' },
+      { g: 'GitHub', m: 'gh', v: 'ghp1',    label: 'Trending % (today)',      cmp: pctDesc('t1'),   filter: hasPct('t1'),   hint: 'Growth today, against the star count a day ago' },
+      { g: 'GitHub', m: 'gh', v: 'ghp7',    label: 'Trending % (this week)',  cmp: pctDesc('t7'),   filter: hasPct('t7'),   hint: 'Growth this week, against the star count 7 days ago' },
+      { g: 'GitHub', m: 'gh', v: 'ghp30',   label: 'Trending % (this month)', cmp: pctDesc('t30'),  filter: hasPct('t30'),  hint: 'Growth this month, against the star count 30 days ago' },
+      { g: 'GitHub', m: 'gh', v: 'ghp365',  label: 'Trending % (this year)',  cmp: pctDesc('t365'), filter: hasPct('t365'), hint: 'Growth this year, against the star count a year ago' },
+      { g: 'GitHub', m: 'gh', v: 'ghpall',  label: 'Trending % (all time)',   cmp: rateDesc,        filter: hasRate,        hint: 'Lifetime growth rate: stars per year since the repo was created' }
     ];
     function optFor(v) { for (var i = 0; i < SORT_OPTS.length; i++) if (SORT_OPTS[i].v === v) return SORT_OPTS[i]; return SORT_OPTS[0]; }
     // numeric descending; null/undefined sinks to the bottom
@@ -141,7 +146,7 @@
     function hasPct(k) { return function (a) { return pct(a, k) > 0; }; }
     function hasStars(a) { return a.s != null && a.s > 0; }
     function hasRate(a) { return rate(a) > 0; }
-    // Spotlight Apps: CA's RecommendedDate, 0 meaning the app was never recommended
+    // Spotlight: CA's RecommendedDate, 0 meaning the app was never recommended
     function hasSpotlight(a) { return a.rd > 0; }
     // ich777/steamcmd backs dozens of unrelated game-server apps under one
     // shared image, so without this exclusion both trending sorts would fill
@@ -1038,11 +1043,18 @@
     function addSortBar() {
       var host = document.getElementById('searchFilter');
       if (!host || document.getElementById('asga-bar')) return;
-      // grouped, because a flat list of fifteen orders is a wall of near-identical
-      // labels; the four Trending/Trending % families read at a glance this way
+      // grouped by data source, with the two name orders ungrouped at the top
+      // since they belong to neither; a flat list of twenty near-identical
+      // labels would otherwise be a wall of text
       var opts = '', group = '';
       SORT_OPTS.forEach(function (o) {
-        if (o.g !== group) { if (group) opts += '</optgroup>'; opts += '<optgroup label="' + o.g + '">'; group = o.g; }
+        if (o.g !== group) {
+          if (group) opts += '</optgroup>';
+          // g: '' is the ungrouped tier, so no optgroup ever opens for it,
+          // not even an empty-labelled one
+          if (o.g) opts += '<optgroup label="' + o.g + '">';
+          group = o.g;
+        }
         opts += '<option value="' + o.v + '"' + (o.hint ? ' title="' + o.hint + '"' : '') + '>' + o.label + '</option>';
       });
       if (group) opts += '</optgroup>';
@@ -1125,18 +1137,22 @@
         SORT_OPTS.forEach(function (o) {
           if (o.g !== group) {
             group = o.g;
-            var h = document.createElement('div');
-            h.className = 'asga-sortmenu-group';
-            // the group header carries a mark to say where its numbers come
-            // from, off the option's own m property rather than a string test
-            // on the group name: a rename would silently break a test like that.
-            // It goes AFTER the name, not before: the two marks are different
-            // widths and General has none, so leading them started the five
-            // labels on three different left edges in one short list.
-            var mark = o.m === 'un' ? UN_MARK : o.m === 'gh' ? GH_MARK : '';
-            h.textContent = o.g;
-            if (mark) h.insertAdjacentHTML('beforeend', mark);
-            menu.appendChild(h);
+            // g: '' is the ungrouped tier (the two name orders): no header div
+            // is ever built for it, so the list opens straight on an item
+            if (group) {
+              var h = document.createElement('div');
+              h.className = 'asga-sortmenu-group';
+              // the group header carries a mark to say where its numbers come
+              // from, off the option's own m property rather than a string test
+              // on the group name: a rename would silently break a test like that.
+              // It goes AFTER the name, not before: the two marks are different
+              // widths, so leading them would start the two headers on
+              // different left edges instead of one.
+              var mark = o.m === 'un' ? UN_MARK : o.m === 'gh' ? GH_MARK : '';
+              h.textContent = o.g;
+              if (mark) h.insertAdjacentHTML('beforeend', mark);
+              menu.appendChild(h);
+            }
           }
           var it = document.createElement('span');
           it.className = 'asga-refitem asga-sortmenu-item' + (o.v === view.sort ? ' asga-sortmenu-cur' : '');
