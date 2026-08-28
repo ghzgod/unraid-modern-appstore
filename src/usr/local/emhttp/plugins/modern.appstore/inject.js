@@ -1124,9 +1124,9 @@
         maxW = Math.max(maxW, probe.getBoundingClientRect().width);
       });
       wrap.removeChild(probe);
-      // 12px left padding plus 30px right padding, and a little slack so a
+      // 14px left padding plus 30px right padding, and a little slack so a
       // fractional measurement never wraps the longest label
-      btn.style.width = Math.ceil(maxW + 42 + 4) + 'px';
+      btn.style.width = Math.ceil(maxW + 44 + 4) + 'px';
       btn.addEventListener('click', function (e) {
         e.stopPropagation(); e.preventDefault();
         var open = document.querySelector('.asga-sortmenu');

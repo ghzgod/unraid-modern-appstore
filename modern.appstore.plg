@@ -3313,9 +3313,9 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
         maxW = Math.max(maxW, probe.getBoundingClientRect().width);
       });
       wrap.removeChild(probe);
-      // 12px left padding plus 30px right padding, and a little slack so a
+      // 14px left padding plus 30px right padding, and a little slack so a
       // fractional measurement never wraps the longest label
-      btn.style.width = Math.ceil(maxW + 42 + 4) + 'px';
+      btn.style.width = Math.ceil(maxW + 44 + 4) + 'px';
       btn.addEventListener('click', function (e) {
         e.stopPropagation(); e.preventDefault();
         var open = document.querySelector('.asga-sortmenu');
@@ -4124,10 +4124,13 @@ html:not(.Theme--legacyOS) body.asga-active .asga-sortbtn {
   /* Unraid's global button styling would shout this in spaced uppercase; the
      control wears the select's plain text instead */
   text-transform: none; letter-spacing: normal; font-weight: normal;
+  /* a button centres its text by default, which is not how a select presents
+     its value: the value reads from the left, same as the closed list below */
+  text-align: left;
   background-color: rgba(127, 127, 127, 0.08);
   border: 1px solid rgba(127, 127, 127, 0.3);
   border-radius: 8px;
-  padding: 0 30px 0 12px;
+  padding: 0 30px 0 14px;
   /* the same two-gradient triangle Unraid draws on its selects, at the same
      inset the select carried */
   background-image: linear-gradient(66.6deg, transparent 60%, var(--input-border-color, #999) 40%),
@@ -4171,7 +4174,13 @@ html:not(.Theme--legacyOS) body.asga-active .asga-sortbtn:focus-visible { outlin
    a device pixel and the whole mark greys into a smudge, so it is drawn wider
    than the GitHub one on purpose. */
 .asga-un-mark { width: 22px; height: 13px; fill: currentColor; vertical-align: -2px; margin-left: 7px; }
-.asga-sortmenu-item { padding-left: 22px; }
+/* used to sit at 22px, a few pixels deeper than the group heading above, to
+   show the item nested under it. But the headings already read as headings
+   on their own (uppercase, letter-spaced, half opacity), and the two
+   ungrouped name orders open the list under no heading at all, so that
+   indent only bought a ragged left edge. One edge for the trigger, the
+   headings and the items is what a select does. */
+.asga-sortmenu-item { padding-left: 14px; }
 /* the current sort is named in the accent colour alone: a tick would push its
    label out of line with every other entry in the list */
 .asga-sortmenu-cur { color: #ff8c2f; }
@@ -4714,7 +4723,12 @@ if ($_POST) {
         $defsort       = $_POST['DEFAULT_SORT'] ?? 'new';
         gas_write_cfg($gas_cfg, $token, $service, $notifications, $datadir, $scandays, $defsort);
         gas_write_cron($gas_cron, $scandays);
-        $gas_msg = "Settings saved." . (trim($token) === '' ? " WARNING: no token set - star counts are disabled." : "");
+        $gas_msg = "Settings saved.";
+        if (trim($token) === '') {
+            $gas_msg .= " WARNING: no token set - star counts are disabled.";
+        } elseif (strpos($token, 'github_pat_') === 0) {
+            $gas_msg .= " WARNING: this is a fine-grained token - star counts will still work, but the \"this year\" sorts will stay empty, because GitHub does not let fine-grained tokens read star dates and a classic token (ghp_) does.";
+        }
     }
     if (isset($_POST['REFRESH'])) {
         @exec("nohup php " . escapeshellarg($gas_php) . " >/dev/null 2>&1 &");
@@ -4827,14 +4841,26 @@ _(Database directory)_:
 </form>
 
 <?php if (!empty($status['stargazers_blocked'])): ?>
-<div class="title"><span class="left">Star dates unavailable</span></div>
-<div class="orange-text" style="max-width:760px;">
-  GitHub refused this token access to star dates (the stargazers endpoint), which is what the
-  <b>Trending (this year)</b> and <b>Trending % (this year)</b> sorts are built from, so those two stay empty.
-  This is how GitHub treats <b>fine-grained</b> tokens (<code>github_pat_...</code>); a <b>classic</b> token
-  (<code>ghp_...</code>) reads them with no scopes enabled. Replacing the token above and running
-  <b>Refresh now</b> fills the year windows in. Every other sort, including both <b>all time</b> ones,
-  is unaffected.
+<?php
+    if (strpos($token, 'github_pat_') === 0) {
+        $gas_tok_why = 'The token saved here starts with <code>github_pat_</code>, a <b>fine-grained</b> token, and GitHub does not let fine-grained tokens read star dates.';
+    } elseif (strpos($token, 'ghp_') === 0) {
+        $gas_tok_why = 'The token saved here already starts with <code>ghp_</code>, a <b>classic</b> token, so something else is refusing it, most likely an organisation with SSO enforcement that this token has not been authorised for.';
+    } else {
+        $gas_tok_why = 'The saved token cannot read star dates.';
+    }
+?>
+<div class="title"><span class="left">Use a classic token for the year sorts</span></div>
+<div style="max-width:760px;">
+  <?= $gas_tok_why ?>
+  This affects 2 of the 20 sort orders, <b>Trending (this year)</b> and <b>Trending % (this year)</b>;
+  every other order, including both <b>all time</b> ones, is unaffected.
+  <br><br>
+  To fix it: create a classic token at
+  <u><a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a></u>,
+  leaving every scope unticked since it only reads public star counts, paste it into the field
+  above, press <b>Apply</b>, and press <b>Refresh now</b> last. Refresh on its own cannot clear
+  this, the token has to change first.
 </div>
 &nbsp;
 <?php endif; ?>

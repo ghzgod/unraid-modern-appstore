@@ -70,7 +70,12 @@ if ($_POST) {
         $defsort       = $_POST['DEFAULT_SORT'] ?? 'new';
         gas_write_cfg($gas_cfg, $token, $service, $notifications, $datadir, $scandays, $defsort);
         gas_write_cron($gas_cron, $scandays);
-        $gas_msg = "Settings saved." . (trim($token) === '' ? " WARNING: no token set - star counts are disabled." : "");
+        $gas_msg = "Settings saved.";
+        if (trim($token) === '') {
+            $gas_msg .= " WARNING: no token set - star counts are disabled.";
+        } elseif (strpos($token, 'github_pat_') === 0) {
+            $gas_msg .= " WARNING: this is a fine-grained token - star counts will still work, but the \"this year\" sorts will stay empty, because GitHub does not let fine-grained tokens read star dates and a classic token (ghp_) does.";
+        }
     }
     if (isset($_POST['REFRESH'])) {
         @exec("nohup php " . escapeshellarg($gas_php) . " >/dev/null 2>&1 &");
@@ -183,14 +188,26 @@ _(Database directory)_:
 </form>
 
 <?php if (!empty($status['stargazers_blocked'])): ?>
-<div class="title"><span class="left">Star dates unavailable</span></div>
-<div class="orange-text" style="max-width:760px;">
-  GitHub refused this token access to star dates (the stargazers endpoint), which is what the
-  <b>Trending (this year)</b> and <b>Trending % (this year)</b> sorts are built from, so those two stay empty.
-  This is how GitHub treats <b>fine-grained</b> tokens (<code>github_pat_...</code>); a <b>classic</b> token
-  (<code>ghp_...</code>) reads them with no scopes enabled. Replacing the token above and running
-  <b>Refresh now</b> fills the year windows in. Every other sort, including both <b>all time</b> ones,
-  is unaffected.
+<?php
+    if (strpos($token, 'github_pat_') === 0) {
+        $gas_tok_why = 'The token saved here starts with <code>github_pat_</code>, a <b>fine-grained</b> token, and GitHub does not let fine-grained tokens read star dates.';
+    } elseif (strpos($token, 'ghp_') === 0) {
+        $gas_tok_why = 'The token saved here already starts with <code>ghp_</code>, a <b>classic</b> token, so something else is refusing it, most likely an organisation with SSO enforcement that this token has not been authorised for.';
+    } else {
+        $gas_tok_why = 'The saved token cannot read star dates.';
+    }
+?>
+<div class="title"><span class="left">Use a classic token for the year sorts</span></div>
+<div style="max-width:760px;">
+  <?= $gas_tok_why ?>
+  This affects 2 of the 20 sort orders, <b>Trending (this year)</b> and <b>Trending % (this year)</b>;
+  every other order, including both <b>all time</b> ones, is unaffected.
+  <br><br>
+  To fix it: create a classic token at
+  <u><a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a></u>,
+  leaving every scope unticked since it only reads public star counts, paste it into the field
+  above, press <b>Apply</b>, and press <b>Refresh now</b> last. Refresh on its own cannot clear
+  this, the token has to change first.
 </div>
 &nbsp;
 <?php endif; ?>

@@ -452,10 +452,13 @@ html:not(.Theme--legacyOS) body.asga-active .asga-sortbtn {
   /* Unraid's global button styling would shout this in spaced uppercase; the
      control wears the select's plain text instead */
   text-transform: none; letter-spacing: normal; font-weight: normal;
+  /* a button centres its text by default, which is not how a select presents
+     its value: the value reads from the left, same as the closed list below */
+  text-align: left;
   background-color: rgba(127, 127, 127, 0.08);
   border: 1px solid rgba(127, 127, 127, 0.3);
   border-radius: 8px;
-  padding: 0 30px 0 12px;
+  padding: 0 30px 0 14px;
   /* the same two-gradient triangle Unraid draws on its selects, at the same
      inset the select carried */
   background-image: linear-gradient(66.6deg, transparent 60%, var(--input-border-color, #999) 40%),
@@ -499,7 +502,13 @@ html:not(.Theme--legacyOS) body.asga-active .asga-sortbtn:focus-visible { outlin
    a device pixel and the whole mark greys into a smudge, so it is drawn wider
    than the GitHub one on purpose. */
 .asga-un-mark { width: 22px; height: 13px; fill: currentColor; vertical-align: -2px; margin-left: 7px; }
-.asga-sortmenu-item { padding-left: 22px; }
+/* used to sit at 22px, a few pixels deeper than the group heading above, to
+   show the item nested under it. But the headings already read as headings
+   on their own (uppercase, letter-spaced, half opacity), and the two
+   ungrouped name orders open the list under no heading at all, so that
+   indent only bought a ragged left edge. One edge for the trigger, the
+   headings and the items is what a select does. */
+.asga-sortmenu-item { padding-left: 14px; }
 /* the current sort is named in the accent colour alone: a tick would push its
    label out of line with every other entry in the list */
 .asga-sortmenu-cur { color: #ff8c2f; }
