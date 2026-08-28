@@ -14,6 +14,7 @@
  * It writes nothing, anywhere. All CA paths are opened read-only.
  *
  * Output: { "generated": <ts>, "feedReady": <bool>, "docker": {...}, "defaultSort": <string>,
+ *           "historyDays": <int>,
  *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,lu,lk,ca,sx,t1,t7,t30,t365,rd,dt,td,tc } ] }
  *   p  = template path (passed to CA's showSidebarApp for Info/Install)
  *   n  = display name          sn = lowercase sort-name
@@ -307,16 +308,31 @@ foreach ($tmpl as $t) {
     ];
 }
 
-// Whether the configured token can read star dates. The year trending windows
-// depend on them, so the grid needs to tell an empty result from an unreadable
-// one rather than just showing "No apps to show".
 $scan = read_json_ro("$dataDir/status.json") ?: [];
-$starDates = empty($scan['stargazers_blocked']);
+
+// How many days of the plugin's own star-history snapshots this install has.
+// GitHub restricted the stargazers-listing endpoints to admins and
+// collaborators in July 2026, so the "this year" trending windows (t365) can
+// no longer get a year-ago baseline by walking a repo's stargazer pages; that
+// data is gone for every token type, for good. Their only remaining source is
+// star_history in stars.db, this plugin's own daily snapshot table, so this
+// count is the only honest way to tell a user when those two windows will
+// start working, rather than blaming a token setting that can no longer fix it.
+$historyDays = 0;
+if (class_exists('SQLite3') && is_file("$dataDir/stars.db")) {
+    try {
+        $sdb = new SQLite3("$dataDir/stars.db", SQLITE3_OPEN_READONLY);
+        $sdb->busyTimeout(2000);
+        $oldest = (int)$sdb->querySingle('SELECT MIN(ts) FROM star_history');
+        if ($oldest > 0) $historyDays = max(0, (int)floor((time() - $oldest) / 86400));
+        $sdb->close();
+    } catch (Throwable $e) { $historyDays = 0; }
+}
 
 // JSON_INVALID_UTF8_SUBSTITUTE: some feed descriptions carry stray bytes that
 // would otherwise make json_encode() return false and emit an empty body.
 echo json_encode(
-    ['generated' => time(), 'count' => count($out), 'starDates' => $starDates,
+    ['generated' => time(), 'count' => count($out), 'historyDays' => $historyDays,
      'feedReady' => $feedReady, 'docker' => docker_state(), 'defaultSort' => $defaultSort,
      // when CA last synced its feed (the store's own check for new and updated
      // apps) and when the last star scan ran, for the toolbar's Updated stamp

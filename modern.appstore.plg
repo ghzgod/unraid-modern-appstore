@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.08.28">
+<!ENTITY version "2026.08.29">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
@@ -14,7 +14,37 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" support="&support;">
 
 <CHANGES>
-##2026.08.28
+##2026.08.29
+- GitHub locked down its stargazers and watchers listing endpoints
+  (/repos/{owner}/{repo}/stargazers and /subscribers) to a repository's own
+  admins and collaborators, announced in its changelog on 30 June 2026 and
+  effective that July. Its stated reason, verified first-hand against the live
+  API: those endpoints exposed public lists of stargazers and watchers, and
+  that data "has increasingly been misused to collect user data for spam
+  activities." The lock covers the REST endpoints and the GraphQL stargazers
+  connection alike, and no token type is exempt: a classic token fails, a
+  fine-grained token fails, and so does a repository's own owner testing
+  against their own repo. Star counts alone are untouched, since a count comes
+  from the repository object rather than the list GitHub just closed off.
+- This closed off the only way the two "this year" trending orders had of
+  reaching a year-ago baseline, which was walking a repository's stargazer
+  list and reading the date on each star. That path is gone for every install,
+  not just this one, since GitHub applied the restriction to the API itself
+  rather than to any particular caller or use.
+- In its place the plugin now keeps its own daily star snapshot for every app
+  in the catalog and builds every trending window from that history alone,
+  fetching nothing from GitHub or anywhere else to do it. Today, this week and
+  this month already run on it. The two year windows need 365 days of recorded
+  history before they can produce a real delta, and each fills in on its own
+  the day an install crosses that mark.
+- A GitHub token is still worth setting, but only for the rate limit: GitHub
+  allows 60 requests an hour with no token at all, which a catalog this size
+  burns through in minutes, against 5,000 with one. Which kind of token no
+  longer matters in the slightest, since the only thing token type ever
+  changed was whether star dates could be read, and that door is now shut for
+  both kinds alike. The grid itself says plainly how many days of history an
+  install has on hand and when its year windows will fill in, rather than
+  pointing at the token as if a different one would fix it.
 - The four orders the App Store's own front page is built from are in the sort
   menu: Spotlight Apps, Top Trending, Top New Installs and Most Popular
   Plugins. They are worked out from the same feed and the same thresholds the
@@ -28,11 +58,10 @@
   is "Most Stars".
 - The plugin says something when it needs attention, through Unraid's own
   notifications, rather than leaving it on a settings page nobody has a reason
-  to open. Two cases raise one: no GitHub token is configured, and a token
-  that cannot read star dates, which is what leaves both "this year" sorts
-  empty. Each is raised once when it starts and not again until it clears, and
-  clicking it opens the settings page that explains the fix. There is a switch
-  to turn them off next to the one that turns the plugin on.
+  to open. No GitHub token configured is the case that raises one. It is
+  raised once when it starts and not again until it clears, and clicking it
+  opens the settings page that explains the fix. There is a switch to turn
+  them off next to the one that turns the plugin on.
 - Plugins show how many servers have installed them. Every plugin in the store
   reported zero, because the count is thrown away for any image published
   without an owner name (that number belongs to a base image like nginx, not
@@ -55,10 +84,6 @@
   colour rather than marked with a tick that pushed its label out of line.
 - A "Recently Updated" sort, ordering the grid by when each app was last
   updated. Apps the feed carries no update date for sort last.
-- The trending groups are named "GitHub Trending" and "GitHub Trending %",
-  each with GitHub's mark, since every one of those orders is counted from a
-  repository's stars. The mark is drawn in the menu's own text colour, so it
-  reads on the light and dark themes alike.
 - The toolbar row shares the grid's width: the search box starts on the first
   card's left edge and the Modern view toggle ends on the last card's right
   edge, at every window width and font size. Nothing is drawn around the row
@@ -526,11 +551,14 @@ mkdir -p /boot/config/plugins/modern.appstore
  * Records a star-history snapshot per run so trending (1d/1w/1m/1y) can be
  * computed over time.
  *
- * The 1d/1w/1m windows come from those daily snapshots. A YEAR window cannot:
- * a fresh install has no year-old snapshot and would never populate one, so the
- * year-ago baseline is walked out of GitHub's stargazer list instead (see
- * backfill_year_baselines) and cached per repo. created_at is recorded too, so
- * the grid can rank by lifetime growth rate.
+ * The 1d/1w/1m/1y windows all come from those daily snapshots, and only from
+ * them. GitHub restricted the stargazers and subscribers listing endpoints in
+ * July 2026 to admins and collaborators, so dated star data (starred_at) is
+ * gone for every token type, permanently; stargazers_count still works, so
+ * star totals are unaffected, but there is no way to backfill a year-ago
+ * baseline any more. A fresh install's year window therefore stays empty
+ * until a year of this plugin's own snapshots has actually accumulated.
+ * created_at is recorded too, so the grid can rank by lifetime growth rate.
  *
  * Persistent data (DB + JSON) lives in a configurable appdata dir on the cache
  * SSD so it survives reboots; served copies go to the tmpfs webroot. curl_multi
@@ -557,12 +585,10 @@ $defaults = [
     'limit'       => '0',
     'concurrency' => '8',
     'manual'      => '0',  // 1 = invoked by the Refresh button (records manual time)
-    'sg-limit'    => '0',  // cap repos for the stargazer-trend backfill (0 = all)
     'new-only'    => '0',  // 1 = only fetch repos not yet in the DB (newly-published apps)
     'only-paths'  => '',   // file of CA template paths, one per line: scan only these apps
     'stale-days'  => '0',  // with --only-paths: skip repos already tried within N days
     'trends-only' => '0',  // 1 = no network: recompute trend deltas from stored star history and rewrite JSON
-    'year-limit'  => '400',// max repos to walk for a year-ago star baseline per run (0 = no cap)
 ];
 
 // ---- arg parsing -----------------------------------------------------------
@@ -605,7 +631,7 @@ $status = [
 
 // ---- notification ledger, carried forward from the last run ---------------
 // This scan is driven by cron once a day, so a condition that stays broken
-// (no token, a blocked stargazers endpoint) would otherwise raise the same
+// (no token) would otherwise raise the same
 // notification again on every single run: noise the user tunes out well
 // before they get around to fixing the actual problem. 'notified' in
 // status.json is the fix: it remembers which keys have already fired, so a
@@ -642,8 +668,7 @@ function write_progress(string $outDir, bool $running, int $done, int $total, ar
  * can go bad on a run driven by cron, with no browser open, and sit broken
  * for days before anyone happens to look. -l points the click target at the
  * settings page, the one place that explains the fix, so seeing the toast is
- * enough to reach it. -x files a single ticket rather than a running
- * broadcast. escapeshellarg() wraps every value with no exception, because
+ * enough to reach it. escapeshellarg() wraps every value with no exception, because
  * $description is partly built out of this scan's own text and must never
  * reach the shell unescaped. Guarded on both the setting and the binary's
  * presence, and run through @exec() with its output thrown away, so a moved
@@ -965,8 +990,10 @@ $db->exec('CREATE TABLE IF NOT EXISTS repos (
     repo TEXT PRIMARY KEY, owner TEXT, name TEXT,
     stars INTEGER, etag TEXT, http_status INTEGER, fetched_at INTEGER)');
 // trend columns persist computed deltas so a --new-only run doesn't wipe them.
-// created_at = repo creation (drives the lifetime growth-rate sort); y_base is
-// the stargazer-walked star count at y_cut, refreshed every 30 days.
+// created_at = repo creation (drives the lifetime growth-rate sort). y_base,
+// y_cut, y_at are legacy: they held the stargazer-walked year baseline, and
+// GitHub blocked the walk that filled them in July 2026. Kept only so an
+// existing database still opens; nothing writes or reads them any more.
 foreach (['t1', 't7', 't30', 't365', 'created_at', 'y_base', 'y_cut', 'y_at'] as $tcol) {
     @$db->exec("ALTER TABLE repos ADD COLUMN $tcol INTEGER");
 }
@@ -1170,352 +1197,16 @@ function trend_window(SQLite3Stmt $baseQ, SQLite3Stmt $oldQ, string $repo, int $
     return $fallback;
 }
 
-/**
- * Does this token have starred_at access?
- *
- * GitHub refuses the stargazers endpoint to FINE-GRAINED tokens (github_pat_*)
- * with a 403 "Resource not accessible by personal access token" that has
- * nothing to do with the rate limit, and GraphQL refuses it the same way. Only
- * a CLASSIC token (ghp_*) can read it, with no scopes needed. Without it the
- * only star timeline available is this plugin's own daily snapshots.
- *
- * One probe request per run settles it, which beats a stored flag (it notices
- * a swapped token immediately) and beats discovering it 2,000 failed requests
- * in. Returns true when starred_at is readable.
- */
-function stargazers_readable(array $repoMeta, string $token, array &$status): bool {
-    $m = reset($repoMeta);
-    if (!$m) return false;
-    $ch = curl_init('https://api.github.com/repos/' . rawurlencode($m['owner']) . '/' .
-                    rawurlencode($m['repo']) . '/stargazers?per_page=1');
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 20, CURLOPT_CONNECTTIMEOUT => 10,
-        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token, 'User-Agent: ' . UA,
-            'Accept: application/vnd.github.star+json', 'X-GitHub-Api-Version: 2022-11-28'],
-    ]);
-    $body = (string)curl_exec($ch);
-    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-    if ($code === 200) return true;
-    if ($code === 403 && strpos($body, 'not accessible by personal access token') !== false) {
-        $status['stargazers_blocked'] = true;
-        $status['errors'][] = 'This GitHub token cannot read star dates, so the "this year" trending windows '
-            . 'stay empty until the plugin has recorded a year of its own history. A classic token '
-            . '(ghp_...) with no scopes can read them; a fine-grained token (github_pat_...) cannot.';
-        return false;
-    }
-    // anything else (rate limit, transient error) is not a permission verdict:
-    // skip the walks this run and try again on the next one
-    $status['stargazers_probe'] = $code;
-    return false;
-}
-
-/**
- * Stargazer-timestamp trend backfill. Fetches each repo's newest stargazer page
- * (per_page=100, the last page) with star+json so every star carries starred_at,
- * then counts stars gained in the last 1d/7d/30d/365d. Repos above ~40k stars
- * exceed GitHub's stargazer pagination cap (~400 pages) so they're skipped here
- * and fall back to the daily snapshots. Returns full => [c1,c7,c30,c365].
- */
-function backfill_trends(array $repoMeta, array $starsByRepo, string $token, string $outDir, array &$status, int $sgLimit, ?array $restrict = null): array {
-    $now = time();
-    $periods = [86400, 7 * 86400, 30 * 86400, 365 * 86400];
-    $trends = [];
-    $list = [];
-    foreach ($starsByRepo as $full => $s) {
-        if ($restrict !== null && !isset($restrict[$full])) continue;   // new-only: just the new repos
-        if ($s <= 0 || $s > 40000) continue;
-        $m = $repoMeta[$full] ?? null; if (!$m) continue;
-        $list[] = ['full' => $full, 'owner' => $m['owner'], 'name' => $m['repo'], 'page' => max(1, (int)ceil($s / 100))];
-    }
-    if ($sgLimit > 0) $list = array_slice($list, 0, $sgLimit);
-    $total = count($list); $i = 0; $done = 0; $stop = false; $C = 8;
-    if ($total === 0) return $trends;
-
-    $mh = curl_multi_init(); $inflight = [];
-    $add = function ($it) use (&$inflight, $mh, $token) {
-        $url = 'https://api.github.com/repos/' . rawurlencode($it['owner']) . '/' . rawurlencode($it['name']) .
-               '/stargazers?per_page=100&page=' . $it['page'];
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token, 'User-Agent: ' . UA,
-                'Accept: application/vnd.github.star+json', 'X-GitHub-Api-Version: 2022-11-28'],
-        ]);
-        $inflight[spl_object_id($ch)] = $it['full'];
-        curl_multi_add_handle($mh, $ch);
-    };
-    for (; $i < $C && $i < $total; $i++) $add($list[$i]);
-    do {
-        curl_multi_exec($mh, $run);
-        if ($run) curl_multi_select($mh, 1.0);
-        while ($d = curl_multi_info_read($mh)) {
-            $ch = $d['handle']; $id = spl_object_id($ch); $full = $inflight[$id] ?? null; unset($inflight[$id]);
-            $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); $body = curl_multi_getcontent($ch);
-            curl_multi_remove_handle($mh, $ch); curl_close($ch);
-            if ($full) {
-                $done++;
-                if ($code === 200) {
-                    $arr = json_decode($body, true); $c = [0, 0, 0, 0];
-                    if (is_array($arr)) foreach ($arr as $it) {
-                        $t = isset($it['starred_at']) ? strtotime($it['starred_at']) : 0;
-                        if ($t) for ($p = 0; $p < 4; $p++) if ($t >= $now - $periods[$p]) $c[$p]++;
-                    }
-                    $trends[$full] = $c;
-                } elseif ($code === 403 || $code === 429) { $stop = true; }
-            }
-            if (!$stop && $i < $total) { $add($list[$i]); $i++; }
-            if ($done % 50 === 0) write_progress($outDir, true, $done, $total, $status);
-        }
-    } while ($run || !empty($inflight) || (!$stop && $i < $total));
-    curl_multi_close($mh);
-    if ($stop) $status['errors'][] = 'Stargazer trend backfill hit a rate limit; trends partial this run.';
-    return $trends;
-}
-
-/**
- * Year-ago star baseline: how many of a repo's stars predate the 365-day window.
- *
- * The daily snapshots cannot answer this. A window only resolves once history
- * reaches back that far, so on any install younger than a year the "this year"
- * sort would rank nothing at all, and backfill_trends' single newest stargazer
- * page saturates at 100, tying every repo that gained more than that.
- *
- * GitHub returns stargazers OLDEST FIRST with starred_at attached, so the split
- * point is found by binary-searching pages for the first one that opens inside
- * the window, then counting across that boundary page. ~log2(pages) requests:
- * a 1,000-star repo costs 4, a 40,000-star repo costs 10, and a repo with 100
- * stars or fewer costs 1. Pages already pulled during the search are reused.
- *
- * Deliberate limits, because they affect how the numbers should be read:
- *   - The list holds CURRENT stargazers only, so a star given two years ago and
- *     since removed is invisible. The baseline is therefore a slight undercount
- *     and the year's gain a slight overcount. It ranks correctly; it is not an
- *     audit.
- *   - GitHub stops paginating stargazers at 400 pages, so repos over 40,000
- *     stars are left to the snapshot path rather than guessed at.
- *   - Repos created inside the window need no request: every star they have is
- *     this year's, so the baseline is 0.
- *
- * Returns full => baseline stars at $cutoff.
- */
-function backfill_year_baselines(array $repoMeta, array $starsByRepo, array $rowMeta, string $token,
-                                 string $outDir, array &$status, int $cap, ?array $restrict, int $now): array {
-    $cutoff = $now - 365 * 86400;
-    $out = [];
-    $search = [];
-
-    foreach ($starsByRepo as $full => $stars) {
-        if ($restrict !== null && !isset($restrict[$full])) continue;
-        if (!isset($repoMeta[$full])) continue;
-        $meta = $rowMeta[$full] ?? [];
-        // a baseline drifts by exactly the time since it was taken; refreshing
-        // monthly keeps the window between 365 and ~395 days, close enough to
-        // rank by and a large saving over recomputing it every run
-        if (!empty($meta['y_at']) && ($now - (int)$meta['y_at']) < 30 * 86400) continue;
-        if ($stars <= 0) { $out[$full] = 0; continue; }
-        $created = (int)($meta['created_at'] ?? 0);
-        if ($created > 0 && $created >= $cutoff) { $out[$full] = 0; continue; }   // free: repo is younger than the window
-        if ($stars > 40000) continue;                                            // past GitHub's stargazer pagination cap
-        $search[] = ['full' => $full, 'stars' => (int)$stars];
-    }
-    // biggest repos first: they decide the top of every trending ranking, so a
-    // capped run still produces a correct-looking leaderboard
-    usort($search, function ($a, $b) { return $b['stars'] - $a['stars']; });
-    $deferred = 0;
-    if ($cap > 0 && count($search) > $cap) { $deferred = count($search) - $cap; $search = array_slice($search, 0, $cap); }
-    $status['year_free'] = count($out);
-    if (!$search) {
-        if ($deferred) $status['year_deferred'] = $deferred;
-        return $out;
-    }
-
-    $state = [];
-    foreach ($search as $it) {
-        $pages = min(400, max(1, (int)ceil($it['stars'] / 100)));
-        $state[$it['full']] = ['stars' => $it['stars'], 'pages' => $pages, 'lo' => 1, 'hi' => $pages,
-                               'ans' => $pages + 1, 'cache' => [], 'phase' => 'search'];
-    }
-    $queue = array_keys($state);
-    $total = count($queue); $done = 0; $stop = false;
-
-    // fold a fetched page into the repo's search, then say which page it needs
-    // next; null means the repo is finished and its baseline is recorded
-    $consume = function ($full, $page, $arr) use (&$state, $cutoff) {
-        $s = &$state[$full];
-        $ts = [];
-        if (is_array($arr)) foreach ($arr as $it) {
-            $t = isset($it['starred_at']) ? strtotime($it['starred_at']) : 0;
-            if ($t) $ts[] = $t;
-        }
-        $s['cache'][$page] = $ts;
-        if ($s['phase'] !== 'search') return;
-        if (!$ts) { $s['hi'] = $page - 1; return; }        // short/empty page: the end is below it
-        if ($ts[0] >= $cutoff) { $s['ans'] = $page; $s['hi'] = $page - 1; }
-        else { $s['lo'] = $page + 1; }
-    };
-    $advance = function ($full) use (&$state, &$out, $cutoff) {
-        $s = &$state[$full];
-        if ($s['phase'] === 'search') {
-            if ($s['lo'] <= $s['hi']) return (int)(($s['lo'] + $s['hi']) >> 1);
-            $s['phase'] = 'count';
-        }
-        // ans = first page that OPENS inside the window, so the boundary itself
-        // lies in the page before it (or in the last page, if none opens inside)
-        $q = ($s['ans'] > $s['pages']) ? $s['pages'] : $s['ans'] - 1;
-        if ($q <= 0) { $out[$full] = 0; return null; }     // every star is inside the window
-        if (!isset($s['cache'][$q])) return $q;
-        $c = 0;
-        foreach ($s['cache'][$q] as $t) if ($t < $cutoff) $c++;
-        $out[$full] = max(0, min($s['stars'], ($q - 1) * 100 + $c));
-        return null;
-    };
-
-    $mh = curl_multi_init(); $inflight = []; $hdrs = []; $C = 8;
-    $add = function ($full, $page) use (&$inflight, &$hdrs, $mh, $token, $repoMeta) {
-        $m = $repoMeta[$full];
-        $url = 'https://api.github.com/repos/' . rawurlencode($m['owner']) . '/' . rawurlencode($m['repo']) .
-               '/stargazers?per_page=100&page=' . $page;
-        $ch = curl_init($url);
-        $id = spl_object_id($ch); $hdrs[$id] = [];
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30, CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token, 'User-Agent: ' . UA,
-                'Accept: application/vnd.github.star+json', 'X-GitHub-Api-Version: 2022-11-28'],
-            CURLOPT_HEADERFUNCTION => function ($c, $line) use (&$hdrs, $id) {
-                $p = explode(':', $line, 2);
-                if (count($p) === 2) $hdrs[$id][strtolower(trim($p[0]))] = trim($p[1]);
-                return strlen($line);
-            },
-        ]);
-        $inflight[$id] = ['full' => $full, 'page' => $page];
-        curl_multi_add_handle($mh, $ch);
-    };
-    // kick a repo off, or drop it if it somehow needs nothing
-    $startNext = function () use (&$queue, &$state, $advance, $add, &$done) {
-        while ($queue) {
-            $full = array_shift($queue);
-            $p = $advance($full);
-            if ($p === null) { $done++; continue; }   // resolved without a request
-            $add($full, $p);
-            return true;
-        }
-        return false;
-    };
-    for ($i = 0; $i < $C; $i++) if (!$startNext()) break;
-
-    do {
-        curl_multi_exec($mh, $run);
-        if ($run) curl_multi_select($mh, 1.0);
-        while ($d = curl_multi_info_read($mh)) {
-            $ch = $d['handle']; $id = spl_object_id($ch);
-            $ctx = $inflight[$id] ?? null; unset($inflight[$id]);
-            $heads = $hdrs[$id] ?? []; unset($hdrs[$id]);
-            $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $body = curl_multi_getcontent($ch);
-            curl_multi_remove_handle($mh, $ch); curl_close($ch);
-            if (!$ctx) continue;
-            $full = $ctx['full'];
-            if (isset($heads['x-ratelimit-remaining'])) {
-                $status['rate_remaining'] = (int)$heads['x-ratelimit-remaining'];
-                // leave headroom for the next star scan rather than draining the
-                // hour here; whatever is left is picked up on the following run
-                if ((int)$heads['x-ratelimit-remaining'] < 200) $stop = true;
-            }
-            if ($code === 403 || $code === 429) { $stop = true; $done++; continue; }
-            if ($code !== 200) { $done++; if (!$stop) $startNext(); continue; }   // give up on this repo, not the run
-
-            $consume($full, $ctx['page'], json_decode($body, true));
-            $next = $advance($full);
-            if ($next !== null && !$stop) { $add($full, $next); continue; }
-            $done++;
-            if ($done % 25 === 0) write_progress($outDir, true, $done, $total, $status, 'year');
-            if (!$stop) $startNext();
-        }
-    } while ($run || !empty($inflight));
-    curl_multi_close($mh);
-
-    if ($stop) $status['errors'][] = 'Year-baseline walk stopped early on the GitHub rate limit; the rest resumes next run.';
-    if ($deferred) $status['year_deferred'] = $deferred;
-    $status['year_walked'] = count($out) - (int)($status['year_free'] ?? 0);
-    return $out;
-}
-
-// Existing repo rows: created_at drives the free skips above, y_at the refresh
-// window, and the snapshot floor decides who still needs the capped stargazer
-// fallback for the SHORT windows.
-$rowMeta = [];
-$rm = $db->query('SELECT repo, created_at, y_base, y_cut, y_at FROM repos');
-while ($r = $rm->fetchArray(SQLITE3_ASSOC)) {
-    $rowMeta[$r['repo']] = ['created_at' => (int)$r['created_at'], 'y_at' => (int)$r['y_at']];
-}
-
-// backfill_trends answers the 1d/1w/1m windows for repos the snapshot history
-// cannot yet cover. Once a repo has a snapshot older than a day the snapshots
-// win outright, so re-walking the whole catalog every run bought nothing and
-// cost a request per repo; restrict it to repos that genuinely lack a baseline.
-$sgNeed = [];
-if (!$trendsOnly) {
-    $histFloor = $now - 86400;
-    $seen = [];
-    $hq = $db->query('SELECT repo, MIN(ts) AS m FROM star_history GROUP BY repo');
-    while ($r = $hq->fetchArray(SQLITE3_ASSOC)) $seen[$r['repo']] = (int)$r['m'];
-    foreach ($starsByRepo as $full => $_) {
-        if (!isset($seen[$full]) || $seen[$full] > $histFloor) $sgNeed[$full] = 1;
-    }
-    if ($newRepoSet !== null) $sgNeed = array_intersect_key($sgNeed, $newRepoSet);
-    if ($wantedRepos !== null) $sgNeed = array_intersect_key($sgNeed, $wantedRepos);
-}
-// Both backfills below read starred_at, so a token that cannot see it makes
-// every one of their requests a guaranteed 403. Settle that with one probe.
-$sgOk = (!$trendsOnly && $token !== '') ? stargazers_readable($repoMeta, $token, $status) : false;
-
-$sgTrends = ($trendsOnly || !$sgOk || !$sgNeed) ? []
-    : backfill_trends($repoMeta, $starsByRepo, $token, $outDir, $status, (int)$opt['sg-limit'], $sgNeed);
-
-// Year-ago baselines. On a page scan this is limited to the apps on screen, so
-// browsing fills the year window in exactly the way browsing fills stars in.
-$yearNew = ($trendsOnly || !$sgOk) ? []
-    : backfill_year_baselines($repoMeta, $starsByRepo, $rowMeta, $token, $outDir, $status,
-                              (int)$opt['year-limit'], $wantedRepos, $now);
-if ($yearNew) {
-    $yu = $db->prepare('UPDATE repos SET y_base=:b, y_cut=:c, y_at=:a WHERE repo=:r');
-    $db->exec('BEGIN');
-    foreach ($yearNew as $full => $b) {
-        $yu->reset();
-        $yu->bindValue(':b', (int)$b, SQLITE3_INTEGER);
-        $yu->bindValue(':c', $now - 365 * 86400, SQLITE3_INTEGER);
-        $yu->bindValue(':a', $now, SQLITE3_INTEGER);
-        $yu->bindValue(':r', $full, SQLITE3_TEXT);
-        $yu->execute();
-    }
-    $db->exec('COMMIT');
-}
-// every stored baseline, including repos untouched this run
-$yBase = [];
-$yq = $db->query('SELECT repo, y_base FROM repos WHERE y_base IS NOT NULL');
-while ($r = $yq->fetchArray(SQLITE3_ASSOC)) $yBase[$r['repo']] = (int)$r['y_base'];
-
 // repo creation dates, for the lifetime growth-rate sort
 $createdAt = [];
 $cq = $db->query('SELECT repo, created_at FROM repos WHERE created_at IS NOT NULL');
 while ($r = $cq->fetchArray(SQLITE3_ASSOC)) $createdAt[$r['repo']] = (int)$r['created_at'];
 
-// persist freshly-computed trends so a later --new-only run keeps them
-if ($sgTrends) {
-    $tu = $db->prepare('UPDATE repos SET t1=:a,t7=:b,t30=:c,t365=:d WHERE repo=:r');
-    $db->exec('BEGIN');
-    foreach ($sgTrends as $full => $c) {
-        $tu->reset();
-        $tu->bindValue(':a', $c[0], SQLITE3_INTEGER); $tu->bindValue(':b', $c[1], SQLITE3_INTEGER);
-        $tu->bindValue(':c', $c[2], SQLITE3_INTEGER); $tu->bindValue(':d', $c[3], SQLITE3_INTEGER);
-        $tu->bindValue(':r', $full, SQLITE3_TEXT);
-        $tu->execute();
-    }
-    $db->exec('COMMIT');
-}
-// read all stored trends (existing repos preserved + the ones we just refreshed)
+// t1/t7/t30/t365 in the repos table are the last stargazer-derived values this
+// plugin ever wrote, from before GitHub blocked that walk in July 2026.
+// Nothing writes them any more, but old rows still carry them, so they remain
+// in play below as trend_window()'s last-resort fallback until this plugin's
+// own snapshot history grows long enough to make them irrelevant.
 $dbTrends = [];
 $trq = $db->query('SELECT repo, t1, t7, t30, t365 FROM repos WHERE t7 IS NOT NULL');
 while ($row = $trq->fetchArray(SQLITE3_ASSOC)) {
@@ -1549,14 +1240,14 @@ foreach ($apps as $idx => $app) {
         $t1   = trend_window($baseQ, $oldQ, $full, 86400,       $stars, $now, $fb[0]);
         $t7   = trend_window($baseQ, $oldQ, $full, 7 * 86400,   $stars, $now, $fb[1]);
         $t30  = trend_window($baseQ, $oldQ, $full, 30 * 86400,  $stars, $now, $fb[2]);
-        // Year window, best source first: a genuine year-old snapshot if this
-        // install has run that long, else the stargazer-walked baseline, else
-        // the capped fallback. The walk is what makes "this year" work at all
-        // on an install younger than a year.
+        // Year window: a genuine year-old snapshot once this install has run
+        // that long, else the capped fallback. There is no other source any
+        // more; GitHub blocked the stargazer walk that used to backfill this
+        // on a fresh install, so "this year" stays empty until a year of our
+        // own snapshots has actually accumulated.
         $snap365 = trend_at($baseQ, $full, $now - 365 * 86400);
-        if ($snap365 !== null)             $t365 = $stars - $snap365;
-        elseif (isset($yBase[$full]))      $t365 = max(0, $stars - $yBase[$full]);
-        else                               $t365 = trend_window($baseQ, $oldQ, $full, 365 * 86400, $stars, $now, $fb[3]);
+        $t365 = $snap365 !== null ? $stars - $snap365
+              : trend_window($baseQ, $oldQ, $full, 365 * 86400, $stars, $now, $fb[3]);
         $created = $createdAt[$full] ?? null;
     }
 
@@ -1592,39 +1283,12 @@ foreach ([$outDir, $dataDir] as $d) {
     @file_put_contents($d . '/apps.json', $appsJson);
 }
 
-// newly-true only, same ledger as the no-token check near the top: this flag
-// is only known once stargazers_readable() has actually probed the token
-// against a live repo, so it cannot be decided any earlier than here, right
-// before this run's status is written for good. Dropping the key in the
-// else branch means swapping in a working token silences it, and swapping
-// back to a fine-grained one raises it again rather than staying silent.
-if (!empty($status['stargazers_blocked'])) {
-    if (!isset($status['notified']['stargazers_blocked'])) {
-        notify_unraid(
-            'GitHub star dates unavailable',
-            'The two "this year" trending sorts stay empty. This is how GitHub treats '
-                . 'fine-grained tokens (github_pat_...); a classic token (ghp_...) with '
-                . 'no scopes reads them.',
-            'warning',
-            $notifyEnabled
-        );
-        $status['notified']['stargazers_blocked'] = time();
-    }
-} elseif ($sgOk) {
-    // $sgOk is the probe actually coming back readable, which is the only
-    // evidence that clears this. An absent blocked flag is NOT that evidence:
-    // a --trends-only run never probes at all, so treating "not flagged" as
-    // "fixed" would clear the ledger and re-notify on the next real scan.
-    unset($status['notified']['stargazers_blocked']);
-}
-
 write_status($status, $outDir, $dataDir);
 write_progress($outDir, false, $scanned, $total, $status);
 
-fwrite(STDERR, sprintf("fetch_stars: repos=%d ok=%d notmod=%d missing=%d rate=%s errors=%d apps=%d sgTrends=%d year=%d(free=%d,left=%d)\n",
+fwrite(STDERR, sprintf("fetch_stars: repos=%d ok=%d notmod=%d missing=%d rate=%s errors=%d apps=%d\n",
     $status['repos_total'], $status['ok'], $status['not_modified'], $status['missing'],
-    var_export($status['rate_remaining'], true), count($status['errors']), count($catalog), count($sgTrends),
-    count($yearNew), (int)($status['year_free'] ?? 0), (int)($status['year_deferred'] ?? 0)));
+    var_export($status['rate_remaining'], true), count($status['errors']), count($catalog)));
 exit(0);
 ]]>
 </INLINE>
@@ -1824,6 +1488,7 @@ echo json_encode(['scanned' => count($valid), 'stars' => $out ?: (object)[]], JS
  * It writes nothing, anywhere. All CA paths are opened read-only.
  *
  * Output: { "generated": <ts>, "feedReady": <bool>, "docker": {...}, "defaultSort": <string>,
+ *           "historyDays": <int>,
  *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,lu,lk,ca,sx,t1,t7,t30,t365,rd,dt,td,tc } ] }
  *   p  = template path (passed to CA's showSidebarApp for Info/Install)
  *   n  = display name          sn = lowercase sort-name
@@ -2117,16 +1782,31 @@ foreach ($tmpl as $t) {
     ];
 }
 
-// Whether the configured token can read star dates. The year trending windows
-// depend on them, so the grid needs to tell an empty result from an unreadable
-// one rather than just showing "No apps to show".
 $scan = read_json_ro("$dataDir/status.json") ?: [];
-$starDates = empty($scan['stargazers_blocked']);
+
+// How many days of the plugin's own star-history snapshots this install has.
+// GitHub restricted the stargazers-listing endpoints to admins and
+// collaborators in July 2026, so the "this year" trending windows (t365) can
+// no longer get a year-ago baseline by walking a repo's stargazer pages; that
+// data is gone for every token type, for good. Their only remaining source is
+// star_history in stars.db, this plugin's own daily snapshot table, so this
+// count is the only honest way to tell a user when those two windows will
+// start working, rather than blaming a token setting that can no longer fix it.
+$historyDays = 0;
+if (class_exists('SQLite3') && is_file("$dataDir/stars.db")) {
+    try {
+        $sdb = new SQLite3("$dataDir/stars.db", SQLITE3_OPEN_READONLY);
+        $sdb->busyTimeout(2000);
+        $oldest = (int)$sdb->querySingle('SELECT MIN(ts) FROM star_history');
+        if ($oldest > 0) $historyDays = max(0, (int)floor((time() - $oldest) / 86400));
+        $sdb->close();
+    } catch (Throwable $e) { $historyDays = 0; }
+}
 
 // JSON_INVALID_UTF8_SUBSTITUTE: some feed descriptions carry stray bytes that
 // would otherwise make json_encode() return false and emit an empty body.
 echo json_encode(
-    ['generated' => time(), 'count' => count($out), 'starDates' => $starDates,
+    ['generated' => time(), 'count' => count($out), 'historyDays' => $historyDays,
      'feedReady' => $feedReady, 'docker' => docker_state(), 'defaultSort' => $defaultSort,
      // when CA last synced its feed (the store's own check for new and updated
      // apps) and when the last star scan ran, for the toolbar's Updated stamp
@@ -2184,6 +1864,100 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
 </INLINE>
 </FILE>
 
+<FILE Name="/usr/local/emhttp/plugins/modern.appstore/about.php">
+<INLINE>
+<![CDATA[
+<?php
+/**
+ * Version and changelog data for the About / Help panel in the Apps page UI.
+ *
+ * The About panel reads the plugin PACKAGE actually installed on this server
+ * (the .plg Unraid's plugin manager wrote to the flash), not a bundled copy
+ * from the source tree, so the version and changelog it shows are the ones
+ * really running here rather than whatever the repo happens to contain.
+ *
+ * READ-ONLY. Reads /boot/config/plugins/modern.appstore.plg only (its version
+ * and support entities, its CHANGES block, and its filemtime as the
+ * last-installed-or-updated stamp) and writes nothing, anywhere. A missing or
+ * unreadable file degrades to the same JSON shape with empty/zero values, so
+ * the panel can show "no changelog available" instead of breaking the page.
+ */
+header('Content-Type: application/json');
+
+$plg = '/boot/config/plugins/modern.appstore.plg';
+
+// a bullet is one top-level "- " line; anything indented under it (a wrapped
+// continuation, or a nested "  - " sub-point some entries carry) is folded
+// back onto that bullet with a single space, so the panel shows whole
+// sentences instead of the fragments the source markdown wraps them into.
+function about_parse_bullets($body) {
+    $lines = preg_split('/\r\n|\r|\n/', (string)$body);
+    $bullets = [];
+    $cur = null;
+    foreach ($lines as $line) {
+        if (preg_match('/^-\s+(.*)$/', $line, $m)) {
+            if ($cur !== null) $bullets[] = $cur;
+            $cur = $m[1];
+        } elseif ($cur !== null && trim($line) !== '') {
+            $cur .= ' ' . trim($line);
+        }
+    }
+    if ($cur !== null) $bullets[] = $cur;
+
+    // collapse whitespace, cap each bullet's length and the bullet count per
+    // release, so one oversized entry cannot bloat the panel's payload.
+    $out = [];
+    foreach ($bullets as $b) {
+        $b = trim(preg_replace('/\s+/', ' ', $b));
+        if ($b === '') continue;
+        if (function_exists('mb_strlen')) {
+            if (mb_strlen($b) > 400) $b = mb_substr($b, 0, 399) . '…';
+        } elseif (strlen($b) > 400) {
+            $b = substr($b, 0, 399) . '...';
+        }
+        $out[] = $b;
+        if (count($out) >= 8) break;
+    }
+    return $out;
+}
+
+$version   = '';
+$support   = '';
+$updatedAt = 0;
+$entries   = [];
+
+$raw = is_file($plg) ? @file_get_contents($plg) : false;
+if ($raw !== false && $raw !== '') {
+    if (preg_match('/<!ENTITY\s+version\s+"([^"]*)"/', $raw, $m)) $version = $m[1];
+    if (preg_match('/<!ENTITY\s+support\s+"([^"]*)"/', $raw, $m)) $support = $m[1];
+
+    $mtime = @filemtime($plg);
+    if ($mtime !== false) $updatedAt = $mtime;
+
+    // the CHANGES block is already newest-first in the source file; splitting
+    // on the "##version" heading line keeps that order, so taking the first
+    // three parts is taking the three most recent releases, no re-sorting.
+    if (preg_match('/<CHANGES>(.*?)<\/CHANGES>/s', $raw, $cm)) {
+        $parts = preg_split('/^##\s*(\S+).*$/m', $cm[1], -1, PREG_SPLIT_DELIM_CAPTURE);
+        for ($i = 1; $i < count($parts) && count($entries) < 3; $i += 2) {
+            $entries[] = [
+                'version' => trim((string)$parts[$i]),
+                'bullets' => about_parse_bullets($parts[$i + 1] ?? ''),
+            ];
+        }
+    }
+}
+
+echo json_encode([
+    'version'   => $version,
+    'updatedAt' => $updatedAt,
+    'support'   => $support,
+    'entries'   => $entries,
+], JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE);
+]]>
+</INLINE>
+</FILE>
+
 <FILE Name="/usr/local/emhttp/plugins/modern.appstore/inject.js">
 <INLINE>
 <![CDATA[
@@ -2229,9 +2003,10 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
     var scanAsked = {};           // path -> 1, so a page is only auto-scanned once
     var scanInFlight = false, scanPending = false, scanTimer = null;
     var pinnedSet = null, installedSet = null;
-    // false once the server reports the GitHub token cannot read star dates,
-    // which is what the year trending windows are built from
-    var starDates = true;
+    // how many days of the plugin's own star-history snapshots this install
+    // has. The year trending windows are built from this now, since GitHub
+    // restricted the endpoints that used to backfill a year-ago baseline
+    var historyDays = 0;
     // CA's docker availability, as applist.php reports it. Docker being down
     // does NOT empty the store: CA still lists everything and still installs
     // plugins, it only blocks docker installs and says why. The modern view is
@@ -2263,10 +2038,12 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
     }
 
     // Every trending sort ranks by GitHub stars; they differ only in the window.
-    // Day/week/month come from the plugin's own daily star snapshots. The year
-    // window can't: a fresh install has no year-old snapshot, so the server
-    // walks each repo's stargazer list for a real year-ago baseline (see
-    // backfill_year_baselines in fetch_stars.php) and hands it over as t365.
+    // Day/week/month/year all come from the plugin's own daily star snapshots
+    // in star_history now: GitHub restricted the stargazers-listing endpoints
+    // to admins and collaborators in July 2026, so there is no longer any way
+    // to backfill a year-ago baseline for a fresh install. The year windows
+    // (t365) just take as long to fill in as any other window would, 365 days
+    // of the plugin's own recorded history.
     // All time is the repo's whole life: every star it has ever gained, and for
     // the percentage variant the lifetime rate, since dividing by the star count
     // at a repo's birth would be dividing by zero.
@@ -2300,16 +2077,15 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       { g: 'Unraid', m: 'un', v: 'newinstalls', label: 'Top New Installs',     cmp: numDesc('dt'), filter: caTrend('dt', 6, 100000, true),  hint: 'The highest percentage of new installs this week, over apps with 6+ weeks of data and 100,000+ installs' },
       { g: 'Unraid', m: 'un', v: 'popplugins',  label: 'Most Popular Plugins', cmp: numDesc('dl'), filter: isCountedPlugin,          hint: 'Plugins only, ranked by Unraid downloads; plugins with no download count are left out' },
       { g: 'GitHub', m: 'gh', v: 'ghstars', label: 'Most Stars',              cmp: numDesc('s') },
-      { g: 'GitHub', m: 'gh', v: 'ght1',    label: 'Trending (today)',        cmp: numDesc('t1'),   filter: hasTrend('t1'),   hint: 'Stars gained in the last day' },
-      { g: 'GitHub', m: 'gh', v: 'ght7',    label: 'Trending (this week)',    cmp: numDesc('t7'),   filter: hasTrend('t7'),   hint: 'Stars gained in the last 7 days' },
-      { g: 'GitHub', m: 'gh', v: 'ght30',   label: 'Trending (this month)',   cmp: numDesc('t30'),  filter: hasTrend('t30'),  hint: 'Stars gained in the last 30 days' },
-      { g: 'GitHub', m: 'gh', v: 'ght365',  label: 'Trending (this year)',    cmp: numDesc('t365'), filter: hasTrend('t365'), hint: 'Stars gained in the last 365 days' },
-      { g: 'GitHub', m: 'gh', v: 'ghtall',  label: 'Trending (all time)',     cmp: numDesc('s'),    filter: hasStars,         hint: 'Every star the repo has ever gained' },
-      { g: 'GitHub', m: 'gh', v: 'ghp1',    label: 'Trending % (today)',      cmp: pctDesc('t1'),   filter: hasPct('t1'),   hint: 'Growth today, against the star count a day ago' },
-      { g: 'GitHub', m: 'gh', v: 'ghp7',    label: 'Trending % (this week)',  cmp: pctDesc('t7'),   filter: hasPct('t7'),   hint: 'Growth this week, against the star count 7 days ago' },
-      { g: 'GitHub', m: 'gh', v: 'ghp30',   label: 'Trending % (this month)', cmp: pctDesc('t30'),  filter: hasPct('t30'),  hint: 'Growth this month, against the star count 30 days ago' },
-      { g: 'GitHub', m: 'gh', v: 'ghp365',  label: 'Trending % (this year)',  cmp: pctDesc('t365'), filter: hasPct('t365'), hint: 'Growth this year, against the star count a year ago' },
-      { g: 'GitHub', m: 'gh', v: 'ghpall',  label: 'Trending % (all time)',   cmp: rateDesc,        filter: hasRate,        hint: 'Lifetime growth rate: stars per year since the repo was created' }
+      { g: 'GitHub', m: 'gh', v: 'ght1',    label: 'Most Stars Gained (today)',        cmp: numDesc('t1'),   filter: hasTrend('t1'),   hint: 'Most stars added today, whatever the size of the repo' },
+      { g: 'GitHub', m: 'gh', v: 'ght7',    label: 'Most Stars Gained (this week)',    cmp: numDesc('t7'),   filter: hasTrend('t7'),   hint: 'Most stars added this week, whatever the size of the repo' },
+      { g: 'GitHub', m: 'gh', v: 'ght30',   label: 'Most Stars Gained (this month)',   cmp: numDesc('t30'),  filter: hasTrend('t30'),  hint: 'Most stars added this month, whatever the size of the repo' },
+      { g: 'GitHub', m: 'gh', v: 'ght365',  label: 'Most Stars Gained (this year)',    cmp: numDesc('t365'), filter: hasTrend('t365'), hint: 'Most stars added this year, whatever the size of the repo' },
+      { g: 'GitHub', m: 'gh', v: 'ghp1',    label: 'Fastest Growing (today)',      cmp: pctDesc('t1'),   filter: hasPct('t1'),   hint: 'Biggest growth today measured against the stars a repo already had, so a small project can beat a large one' },
+      { g: 'GitHub', m: 'gh', v: 'ghp7',    label: 'Fastest Growing (this week)',  cmp: pctDesc('t7'),   filter: hasPct('t7'),   hint: 'Biggest growth this week measured against the stars a repo already had, so a small project can beat a large one' },
+      { g: 'GitHub', m: 'gh', v: 'ghp30',   label: 'Fastest Growing (this month)', cmp: pctDesc('t30'),  filter: hasPct('t30'),  hint: 'Biggest growth this month measured against the stars a repo already had, so a small project can beat a large one' },
+      { g: 'GitHub', m: 'gh', v: 'ghp365',  label: 'Fastest Growing (this year)',  cmp: pctDesc('t365'), filter: hasPct('t365'), hint: 'Biggest growth this year measured against the stars a repo already had, so a small project can beat a large one' },
+      { g: 'GitHub', m: 'gh', v: 'ghpall',  label: 'Fastest Growing (all time)',   cmp: rateDesc,        filter: hasRate,        hint: 'Lifetime growth rate: stars per year since the repo was created' }
     ];
     function optFor(v) { for (var i = 0; i < SORT_OPTS.length; i++) if (SORT_OPTS[i].v === v) return SORT_OPTS[i]; return SORT_OPTS[0]; }
     // numeric descending; null/undefined sinks to the bottom
@@ -2377,7 +2153,7 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) {
           APPS = dedupe((j && j.apps) || []);
-          if (j && j.starDates === false) starDates = false;
+          if (j && j.historyDays != null) historyDays = j.historyDays;
           if (j && j.docker) docker = j.docker;
           // same validity test optFor() already backs the saved-sort read with,
           // so a config value the grid doesn't recognise is silently ignored
@@ -3034,17 +2810,24 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
 
     // A trending sort filters to apps that moved in its window, so an empty grid
     // is ambiguous: nothing moved, or the data for that window was never
-    // gathered. The year windows are the ones that can genuinely be unavailable,
-    // so say which it is instead of leaving a blank page.
+    // gathered. The year windows are the ones that can genuinely be unavailable:
+    // GitHub restricted the stargazers-listing endpoints in July 2026, so their
+    // only remaining source is the plugin's own recorded star history, and this
+    // says exactly how much of that this install has instead of leaving a blank
+    // page.
     function emptySortNote() {
       if (view.sort !== 'ght365' && view.sort !== 'ghp365') return '';
-      if (!starDates) {
-        return 'The "this year" windows need GitHub star dates, which the configured token cannot read. ' +
-               'A classic token (ghp_...) with no scopes can read them; a fine-grained token (github_pat_...) cannot. ' +
-               'Swap the token in Settings, or wait for the plugin to record a year of its own star history.';
+      var need = 365 - historyDays;
+      var when = '';
+      if (historyDays > 0 && need > 0) {
+        var target = new Date(Date.now() + need * 86400000);
+        var stamp;
+        try { stamp = target.toLocaleString(undefined, { month: 'long', year: 'numeric' }); }
+        catch (e) { stamp = target.toDateString(); }
+        when = ', filling in around ' + stamp;
       }
-      return 'No star data reaches back a year yet. This fills in as the plugin records history, ' +
-             'or straight away once a full catalog scan has run.';
+      return 'The "this year" windows are built from the plugin\'s own recorded star history, not from GitHub. ' +
+             'This install has ' + historyDays + ' of the 365 days it needs' + when + '.';
     }
 
     // The catalog is CA's file in /tmp, rebuilt by CA's own Apps page after a
@@ -3259,6 +3042,16 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
         '<select id="asga-sortsel" class="asga-sortsel">' + opts + '</select>' +
         '<a id="asga-refresh" class="asga-refreshlink" title="Refresh GitHub star data">↻</a>' +
         '<span id="asga-updated" class="asga-updated"></span></span>' +
+        // The help button opens a slide-in panel rather than navigating anywhere,
+        // so unlike the gear it is a <button>, not a link: a middle click has
+        // nothing to open in a tab. It sits immediately before the gear in the
+        // markup so it reads as the gear's left-hand neighbour in both the
+        // absolutely-positioned 7.2+ layout and 7.1's inline flow.
+        '<button type="button" id="asga-help" class="asga-help" ' +
+          'title="About and help" aria-label="About and help">' +
+          '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zM8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1z"/>' +
+          '<path d="M5.255 5.786a.237.237 0 0 0 .241.247h.825c.138 0 .248-.113.266-.25.09-.656.54-1.134 1.342-1.134.686 0 1.314.343 1.314 1.168 0 .635-.374.927-.965 1.371-.673.489-1.206 1.06-1.168 1.987l.003.217a.25.25 0 0 0 .25.246h.811a.25.25 0 0 0 .25-.25v-.105c0-.718.273-.927 1.01-1.486.609-.463 1.244-.977 1.244-2.056 0-1.511-1.276-2.241-2.673-2.241-1.267 0-2.655.59-2.75 2.286zm1.557 5.763c0 .533.425.927 1 .927.609 0 1.028-.394 1.028-.927 0-.552-.42-.94-1.028-.94-.575 0-1 .388-1 .94z"/></svg>' +
+        '</button>' +
         // The gear lives in the bar so it is present in both view states, and
         // it is a plain link so a middle click opens the settings in a tab.
         '<a id="asga-settings" class="asga-settings" href="/Settings/ModernAppStore" ' +
@@ -3272,6 +3065,7 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       sel.addEventListener('change', function (e) { view.sort = e.target.value; view.page = 1; saveSort(); render(); });
       wireSortMenu(sel);
       document.getElementById('asga-refresh').addEventListener('click', onRefreshClick);
+      document.getElementById('asga-help').addEventListener('click', openAboutPanel);
       var cb = document.getElementById('asga-toggle-cb');
       cb.checked = isOn();
       cb.addEventListener('change', function () { setOn(cb.checked); });
@@ -3369,6 +3163,182 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
           }, true);
         }, 0);
       });
+    }
+
+    // ---- About / Help panel: what the plugin is, its last few changelog
+    // entries, and when it was last updated. The panel and its backdrop are
+    // built once, the first time the help button is clicked, and reused after
+    // that (unlike the attention modal or the lightbox, which are thrown away
+    // on close), so opening it a second time never rebuilds the DOM or refires
+    // the network request. ----
+    var aboutData = null;    // about.php's answer, or the string 'error' after a failed fetch; null means "not fetched yet"
+    var aboutPanel = null;   // { backdrop, panel, body, closeBtn }, built lazily by ensureAboutPanel()
+    var aboutOpener = null;  // the button to hand focus back to once the panel closes
+    function aboutEscHandler(ev) { if (ev.key === 'Escape') closeAboutPanel(); }
+
+    function ensureAboutPanel() {
+      if (aboutPanel) return aboutPanel;
+      var backdrop = document.createElement('div');
+      backdrop.className = 'asga-about-backdrop';
+      backdrop.addEventListener('click', closeAboutPanel);
+
+      var panel = document.createElement('div');
+      panel.id = 'asga-about-panel';
+      panel.className = 'asga-about-panel';
+      panel.setAttribute('role', 'dialog');
+      panel.setAttribute('aria-modal', 'true');
+      panel.setAttribute('aria-labelledby', 'asga-about-title');
+
+      var header = document.createElement('div');
+      header.className = 'asga-about-header';
+      var title = document.createElement('h2');
+      title.id = 'asga-about-title';
+      title.className = 'asga-about-title';
+      title.textContent = 'Unraid Modern App Store';
+      var closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'asga-about-close';
+      closeBtn.title = 'Close';
+      closeBtn.setAttribute('aria-label', 'Close');
+      closeBtn.textContent = '✕';
+      closeBtn.addEventListener('click', closeAboutPanel);
+      header.appendChild(title);
+      header.appendChild(closeBtn);
+
+      var body = document.createElement('div');
+      body.className = 'asga-about-body';
+
+      panel.appendChild(header);
+      panel.appendChild(body);
+      document.body.appendChild(backdrop);
+      document.body.appendChild(panel);
+
+      aboutPanel = { backdrop: backdrop, panel: panel, body: body, closeBtn: closeBtn };
+      return aboutPanel;
+    }
+
+    // one heading plus a run of plain paragraphs, built from our own copy
+    // rather than anything the endpoint returns
+    function appendAboutSection(body, heading, paragraphs) {
+      var sec = document.createElement('div');
+      sec.className = 'asga-about-section';
+      var h = document.createElement('h3');
+      h.className = 'asga-about-heading';
+      h.textContent = heading;
+      sec.appendChild(h);
+      paragraphs.forEach(function (t) {
+        var p = document.createElement('p');
+        p.textContent = t;
+        sec.appendChild(p);
+      });
+      body.appendChild(sec);
+    }
+
+    // Repaints the panel body from aboutData: once with nothing yet (the
+    // loading line), and again once the fetch settles, success or failure.
+    // The two explainer sections are our own copy and always render; only the
+    // version line and the changelog depend on the endpoint actually answering,
+    // and the changelog falls back to a plain line rather than staying blank
+    // or throwing when it can't be read.
+    function renderAboutBody() {
+      var body = aboutPanel.body;
+      while (body.firstChild) body.removeChild(body.firstChild);
+
+      if (aboutData === null) {
+        var loading = document.createElement('p');
+        loading.className = 'asga-about-muted';
+        loading.textContent = 'Loading...';
+        body.appendChild(loading);
+        return;
+      }
+      var data = (aboutData && aboutData !== 'error') ? aboutData : null;
+
+      if (data && data.version) {
+        var verLine = document.createElement('p');
+        verLine.className = 'asga-about-version';
+        var txt = 'Version ' + data.version;
+        if (data.updatedAt) txt += ' (updated ' + new Date(data.updatedAt * 1000).toLocaleDateString() + ')';
+        verLine.textContent = txt;
+        body.appendChild(verLine);
+      }
+
+      appendAboutSection(body, 'What this does', [
+        'It replaces Community Applications\' own grid with its own: every app in the catalog, sorted and paged right on the page instead of round-tripping to the server.',
+        'It adds GitHub star counts to app tiles, and sort orders (trending, most starred, recently updated) the stock store does not have.',
+        'The Modern view toggle in the toolbar turns this off and hands the page straight back to Community Applications.'
+      ]);
+
+      appendAboutSection(body, 'Why some sorts can be empty', [
+        'GitHub restricted its stargazers listing endpoints in July 2026, so dated star data can no longer be fetched from GitHub at all. The plugin records its own daily star snapshot instead, and the "this year" windows need 365 days of that history before they can show anything.'
+      ]);
+
+      var whatsNew = document.createElement('div');
+      whatsNew.className = 'asga-about-section';
+      var wnHead = document.createElement('h3');
+      wnHead.className = 'asga-about-heading';
+      wnHead.textContent = 'What\'s new';
+      whatsNew.appendChild(wnHead);
+      if (data && data.entries && data.entries.length) {
+        data.entries.forEach(function (entry) {
+          var ver = document.createElement('div');
+          ver.className = 'asga-about-entry-version';
+          ver.textContent = entry.version;
+          whatsNew.appendChild(ver);
+          var ul = document.createElement('ul');
+          ul.className = 'asga-about-entry-list';
+          (entry.bullets || []).forEach(function (b) {
+            var li = document.createElement('li');
+            li.textContent = b;
+            ul.appendChild(li);
+          });
+          whatsNew.appendChild(ul);
+        });
+      } else {
+        var none = document.createElement('p');
+        none.className = 'asga-about-muted';
+        none.textContent = 'The changelog could not be read.';
+        whatsNew.appendChild(none);
+      }
+      body.appendChild(whatsNew);
+
+      if (data && data.support) {
+        var link = document.createElement('a');
+        link.className = 'asga-about-link';
+        link.href = data.support;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = 'Support and source';
+        body.appendChild(link);
+      }
+    }
+
+    function openAboutPanel() {
+      aboutOpener = document.getElementById('asga-help');
+      ensureAboutPanel();
+      renderAboutBody();
+      // fetched once per page load and cached in aboutData; reopening just
+      // repaints from the cache instead of asking about.php again
+      if (aboutData === null) {
+        fetch(PREFIX + 'about.php?_=' + Date.now())
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (j) { aboutData = j || 'error'; renderAboutBody(); })
+          .catch(function () { aboutData = 'error'; renderAboutBody(); });
+      }
+      document.body.classList.add('asga-about-open');
+      aboutPanel.backdrop.classList.add('asga-open');
+      aboutPanel.panel.classList.add('asga-open');
+      document.addEventListener('keydown', aboutEscHandler, true);
+      // preventScroll: the button that opened this sits far down the sticky
+      // toolbar, and a plain focus() would otherwise scroll the page back to it
+      try { aboutPanel.closeBtn.focus({ preventScroll: true }); } catch (e) { aboutPanel.closeBtn.focus(); }
+    }
+    function closeAboutPanel() {
+      if (!aboutPanel) return;
+      aboutPanel.backdrop.classList.remove('asga-open');
+      aboutPanel.panel.classList.remove('asga-open');
+      document.body.classList.remove('asga-about-open');
+      document.removeEventListener('keydown', aboutEscHandler, true);
+      if (aboutOpener) try { aboutOpener.focus({ preventScroll: true }); } catch (e) { aboutOpener.focus(); }
     }
 
     // "Updated 12 min ago" beside the refresh icon. The visible time is CA's
@@ -3744,14 +3714,16 @@ html:not(.Theme--legacyOS) body.asga-active .asga-bar { display: contents; }
    relative and only as wide as its content, which would otherwise become the
    toggle's containing block. */
 html:not(.Theme--legacyOS) #searchFilter { position: static; }
+/* 110px: the gear's own 22px inset, plus two 36px boxes (the help button and
+   the gear) and two 8px gaps between them (22 + 36 + 8 + 36 + 8 = 110), so the
+   toggle keeps clearing both instead of the one it used to step past. */
 html:not(.Theme--legacyOS) .asga-toggle {
-  position: absolute; right: 70px; top: 31px; transform: translateY(-50%);
+  position: absolute; right: 110px; top: 31px; transform: translateY(-50%);
   margin: 0;
 }
-/* The gear takes the seat the toggle used to hold, on the grid's right edge,
-   and the toggle steps 48px left of it (its own 36px box plus a 12px gap).
-   Both are pinned the same way in both view states, so neither moves when the
-   view is switched. */
+/* The gear takes the seat the toggle used to hold, on the grid's right edge.
+   Both it and the help button beside it are pinned the same way in both view
+   states, so neither moves when the view is switched. */
 html:not(.Theme--legacyOS) .asga-settings {
   position: absolute; right: 22px; top: 31px; transform: translateY(-50%);
   display: inline-flex; align-items: center; justify-content: center;
@@ -3763,7 +3735,36 @@ html:not(.Theme--legacyOS) .asga-settings {
 }
 html:not(.Theme--legacyOS) .asga-settings:hover { border-color: #ff8c2f; background: rgba(255, 140, 47, 0.14); opacity: 1; }
 html:not(.Theme--legacyOS) .asga-settings:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 1px; }
-.asga-settings svg { width: 16px; height: 16px; fill: currentColor; }
+/* Help / About button: the gear's twin, one box-plus-gap to its left. 66px is
+   the gear's own 22px inset, plus the gear's 36px box, plus an 8px gap
+   (22 + 36 + 8 = 66). It opens a slide-in panel rather than navigating
+   anywhere, so it is a <button>, not a link, but reads the same as the gear:
+   same box, border, radius, background and hover/focus treatment. */
+html:not(.Theme--legacyOS) .asga-help {
+  /* margin: 0 is load-bearing. This is a real <button>, so Unraid's global
+     button styling hands it a 12px right margin that the gear (an <a>) never
+     picks up. That margin shifted this 12px left of its own right: 66px, which
+     closed the gap to the gear to 20px and pushed it 4px UNDER the toggle. */
+  position: absolute; right: 66px; top: 31px; transform: translateY(-50%); margin: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; min-width: 36px; height: 36px; box-sizing: border-box;
+  padding: 0; border: 1px solid rgba(127, 127, 127, 0.3);
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.08);
+  color: inherit; cursor: pointer; opacity: 0.8;
+}
+html:not(.Theme--legacyOS) .asga-help:hover { border-color: #ff8c2f; background: rgba(255, 140, 47, 0.14); opacity: 1; }
+html:not(.Theme--legacyOS) .asga-help:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 1px; }
+/* 7.1 keeps its inline row, so the help button just precedes the gear in flow,
+   at the same 26px size the gear itself uses there. */
+html.Theme--legacyOS .asga-help {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; margin-left: 10px;
+  padding: 0; border: none; background: none;
+  color: inherit; cursor: pointer; opacity: 0.8;
+}
+html.Theme--legacyOS .asga-help:hover { opacity: 1; }
+.asga-settings svg, .asga-help svg { width: 16px; height: 16px; fill: currentColor; }
 /* constrain the native select's box height so its glyphs center on the same
    line as the adjacent text labels (a taller default box made it sit high) */
 /* Unraid draws the dropdown triangle as two 4px gradients hugging the right
@@ -3789,6 +3790,84 @@ html:not(.Theme--legacyOS) .asga-settings:focus-visible { outline: 2px solid #ff
 }
 .asga-refitem { display: block; padding: 9px 14px; font-size: 1.15rem; white-space: nowrap; cursor: pointer; }
 .asga-refitem:hover { background: rgba(255,140,47,0.18); }
+
+/* About / Help panel: slides in from the right edge of the window, opened by
+   the help button beside the settings gear. Built once and reused (see
+   ensureAboutPanel() in inject.js), so open/close is a class toggle here
+   rather than an element being inserted and removed like the sort menu above.
+   The surface shares the sort menu's own look (.asga-refmenu's background,
+   border and shadow), just pinned to the window instead of the toolbar. */
+/* the grid behind the panel does not need its own scrollbar fighting the
+   panel's, since the panel already owns the one scroll the user can reach */
+body.asga-about-open { overflow: hidden; }
+.asga-about-backdrop {
+  position: fixed; inset: 0; z-index: 10060;
+  background: rgba(0, 0, 0, 0.5);
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+.asga-about-backdrop.asga-open { opacity: 1; pointer-events: auto; }
+.asga-about-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; z-index: 10061;
+  width: 420px; max-width: 100vw; box-sizing: border-box;
+  display: flex; flex-direction: column;
+  background: var(--background-color, #1c1c1c);
+  border-left: 1px solid rgba(127, 127, 127, 0.4);
+  box-shadow: -6px 0 24px rgba(0, 0, 0, 0.45);
+  transform: translateX(100%);
+  transition: transform 0.25s ease;
+}
+.asga-about-panel.asga-open { transform: translateX(0); }
+/* an instant cut rather than a slide, for anyone who asked their OS for less
+   motion, since the destination and the content are identical either way */
+@media (prefers-reduced-motion: reduce) {
+  .asga-about-backdrop, .asga-about-panel { transition: none; }
+}
+.asga-about-header {
+  position: sticky; top: 0; z-index: 1; flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; padding: 18px 20px;
+  border-bottom: 1px solid rgba(127, 127, 127, 0.25);
+  background: inherit;
+}
+.asga-about-title { margin: 0; font-size: 1.6rem; font-weight: 700; }
+/* Unraid styles every <button> as a form button: 86px min-width, uppercase,
+   8px padding and a 10px/12px margin. On a panel header that renders the close
+   control as a wide labelled box instead of an icon, so every one of those is
+   reset here rather than fought with later. */
+.asga-about-close {
+  display: inline-flex; align-items: center; justify-content: center;
+  /* !important on exactly the properties Unraid's global button rule sets.
+     That rule is button:where(:not(.unapi *)), and :where() contributes no
+     specificity, yet it still wins these in practice, so they are forced here
+     the same way this file already forces CA's grid rules further up. */
+  width: 28px !important; min-width: 28px !important; height: 28px; box-sizing: border-box;
+  margin: 0 !important; padding: 0 !important; border: 1px solid transparent; border-radius: 6px;
+  background: none; color: inherit; opacity: 0.7;
+  font-size: 1.5rem; line-height: 1; text-transform: none !important; letter-spacing: normal;
+  font-weight: normal; cursor: pointer;
+}
+.asga-about-close:hover { opacity: 1; border-color: #ff8c2f; background: rgba(255, 140, 47, 0.14); }
+.asga-about-close:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 1px; }
+.asga-about-close:hover { border-color: #ff8c2f; background: rgba(255, 140, 47, 0.14); }
+.asga-about-close:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 1px; }
+.asga-about-body { flex: 1 1 auto; overflow-y: auto; padding: 4px 20px 24px; }
+.asga-about-version { font-size: 1.2rem; opacity: 0.7; margin: 16px 0 0; }
+.asga-about-section { margin-top: 22px; }
+.asga-about-heading {
+  margin: 0 0 8px; font-size: 1.1rem; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.06em; color: #ff8c2f;
+}
+.asga-about-section p { margin: 0 0 8px; font-size: 1.3rem; line-height: 1.5; }
+.asga-about-section p:last-child { margin-bottom: 0; }
+.asga-about-muted { opacity: 0.65; font-size: 1.3rem; }
+/* each changelog entry: its version heading in the accent colour, then its
+   bullets as a plain list */
+.asga-about-entry-version { margin-top: 14px; font-size: 1.2rem; font-weight: 700; color: #ff8c2f; }
+.asga-about-entry-version:first-child { margin-top: 0; }
+.asga-about-entry-list { margin: 6px 0 0; padding-left: 18px; font-size: 1.3rem; line-height: 1.5; }
+.asga-about-entry-list li { margin: 0 0 4px; }
+.asga-about-link { display: inline-block; margin-top: 24px; font-size: 1.3rem; color: #ff8c2f; text-decoration: underline; }
 
 /* GitHub-view on/off toggle */
 .asga-toggle { display: inline-flex; align-items: center; gap: 8px; cursor: pointer; user-select: none; }
@@ -4693,7 +4772,7 @@ function gas_scan_days($v) {
 // Newest to the App Store instead.
 function gas_default_sort($v) {
     $valid = ['name_asc', 'name_desc', 'downloads', 'new', 'updated', 'spotlight', 'trending',
-              'newinstalls', 'popplugins', 'ghstars', 'ght1', 'ght7', 'ght30', 'ght365', 'ghtall',
+              'newinstalls', 'popplugins', 'ghstars', 'ght1', 'ght7', 'ght30', 'ght365',
               'ghp1', 'ghp7', 'ghp30', 'ghp365', 'ghpall'];
     return in_array($v, $valid, true) ? $v : 'new';
 }
@@ -4726,8 +4805,6 @@ if ($_POST) {
         $gas_msg = "Settings saved.";
         if (trim($token) === '') {
             $gas_msg .= " WARNING: no token set - star counts are disabled.";
-        } elseif (strpos($token, 'github_pat_') === 0) {
-            $gas_msg .= " WARNING: this is a fine-grained token - star counts will still work, but the \"this year\" sorts will stay empty, because GitHub does not let fine-grained tokens read star dates and a classic token (ghp_) does.";
         }
     }
     if (isset($_POST['REFRESH'])) {
@@ -4769,16 +4846,16 @@ _(Enable Notifications)_:
     <?= mk_option($notifications, "disabled", "No") ?>
   </select>
 
-> When this is on, the plugin posts a notification to Unraid's own notification area if something needs attention: no GitHub token is configured, or the configured token cannot read star dates, which leaves the two "this year" sorts empty. Each of these is raised once when it starts, not on every scan.
+> When this is on, the plugin posts a notification to Unraid's own notification area if no GitHub token is configured. This is raised once when it starts, not on every scan.
 
 _(GitHub Personal Access Token)_:
 : <input type="password" name="TOKEN" value="<?= htmlspecialchars($token) ?>" style="width:520px;max-width:90%;" autocomplete="off" spellcheck="false">
 
 > A GitHub personal access token is required. Without one the GitHub API allows only 60 requests per hour, which is far too few for the catalog; a token raises the limit to 5,000 per hour.
 >
-> To create a token, open <u><a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a></u> (GitHub &rarr; Settings &rarr; Developer settings &rarr; Personal access tokens &rarr; Generate new token (classic)). Give it any name, leave all scopes unchecked since it only needs to read public star counts, click Generate token, and paste the value here.
+> Either kind of token works here; it makes no difference which one you use.
 >
-> **Use a classic token (it starts with `ghp_`), not a fine-grained one (`github_pat_`).** GitHub refuses fine-grained tokens access to star dates, and the two "this year" trending sorts are built from those dates. Everything else, including the "all time" sorts, works with either kind.
+> To create a token, open <u><a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a></u> (GitHub &rarr; Settings &rarr; Developer settings &rarr; Personal access tokens &rarr; Generate new token). Give it any name, leave all scopes unchecked since it only needs to read public star counts, click Generate token, and paste the value here.
 >
 > While this field is empty the Apps page shows a yellow warning and star counts stay disabled.
 
@@ -4811,16 +4888,15 @@ _(Default sort order)_:
     </optgroup>
     <optgroup label="GitHub">
     <?= mk_option($defsort, "ghstars", "Most Stars") ?>
-    <?= mk_option($defsort, "ght1", "Trending (today)") ?>
-    <?= mk_option($defsort, "ght7", "Trending (this week)") ?>
-    <?= mk_option($defsort, "ght30", "Trending (this month)") ?>
-    <?= mk_option($defsort, "ght365", "Trending (this year)") ?>
-    <?= mk_option($defsort, "ghtall", "Trending (all time)") ?>
-    <?= mk_option($defsort, "ghp1", "Trending % (today)") ?>
-    <?= mk_option($defsort, "ghp7", "Trending % (this week)") ?>
-    <?= mk_option($defsort, "ghp30", "Trending % (this month)") ?>
-    <?= mk_option($defsort, "ghp365", "Trending % (this year)") ?>
-    <?= mk_option($defsort, "ghpall", "Trending % (all time)") ?>
+    <?= mk_option($defsort, "ght1", "Most Stars Gained (today)") ?>
+    <?= mk_option($defsort, "ght7", "Most Stars Gained (this week)") ?>
+    <?= mk_option($defsort, "ght30", "Most Stars Gained (this month)") ?>
+    <?= mk_option($defsort, "ght365", "Most Stars Gained (this year)") ?>
+    <?= mk_option($defsort, "ghp1", "Fastest Growing (today)") ?>
+    <?= mk_option($defsort, "ghp7", "Fastest Growing (this week)") ?>
+    <?= mk_option($defsort, "ghp30", "Fastest Growing (this month)") ?>
+    <?= mk_option($defsort, "ghp365", "Fastest Growing (this year)") ?>
+    <?= mk_option($defsort, "ghpall", "Fastest Growing (all time)") ?>
     </optgroup>
   </select>
 
@@ -4840,42 +4916,32 @@ _(Database directory)_:
 
 </form>
 
-<?php if (!empty($status['stargazers_blocked'])): ?>
-<?php
-    if (strpos($token, 'github_pat_') === 0) {
-        $gas_tok_why = 'The token saved here starts with <code>github_pat_</code>, a <b>fine-grained</b> token, and GitHub does not let fine-grained tokens read star dates.';
-    } elseif (strpos($token, 'ghp_') === 0) {
-        $gas_tok_why = 'The token saved here already starts with <code>ghp_</code>, a <b>classic</b> token, so something else is refusing it, most likely an organisation with SSO enforcement that this token has not been authorised for.';
-    } else {
-        $gas_tok_why = 'The saved token cannot read star dates.';
-    }
-?>
-<div class="title"><span class="left">Use a classic token for the year sorts</span></div>
-<div style="max-width:760px;">
-  <?= $gas_tok_why ?>
-  This affects 2 of the 20 sort orders, <b>Trending (this year)</b> and <b>Trending % (this year)</b>;
-  every other order, including both <b>all time</b> ones, is unaffected.
-  <br><br>
-  To fix it: create a classic token at
-  <u><a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a></u>,
-  leaving every scope unticked since it only reads public star counts, paste it into the field
-  above, press <b>Apply</b>, and press <b>Refresh now</b> last. Refresh on its own cannot clear
-  this, the token has to change first.
-</div>
-&nbsp;
-<?php endif; ?>
-
 <div class="title"><span class="left">Last scan</span></div>
 <?php if ($status): ?>
-<table class="asga-status" style="border-collapse:collapse;">
-  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Ran at</td><td><?= $status['ran_at'] ? date('Y-m-d H:i:s', $status['ran_at']) : '-' ?></td></tr>
-  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Repos with a GitHub link</td><td><?= (int)($status['repos_total'] ?? 0) ?></td></tr>
-  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Updated</td><td><?= (int)($status['ok'] ?? 0) ?></td></tr>
-  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Unchanged</td><td><?= (int)($status['not_modified'] ?? 0) ?></td></tr>
-  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Missing repos</td><td><?= (int)($status['missing'] ?? 0) ?></td></tr>
-  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Rate limit remaining</td><td><?= isset($status['rate_remaining']) ? (int)$status['rate_remaining'] : '-' ?></td></tr>
-  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Errors</td><td><?= count($status['errors'] ?? []) ?></td></tr>
-</table>
+<div markdown="1">
+
+Ran at:
+: <?= $status['ran_at'] ? date('Y-m-d H:i:s', $status['ran_at']) : '-' ?>
+
+Repos with a GitHub link:
+: <?= (int)($status['repos_total'] ?? 0) ?>
+
+Updated:
+: <?= (int)($status['ok'] ?? 0) ?>
+
+Unchanged:
+: <?= (int)($status['not_modified'] ?? 0) ?>
+
+Missing repos:
+: <?= (int)($status['missing'] ?? 0) ?>
+
+Rate limit remaining:
+: <?= isset($status['rate_remaining']) ? (int)$status['rate_remaining'] : '-' ?>
+
+Errors:
+: <?= count($status['errors'] ?? []) ?>
+
+</div>
 <?php else: ?>
 <div>No scan has run yet. Click <b>Refresh now</b> to populate star counts.</div>
 <?php endif; ?>

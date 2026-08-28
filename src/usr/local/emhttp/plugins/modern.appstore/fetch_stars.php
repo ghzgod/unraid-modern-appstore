@@ -11,11 +11,14 @@
  * Records a star-history snapshot per run so trending (1d/1w/1m/1y) can be
  * computed over time.
  *
- * The 1d/1w/1m windows come from those daily snapshots. A YEAR window cannot:
- * a fresh install has no year-old snapshot and would never populate one, so the
- * year-ago baseline is walked out of GitHub's stargazer list instead (see
- * backfill_year_baselines) and cached per repo. created_at is recorded too, so
- * the grid can rank by lifetime growth rate.
+ * The 1d/1w/1m/1y windows all come from those daily snapshots, and only from
+ * them. GitHub restricted the stargazers and subscribers listing endpoints in
+ * July 2026 to admins and collaborators, so dated star data (starred_at) is
+ * gone for every token type, permanently; stargazers_count still works, so
+ * star totals are unaffected, but there is no way to backfill a year-ago
+ * baseline any more. A fresh install's year window therefore stays empty
+ * until a year of this plugin's own snapshots has actually accumulated.
+ * created_at is recorded too, so the grid can rank by lifetime growth rate.
  *
  * Persistent data (DB + JSON) lives in a configurable appdata dir on the cache
  * SSD so it survives reboots; served copies go to the tmpfs webroot. curl_multi
@@ -42,12 +45,10 @@ $defaults = [
     'limit'       => '0',
     'concurrency' => '8',
     'manual'      => '0',  // 1 = invoked by the Refresh button (records manual time)
-    'sg-limit'    => '0',  // cap repos for the stargazer-trend backfill (0 = all)
     'new-only'    => '0',  // 1 = only fetch repos not yet in the DB (newly-published apps)
     'only-paths'  => '',   // file of CA template paths, one per line: scan only these apps
     'stale-days'  => '0',  // with --only-paths: skip repos already tried within N days
     'trends-only' => '0',  // 1 = no network: recompute trend deltas from stored star history and rewrite JSON
-    'year-limit'  => '400',// max repos to walk for a year-ago star baseline per run (0 = no cap)
 ];
 
 // ---- arg parsing -----------------------------------------------------------
@@ -90,7 +91,7 @@ $status = [
 
 // ---- notification ledger, carried forward from the last run ---------------
 // This scan is driven by cron once a day, so a condition that stays broken
-// (no token, a blocked stargazers endpoint) would otherwise raise the same
+// (no token) would otherwise raise the same
 // notification again on every single run: noise the user tunes out well
 // before they get around to fixing the actual problem. 'notified' in
 // status.json is the fix: it remembers which keys have already fired, so a
@@ -127,8 +128,7 @@ function write_progress(string $outDir, bool $running, int $done, int $total, ar
  * can go bad on a run driven by cron, with no browser open, and sit broken
  * for days before anyone happens to look. -l points the click target at the
  * settings page, the one place that explains the fix, so seeing the toast is
- * enough to reach it. -x files a single ticket rather than a running
- * broadcast. escapeshellarg() wraps every value with no exception, because
+ * enough to reach it. escapeshellarg() wraps every value with no exception, because
  * $description is partly built out of this scan's own text and must never
  * reach the shell unescaped. Guarded on both the setting and the binary's
  * presence, and run through @exec() with its output thrown away, so a moved
@@ -450,8 +450,10 @@ $db->exec('CREATE TABLE IF NOT EXISTS repos (
     repo TEXT PRIMARY KEY, owner TEXT, name TEXT,
     stars INTEGER, etag TEXT, http_status INTEGER, fetched_at INTEGER)');
 // trend columns persist computed deltas so a --new-only run doesn't wipe them.
-// created_at = repo creation (drives the lifetime growth-rate sort); y_base is
-// the stargazer-walked star count at y_cut, refreshed every 30 days.
+// created_at = repo creation (drives the lifetime growth-rate sort). y_base,
+// y_cut, y_at are legacy: they held the stargazer-walked year baseline, and
+// GitHub blocked the walk that filled them in July 2026. Kept only so an
+// existing database still opens; nothing writes or reads them any more.
 foreach (['t1', 't7', 't30', 't365', 'created_at', 'y_base', 'y_cut', 'y_at'] as $tcol) {
     @$db->exec("ALTER TABLE repos ADD COLUMN $tcol INTEGER");
 }
@@ -655,352 +657,16 @@ function trend_window(SQLite3Stmt $baseQ, SQLite3Stmt $oldQ, string $repo, int $
     return $fallback;
 }
 
-/**
- * Does this token have starred_at access?
- *
- * GitHub refuses the stargazers endpoint to FINE-GRAINED tokens (github_pat_*)
- * with a 403 "Resource not accessible by personal access token" that has
- * nothing to do with the rate limit, and GraphQL refuses it the same way. Only
- * a CLASSIC token (ghp_*) can read it, with no scopes needed. Without it the
- * only star timeline available is this plugin's own daily snapshots.
- *
- * One probe request per run settles it, which beats a stored flag (it notices
- * a swapped token immediately) and beats discovering it 2,000 failed requests
- * in. Returns true when starred_at is readable.
- */
-function stargazers_readable(array $repoMeta, string $token, array &$status): bool {
-    $m = reset($repoMeta);
-    if (!$m) return false;
-    $ch = curl_init('https://api.github.com/repos/' . rawurlencode($m['owner']) . '/' .
-                    rawurlencode($m['repo']) . '/stargazers?per_page=1');
-    curl_setopt_array($ch, [
-        CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 20, CURLOPT_CONNECTTIMEOUT => 10,
-        CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token, 'User-Agent: ' . UA,
-            'Accept: application/vnd.github.star+json', 'X-GitHub-Api-Version: 2022-11-28'],
-    ]);
-    $body = (string)curl_exec($ch);
-    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
-    if ($code === 200) return true;
-    if ($code === 403 && strpos($body, 'not accessible by personal access token') !== false) {
-        $status['stargazers_blocked'] = true;
-        $status['errors'][] = 'This GitHub token cannot read star dates, so the "this year" trending windows '
-            . 'stay empty until the plugin has recorded a year of its own history. A classic token '
-            . '(ghp_...) with no scopes can read them; a fine-grained token (github_pat_...) cannot.';
-        return false;
-    }
-    // anything else (rate limit, transient error) is not a permission verdict:
-    // skip the walks this run and try again on the next one
-    $status['stargazers_probe'] = $code;
-    return false;
-}
-
-/**
- * Stargazer-timestamp trend backfill. Fetches each repo's newest stargazer page
- * (per_page=100, the last page) with star+json so every star carries starred_at,
- * then counts stars gained in the last 1d/7d/30d/365d. Repos above ~40k stars
- * exceed GitHub's stargazer pagination cap (~400 pages) so they're skipped here
- * and fall back to the daily snapshots. Returns full => [c1,c7,c30,c365].
- */
-function backfill_trends(array $repoMeta, array $starsByRepo, string $token, string $outDir, array &$status, int $sgLimit, ?array $restrict = null): array {
-    $now = time();
-    $periods = [86400, 7 * 86400, 30 * 86400, 365 * 86400];
-    $trends = [];
-    $list = [];
-    foreach ($starsByRepo as $full => $s) {
-        if ($restrict !== null && !isset($restrict[$full])) continue;   // new-only: just the new repos
-        if ($s <= 0 || $s > 40000) continue;
-        $m = $repoMeta[$full] ?? null; if (!$m) continue;
-        $list[] = ['full' => $full, 'owner' => $m['owner'], 'name' => $m['repo'], 'page' => max(1, (int)ceil($s / 100))];
-    }
-    if ($sgLimit > 0) $list = array_slice($list, 0, $sgLimit);
-    $total = count($list); $i = 0; $done = 0; $stop = false; $C = 8;
-    if ($total === 0) return $trends;
-
-    $mh = curl_multi_init(); $inflight = [];
-    $add = function ($it) use (&$inflight, $mh, $token) {
-        $url = 'https://api.github.com/repos/' . rawurlencode($it['owner']) . '/' . rawurlencode($it['name']) .
-               '/stargazers?per_page=100&page=' . $it['page'];
-        $ch = curl_init($url);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30, CURLOPT_CONNECTTIMEOUT => 10, CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token, 'User-Agent: ' . UA,
-                'Accept: application/vnd.github.star+json', 'X-GitHub-Api-Version: 2022-11-28'],
-        ]);
-        $inflight[spl_object_id($ch)] = $it['full'];
-        curl_multi_add_handle($mh, $ch);
-    };
-    for (; $i < $C && $i < $total; $i++) $add($list[$i]);
-    do {
-        curl_multi_exec($mh, $run);
-        if ($run) curl_multi_select($mh, 1.0);
-        while ($d = curl_multi_info_read($mh)) {
-            $ch = $d['handle']; $id = spl_object_id($ch); $full = $inflight[$id] ?? null; unset($inflight[$id]);
-            $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE); $body = curl_multi_getcontent($ch);
-            curl_multi_remove_handle($mh, $ch); curl_close($ch);
-            if ($full) {
-                $done++;
-                if ($code === 200) {
-                    $arr = json_decode($body, true); $c = [0, 0, 0, 0];
-                    if (is_array($arr)) foreach ($arr as $it) {
-                        $t = isset($it['starred_at']) ? strtotime($it['starred_at']) : 0;
-                        if ($t) for ($p = 0; $p < 4; $p++) if ($t >= $now - $periods[$p]) $c[$p]++;
-                    }
-                    $trends[$full] = $c;
-                } elseif ($code === 403 || $code === 429) { $stop = true; }
-            }
-            if (!$stop && $i < $total) { $add($list[$i]); $i++; }
-            if ($done % 50 === 0) write_progress($outDir, true, $done, $total, $status);
-        }
-    } while ($run || !empty($inflight) || (!$stop && $i < $total));
-    curl_multi_close($mh);
-    if ($stop) $status['errors'][] = 'Stargazer trend backfill hit a rate limit; trends partial this run.';
-    return $trends;
-}
-
-/**
- * Year-ago star baseline: how many of a repo's stars predate the 365-day window.
- *
- * The daily snapshots cannot answer this. A window only resolves once history
- * reaches back that far, so on any install younger than a year the "this year"
- * sort would rank nothing at all, and backfill_trends' single newest stargazer
- * page saturates at 100, tying every repo that gained more than that.
- *
- * GitHub returns stargazers OLDEST FIRST with starred_at attached, so the split
- * point is found by binary-searching pages for the first one that opens inside
- * the window, then counting across that boundary page. ~log2(pages) requests:
- * a 1,000-star repo costs 4, a 40,000-star repo costs 10, and a repo with 100
- * stars or fewer costs 1. Pages already pulled during the search are reused.
- *
- * Deliberate limits, because they affect how the numbers should be read:
- *   - The list holds CURRENT stargazers only, so a star given two years ago and
- *     since removed is invisible. The baseline is therefore a slight undercount
- *     and the year's gain a slight overcount. It ranks correctly; it is not an
- *     audit.
- *   - GitHub stops paginating stargazers at 400 pages, so repos over 40,000
- *     stars are left to the snapshot path rather than guessed at.
- *   - Repos created inside the window need no request: every star they have is
- *     this year's, so the baseline is 0.
- *
- * Returns full => baseline stars at $cutoff.
- */
-function backfill_year_baselines(array $repoMeta, array $starsByRepo, array $rowMeta, string $token,
-                                 string $outDir, array &$status, int $cap, ?array $restrict, int $now): array {
-    $cutoff = $now - 365 * 86400;
-    $out = [];
-    $search = [];
-
-    foreach ($starsByRepo as $full => $stars) {
-        if ($restrict !== null && !isset($restrict[$full])) continue;
-        if (!isset($repoMeta[$full])) continue;
-        $meta = $rowMeta[$full] ?? [];
-        // a baseline drifts by exactly the time since it was taken; refreshing
-        // monthly keeps the window between 365 and ~395 days, close enough to
-        // rank by and a large saving over recomputing it every run
-        if (!empty($meta['y_at']) && ($now - (int)$meta['y_at']) < 30 * 86400) continue;
-        if ($stars <= 0) { $out[$full] = 0; continue; }
-        $created = (int)($meta['created_at'] ?? 0);
-        if ($created > 0 && $created >= $cutoff) { $out[$full] = 0; continue; }   // free: repo is younger than the window
-        if ($stars > 40000) continue;                                            // past GitHub's stargazer pagination cap
-        $search[] = ['full' => $full, 'stars' => (int)$stars];
-    }
-    // biggest repos first: they decide the top of every trending ranking, so a
-    // capped run still produces a correct-looking leaderboard
-    usort($search, function ($a, $b) { return $b['stars'] - $a['stars']; });
-    $deferred = 0;
-    if ($cap > 0 && count($search) > $cap) { $deferred = count($search) - $cap; $search = array_slice($search, 0, $cap); }
-    $status['year_free'] = count($out);
-    if (!$search) {
-        if ($deferred) $status['year_deferred'] = $deferred;
-        return $out;
-    }
-
-    $state = [];
-    foreach ($search as $it) {
-        $pages = min(400, max(1, (int)ceil($it['stars'] / 100)));
-        $state[$it['full']] = ['stars' => $it['stars'], 'pages' => $pages, 'lo' => 1, 'hi' => $pages,
-                               'ans' => $pages + 1, 'cache' => [], 'phase' => 'search'];
-    }
-    $queue = array_keys($state);
-    $total = count($queue); $done = 0; $stop = false;
-
-    // fold a fetched page into the repo's search, then say which page it needs
-    // next; null means the repo is finished and its baseline is recorded
-    $consume = function ($full, $page, $arr) use (&$state, $cutoff) {
-        $s = &$state[$full];
-        $ts = [];
-        if (is_array($arr)) foreach ($arr as $it) {
-            $t = isset($it['starred_at']) ? strtotime($it['starred_at']) : 0;
-            if ($t) $ts[] = $t;
-        }
-        $s['cache'][$page] = $ts;
-        if ($s['phase'] !== 'search') return;
-        if (!$ts) { $s['hi'] = $page - 1; return; }        // short/empty page: the end is below it
-        if ($ts[0] >= $cutoff) { $s['ans'] = $page; $s['hi'] = $page - 1; }
-        else { $s['lo'] = $page + 1; }
-    };
-    $advance = function ($full) use (&$state, &$out, $cutoff) {
-        $s = &$state[$full];
-        if ($s['phase'] === 'search') {
-            if ($s['lo'] <= $s['hi']) return (int)(($s['lo'] + $s['hi']) >> 1);
-            $s['phase'] = 'count';
-        }
-        // ans = first page that OPENS inside the window, so the boundary itself
-        // lies in the page before it (or in the last page, if none opens inside)
-        $q = ($s['ans'] > $s['pages']) ? $s['pages'] : $s['ans'] - 1;
-        if ($q <= 0) { $out[$full] = 0; return null; }     // every star is inside the window
-        if (!isset($s['cache'][$q])) return $q;
-        $c = 0;
-        foreach ($s['cache'][$q] as $t) if ($t < $cutoff) $c++;
-        $out[$full] = max(0, min($s['stars'], ($q - 1) * 100 + $c));
-        return null;
-    };
-
-    $mh = curl_multi_init(); $inflight = []; $hdrs = []; $C = 8;
-    $add = function ($full, $page) use (&$inflight, &$hdrs, $mh, $token, $repoMeta) {
-        $m = $repoMeta[$full];
-        $url = 'https://api.github.com/repos/' . rawurlencode($m['owner']) . '/' . rawurlencode($m['repo']) .
-               '/stargazers?per_page=100&page=' . $page;
-        $ch = curl_init($url);
-        $id = spl_object_id($ch); $hdrs[$id] = [];
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 30, CURLOPT_CONNECTTIMEOUT => 10,
-            CURLOPT_FOLLOWLOCATION => true,
-            CURLOPT_HTTPHEADER => ['Authorization: Bearer ' . $token, 'User-Agent: ' . UA,
-                'Accept: application/vnd.github.star+json', 'X-GitHub-Api-Version: 2022-11-28'],
-            CURLOPT_HEADERFUNCTION => function ($c, $line) use (&$hdrs, $id) {
-                $p = explode(':', $line, 2);
-                if (count($p) === 2) $hdrs[$id][strtolower(trim($p[0]))] = trim($p[1]);
-                return strlen($line);
-            },
-        ]);
-        $inflight[$id] = ['full' => $full, 'page' => $page];
-        curl_multi_add_handle($mh, $ch);
-    };
-    // kick a repo off, or drop it if it somehow needs nothing
-    $startNext = function () use (&$queue, &$state, $advance, $add, &$done) {
-        while ($queue) {
-            $full = array_shift($queue);
-            $p = $advance($full);
-            if ($p === null) { $done++; continue; }   // resolved without a request
-            $add($full, $p);
-            return true;
-        }
-        return false;
-    };
-    for ($i = 0; $i < $C; $i++) if (!$startNext()) break;
-
-    do {
-        curl_multi_exec($mh, $run);
-        if ($run) curl_multi_select($mh, 1.0);
-        while ($d = curl_multi_info_read($mh)) {
-            $ch = $d['handle']; $id = spl_object_id($ch);
-            $ctx = $inflight[$id] ?? null; unset($inflight[$id]);
-            $heads = $hdrs[$id] ?? []; unset($hdrs[$id]);
-            $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            $body = curl_multi_getcontent($ch);
-            curl_multi_remove_handle($mh, $ch); curl_close($ch);
-            if (!$ctx) continue;
-            $full = $ctx['full'];
-            if (isset($heads['x-ratelimit-remaining'])) {
-                $status['rate_remaining'] = (int)$heads['x-ratelimit-remaining'];
-                // leave headroom for the next star scan rather than draining the
-                // hour here; whatever is left is picked up on the following run
-                if ((int)$heads['x-ratelimit-remaining'] < 200) $stop = true;
-            }
-            if ($code === 403 || $code === 429) { $stop = true; $done++; continue; }
-            if ($code !== 200) { $done++; if (!$stop) $startNext(); continue; }   // give up on this repo, not the run
-
-            $consume($full, $ctx['page'], json_decode($body, true));
-            $next = $advance($full);
-            if ($next !== null && !$stop) { $add($full, $next); continue; }
-            $done++;
-            if ($done % 25 === 0) write_progress($outDir, true, $done, $total, $status, 'year');
-            if (!$stop) $startNext();
-        }
-    } while ($run || !empty($inflight));
-    curl_multi_close($mh);
-
-    if ($stop) $status['errors'][] = 'Year-baseline walk stopped early on the GitHub rate limit; the rest resumes next run.';
-    if ($deferred) $status['year_deferred'] = $deferred;
-    $status['year_walked'] = count($out) - (int)($status['year_free'] ?? 0);
-    return $out;
-}
-
-// Existing repo rows: created_at drives the free skips above, y_at the refresh
-// window, and the snapshot floor decides who still needs the capped stargazer
-// fallback for the SHORT windows.
-$rowMeta = [];
-$rm = $db->query('SELECT repo, created_at, y_base, y_cut, y_at FROM repos');
-while ($r = $rm->fetchArray(SQLITE3_ASSOC)) {
-    $rowMeta[$r['repo']] = ['created_at' => (int)$r['created_at'], 'y_at' => (int)$r['y_at']];
-}
-
-// backfill_trends answers the 1d/1w/1m windows for repos the snapshot history
-// cannot yet cover. Once a repo has a snapshot older than a day the snapshots
-// win outright, so re-walking the whole catalog every run bought nothing and
-// cost a request per repo; restrict it to repos that genuinely lack a baseline.
-$sgNeed = [];
-if (!$trendsOnly) {
-    $histFloor = $now - 86400;
-    $seen = [];
-    $hq = $db->query('SELECT repo, MIN(ts) AS m FROM star_history GROUP BY repo');
-    while ($r = $hq->fetchArray(SQLITE3_ASSOC)) $seen[$r['repo']] = (int)$r['m'];
-    foreach ($starsByRepo as $full => $_) {
-        if (!isset($seen[$full]) || $seen[$full] > $histFloor) $sgNeed[$full] = 1;
-    }
-    if ($newRepoSet !== null) $sgNeed = array_intersect_key($sgNeed, $newRepoSet);
-    if ($wantedRepos !== null) $sgNeed = array_intersect_key($sgNeed, $wantedRepos);
-}
-// Both backfills below read starred_at, so a token that cannot see it makes
-// every one of their requests a guaranteed 403. Settle that with one probe.
-$sgOk = (!$trendsOnly && $token !== '') ? stargazers_readable($repoMeta, $token, $status) : false;
-
-$sgTrends = ($trendsOnly || !$sgOk || !$sgNeed) ? []
-    : backfill_trends($repoMeta, $starsByRepo, $token, $outDir, $status, (int)$opt['sg-limit'], $sgNeed);
-
-// Year-ago baselines. On a page scan this is limited to the apps on screen, so
-// browsing fills the year window in exactly the way browsing fills stars in.
-$yearNew = ($trendsOnly || !$sgOk) ? []
-    : backfill_year_baselines($repoMeta, $starsByRepo, $rowMeta, $token, $outDir, $status,
-                              (int)$opt['year-limit'], $wantedRepos, $now);
-if ($yearNew) {
-    $yu = $db->prepare('UPDATE repos SET y_base=:b, y_cut=:c, y_at=:a WHERE repo=:r');
-    $db->exec('BEGIN');
-    foreach ($yearNew as $full => $b) {
-        $yu->reset();
-        $yu->bindValue(':b', (int)$b, SQLITE3_INTEGER);
-        $yu->bindValue(':c', $now - 365 * 86400, SQLITE3_INTEGER);
-        $yu->bindValue(':a', $now, SQLITE3_INTEGER);
-        $yu->bindValue(':r', $full, SQLITE3_TEXT);
-        $yu->execute();
-    }
-    $db->exec('COMMIT');
-}
-// every stored baseline, including repos untouched this run
-$yBase = [];
-$yq = $db->query('SELECT repo, y_base FROM repos WHERE y_base IS NOT NULL');
-while ($r = $yq->fetchArray(SQLITE3_ASSOC)) $yBase[$r['repo']] = (int)$r['y_base'];
-
 // repo creation dates, for the lifetime growth-rate sort
 $createdAt = [];
 $cq = $db->query('SELECT repo, created_at FROM repos WHERE created_at IS NOT NULL');
 while ($r = $cq->fetchArray(SQLITE3_ASSOC)) $createdAt[$r['repo']] = (int)$r['created_at'];
 
-// persist freshly-computed trends so a later --new-only run keeps them
-if ($sgTrends) {
-    $tu = $db->prepare('UPDATE repos SET t1=:a,t7=:b,t30=:c,t365=:d WHERE repo=:r');
-    $db->exec('BEGIN');
-    foreach ($sgTrends as $full => $c) {
-        $tu->reset();
-        $tu->bindValue(':a', $c[0], SQLITE3_INTEGER); $tu->bindValue(':b', $c[1], SQLITE3_INTEGER);
-        $tu->bindValue(':c', $c[2], SQLITE3_INTEGER); $tu->bindValue(':d', $c[3], SQLITE3_INTEGER);
-        $tu->bindValue(':r', $full, SQLITE3_TEXT);
-        $tu->execute();
-    }
-    $db->exec('COMMIT');
-}
-// read all stored trends (existing repos preserved + the ones we just refreshed)
+// t1/t7/t30/t365 in the repos table are the last stargazer-derived values this
+// plugin ever wrote, from before GitHub blocked that walk in July 2026.
+// Nothing writes them any more, but old rows still carry them, so they remain
+// in play below as trend_window()'s last-resort fallback until this plugin's
+// own snapshot history grows long enough to make them irrelevant.
 $dbTrends = [];
 $trq = $db->query('SELECT repo, t1, t7, t30, t365 FROM repos WHERE t7 IS NOT NULL');
 while ($row = $trq->fetchArray(SQLITE3_ASSOC)) {
@@ -1034,14 +700,14 @@ foreach ($apps as $idx => $app) {
         $t1   = trend_window($baseQ, $oldQ, $full, 86400,       $stars, $now, $fb[0]);
         $t7   = trend_window($baseQ, $oldQ, $full, 7 * 86400,   $stars, $now, $fb[1]);
         $t30  = trend_window($baseQ, $oldQ, $full, 30 * 86400,  $stars, $now, $fb[2]);
-        // Year window, best source first: a genuine year-old snapshot if this
-        // install has run that long, else the stargazer-walked baseline, else
-        // the capped fallback. The walk is what makes "this year" work at all
-        // on an install younger than a year.
+        // Year window: a genuine year-old snapshot once this install has run
+        // that long, else the capped fallback. There is no other source any
+        // more; GitHub blocked the stargazer walk that used to backfill this
+        // on a fresh install, so "this year" stays empty until a year of our
+        // own snapshots has actually accumulated.
         $snap365 = trend_at($baseQ, $full, $now - 365 * 86400);
-        if ($snap365 !== null)             $t365 = $stars - $snap365;
-        elseif (isset($yBase[$full]))      $t365 = max(0, $stars - $yBase[$full]);
-        else                               $t365 = trend_window($baseQ, $oldQ, $full, 365 * 86400, $stars, $now, $fb[3]);
+        $t365 = $snap365 !== null ? $stars - $snap365
+              : trend_window($baseQ, $oldQ, $full, 365 * 86400, $stars, $now, $fb[3]);
         $created = $createdAt[$full] ?? null;
     }
 
@@ -1077,37 +743,10 @@ foreach ([$outDir, $dataDir] as $d) {
     @file_put_contents($d . '/apps.json', $appsJson);
 }
 
-// newly-true only, same ledger as the no-token check near the top: this flag
-// is only known once stargazers_readable() has actually probed the token
-// against a live repo, so it cannot be decided any earlier than here, right
-// before this run's status is written for good. Dropping the key in the
-// else branch means swapping in a working token silences it, and swapping
-// back to a fine-grained one raises it again rather than staying silent.
-if (!empty($status['stargazers_blocked'])) {
-    if (!isset($status['notified']['stargazers_blocked'])) {
-        notify_unraid(
-            'GitHub star dates unavailable',
-            'The two "this year" trending sorts stay empty. This is how GitHub treats '
-                . 'fine-grained tokens (github_pat_...); a classic token (ghp_...) with '
-                . 'no scopes reads them.',
-            'warning',
-            $notifyEnabled
-        );
-        $status['notified']['stargazers_blocked'] = time();
-    }
-} elseif ($sgOk) {
-    // $sgOk is the probe actually coming back readable, which is the only
-    // evidence that clears this. An absent blocked flag is NOT that evidence:
-    // a --trends-only run never probes at all, so treating "not flagged" as
-    // "fixed" would clear the ledger and re-notify on the next real scan.
-    unset($status['notified']['stargazers_blocked']);
-}
-
 write_status($status, $outDir, $dataDir);
 write_progress($outDir, false, $scanned, $total, $status);
 
-fwrite(STDERR, sprintf("fetch_stars: repos=%d ok=%d notmod=%d missing=%d rate=%s errors=%d apps=%d sgTrends=%d year=%d(free=%d,left=%d)\n",
+fwrite(STDERR, sprintf("fetch_stars: repos=%d ok=%d notmod=%d missing=%d rate=%s errors=%d apps=%d\n",
     $status['repos_total'], $status['ok'], $status['not_modified'], $status['missing'],
-    var_export($status['rate_remaining'], true), count($status['errors']), count($catalog), count($sgTrends),
-    count($yearNew), (int)($status['year_free'] ?? 0), (int)($status['year_deferred'] ?? 0)));
+    var_export($status['rate_remaining'], true), count($status['errors']), count($catalog)));
 exit(0);

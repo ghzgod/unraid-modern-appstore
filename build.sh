@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.08.28}"
+VERSION="${1:-2026.08.29}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -16,7 +16,7 @@ PLUGIN_URL="https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main
 SUPPORT_URL="https://github.com/ghzgod/unraid-modern-appstore"
 
 # --- payload files (order: php, js, css, pages, readme) --------------------
-FILES=(fetch_stars.php refresh.php cancel.php newscan.php scanpage.php applist.php pinned.php inject.js inject.css ModernAppStore.page ModernAppStoreLoader.page README.md)
+FILES=(fetch_stars.php refresh.php cancel.php newscan.php scanpage.php applist.php pinned.php about.php inject.js inject.css ModernAppStore.page ModernAppStoreLoader.page README.md)
 
 # guard: CDATA cannot contain ]]>
 for f in "${FILES[@]}"; do
@@ -57,6 +57,36 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- GitHub locked down its stargazers and watchers listing endpoints
+  (/repos/{owner}/{repo}/stargazers and /subscribers) to a repository's own
+  admins and collaborators, announced in its changelog on 30 June 2026 and
+  effective that July. Its stated reason, verified first-hand against the live
+  API: those endpoints exposed public lists of stargazers and watchers, and
+  that data "has increasingly been misused to collect user data for spam
+  activities." The lock covers the REST endpoints and the GraphQL stargazers
+  connection alike, and no token type is exempt: a classic token fails, a
+  fine-grained token fails, and so does a repository's own owner testing
+  against their own repo. Star counts alone are untouched, since a count comes
+  from the repository object rather than the list GitHub just closed off.
+- This closed off the only way the two "this year" trending orders had of
+  reaching a year-ago baseline, which was walking a repository's stargazer
+  list and reading the date on each star. That path is gone for every install,
+  not just this one, since GitHub applied the restriction to the API itself
+  rather than to any particular caller or use.
+- In its place the plugin now keeps its own daily star snapshot for every app
+  in the catalog and builds every trending window from that history alone,
+  fetching nothing from GitHub or anywhere else to do it. Today, this week and
+  this month already run on it. The two year windows need 365 days of recorded
+  history before they can produce a real delta, and each fills in on its own
+  the day an install crosses that mark.
+- A GitHub token is still worth setting, but only for the rate limit: GitHub
+  allows 60 requests an hour with no token at all, which a catalog this size
+  burns through in minutes, against 5,000 with one. Which kind of token no
+  longer matters in the slightest, since the only thing token type ever
+  changed was whether star dates could be read, and that door is now shut for
+  both kinds alike. The grid itself says plainly how many days of history an
+  install has on hand and when its year windows will fill in, rather than
+  pointing at the token as if a different one would fix it.
 - The four orders the App Store's own front page is built from are in the sort
   menu: Spotlight Apps, Top Trending, Top New Installs and Most Popular
   Plugins. They are worked out from the same feed and the same thresholds the
@@ -70,11 +100,10 @@ cat <<XMLHEAD
   is "Most Stars".
 - The plugin says something when it needs attention, through Unraid's own
   notifications, rather than leaving it on a settings page nobody has a reason
-  to open. Two cases raise one: no GitHub token is configured, and a token
-  that cannot read star dates, which is what leaves both "this year" sorts
-  empty. Each is raised once when it starts and not again until it clears, and
-  clicking it opens the settings page that explains the fix. There is a switch
-  to turn them off next to the one that turns the plugin on.
+  to open. No GitHub token configured is the case that raises one. It is
+  raised once when it starts and not again until it clears, and clicking it
+  opens the settings page that explains the fix. There is a switch to turn
+  them off next to the one that turns the plugin on.
 - Plugins show how many servers have installed them. Every plugin in the store
   reported zero, because the count is thrown away for any image published
   without an owner name (that number belongs to a base image like nginx, not
@@ -97,10 +126,6 @@ cat <<XMLHEAD
   colour rather than marked with a tick that pushed its label out of line.
 - A "Recently Updated" sort, ordering the grid by when each app was last
   updated. Apps the feed carries no update date for sort last.
-- The trending groups are named "GitHub Trending" and "GitHub Trending %",
-  each with GitHub's mark, since every one of those orders is counted from a
-  repository's stars. The mark is drawn in the menu's own text colour, so it
-  reads on the light and dark themes alike.
 - The toolbar row shares the grid's width: the search box starts on the first
   card's left edge and the Modern view toggle ends on the last card's right
   edge, at every window width and font size. Nothing is drawn around the row

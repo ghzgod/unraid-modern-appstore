@@ -40,7 +40,7 @@ function gas_scan_days($v) {
 // Newest to the App Store instead.
 function gas_default_sort($v) {
     $valid = ['name_asc', 'name_desc', 'downloads', 'new', 'updated', 'spotlight', 'trending',
-              'newinstalls', 'popplugins', 'ghstars', 'ght1', 'ght7', 'ght30', 'ght365', 'ghtall',
+              'newinstalls', 'popplugins', 'ghstars', 'ght1', 'ght7', 'ght30', 'ght365',
               'ghp1', 'ghp7', 'ghp30', 'ghp365', 'ghpall'];
     return in_array($v, $valid, true) ? $v : 'new';
 }
@@ -73,8 +73,6 @@ if ($_POST) {
         $gas_msg = "Settings saved.";
         if (trim($token) === '') {
             $gas_msg .= " WARNING: no token set - star counts are disabled.";
-        } elseif (strpos($token, 'github_pat_') === 0) {
-            $gas_msg .= " WARNING: this is a fine-grained token - star counts will still work, but the \"this year\" sorts will stay empty, because GitHub does not let fine-grained tokens read star dates and a classic token (ghp_) does.";
         }
     }
     if (isset($_POST['REFRESH'])) {
@@ -116,16 +114,16 @@ _(Enable Notifications)_:
     <?= mk_option($notifications, "disabled", "No") ?>
   </select>
 
-> When this is on, the plugin posts a notification to Unraid's own notification area if something needs attention: no GitHub token is configured, or the configured token cannot read star dates, which leaves the two "this year" sorts empty. Each of these is raised once when it starts, not on every scan.
+> When this is on, the plugin posts a notification to Unraid's own notification area if no GitHub token is configured. This is raised once when it starts, not on every scan.
 
 _(GitHub Personal Access Token)_:
 : <input type="password" name="TOKEN" value="<?= htmlspecialchars($token) ?>" style="width:520px;max-width:90%;" autocomplete="off" spellcheck="false">
 
 > A GitHub personal access token is required. Without one the GitHub API allows only 60 requests per hour, which is far too few for the catalog; a token raises the limit to 5,000 per hour.
 >
-> To create a token, open <u><a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a></u> (GitHub &rarr; Settings &rarr; Developer settings &rarr; Personal access tokens &rarr; Generate new token (classic)). Give it any name, leave all scopes unchecked since it only needs to read public star counts, click Generate token, and paste the value here.
+> Either kind of token works here; it makes no difference which one you use.
 >
-> **Use a classic token (it starts with `ghp_`), not a fine-grained one (`github_pat_`).** GitHub refuses fine-grained tokens access to star dates, and the two "this year" trending sorts are built from those dates. Everything else, including the "all time" sorts, works with either kind.
+> To create a token, open <u><a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a></u> (GitHub &rarr; Settings &rarr; Developer settings &rarr; Personal access tokens &rarr; Generate new token). Give it any name, leave all scopes unchecked since it only needs to read public star counts, click Generate token, and paste the value here.
 >
 > While this field is empty the Apps page shows a yellow warning and star counts stay disabled.
 
@@ -158,16 +156,15 @@ _(Default sort order)_:
     </optgroup>
     <optgroup label="GitHub">
     <?= mk_option($defsort, "ghstars", "Most Stars") ?>
-    <?= mk_option($defsort, "ght1", "Trending (today)") ?>
-    <?= mk_option($defsort, "ght7", "Trending (this week)") ?>
-    <?= mk_option($defsort, "ght30", "Trending (this month)") ?>
-    <?= mk_option($defsort, "ght365", "Trending (this year)") ?>
-    <?= mk_option($defsort, "ghtall", "Trending (all time)") ?>
-    <?= mk_option($defsort, "ghp1", "Trending % (today)") ?>
-    <?= mk_option($defsort, "ghp7", "Trending % (this week)") ?>
-    <?= mk_option($defsort, "ghp30", "Trending % (this month)") ?>
-    <?= mk_option($defsort, "ghp365", "Trending % (this year)") ?>
-    <?= mk_option($defsort, "ghpall", "Trending % (all time)") ?>
+    <?= mk_option($defsort, "ght1", "Most Stars Gained (today)") ?>
+    <?= mk_option($defsort, "ght7", "Most Stars Gained (this week)") ?>
+    <?= mk_option($defsort, "ght30", "Most Stars Gained (this month)") ?>
+    <?= mk_option($defsort, "ght365", "Most Stars Gained (this year)") ?>
+    <?= mk_option($defsort, "ghp1", "Fastest Growing (today)") ?>
+    <?= mk_option($defsort, "ghp7", "Fastest Growing (this week)") ?>
+    <?= mk_option($defsort, "ghp30", "Fastest Growing (this month)") ?>
+    <?= mk_option($defsort, "ghp365", "Fastest Growing (this year)") ?>
+    <?= mk_option($defsort, "ghpall", "Fastest Growing (all time)") ?>
     </optgroup>
   </select>
 
@@ -187,42 +184,32 @@ _(Database directory)_:
 
 </form>
 
-<?php if (!empty($status['stargazers_blocked'])): ?>
-<?php
-    if (strpos($token, 'github_pat_') === 0) {
-        $gas_tok_why = 'The token saved here starts with <code>github_pat_</code>, a <b>fine-grained</b> token, and GitHub does not let fine-grained tokens read star dates.';
-    } elseif (strpos($token, 'ghp_') === 0) {
-        $gas_tok_why = 'The token saved here already starts with <code>ghp_</code>, a <b>classic</b> token, so something else is refusing it, most likely an organisation with SSO enforcement that this token has not been authorised for.';
-    } else {
-        $gas_tok_why = 'The saved token cannot read star dates.';
-    }
-?>
-<div class="title"><span class="left">Use a classic token for the year sorts</span></div>
-<div style="max-width:760px;">
-  <?= $gas_tok_why ?>
-  This affects 2 of the 20 sort orders, <b>Trending (this year)</b> and <b>Trending % (this year)</b>;
-  every other order, including both <b>all time</b> ones, is unaffected.
-  <br><br>
-  To fix it: create a classic token at
-  <u><a href="https://github.com/settings/tokens/new" target="_blank">github.com/settings/tokens/new</a></u>,
-  leaving every scope unticked since it only reads public star counts, paste it into the field
-  above, press <b>Apply</b>, and press <b>Refresh now</b> last. Refresh on its own cannot clear
-  this, the token has to change first.
-</div>
-&nbsp;
-<?php endif; ?>
-
 <div class="title"><span class="left">Last scan</span></div>
 <?php if ($status): ?>
-<table class="asga-status" style="border-collapse:collapse;">
-  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Ran at</td><td><?= $status['ran_at'] ? date('Y-m-d H:i:s', $status['ran_at']) : '-' ?></td></tr>
-  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Repos with a GitHub link</td><td><?= (int)($status['repos_total'] ?? 0) ?></td></tr>
-  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Updated</td><td><?= (int)($status['ok'] ?? 0) ?></td></tr>
-  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Unchanged</td><td><?= (int)($status['not_modified'] ?? 0) ?></td></tr>
-  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Missing repos</td><td><?= (int)($status['missing'] ?? 0) ?></td></tr>
-  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Rate limit remaining</td><td><?= isset($status['rate_remaining']) ? (int)$status['rate_remaining'] : '-' ?></td></tr>
-  <tr><td style="padding:2px 18px 2px 0;opacity:.8;">Errors</td><td><?= count($status['errors'] ?? []) ?></td></tr>
-</table>
+<div markdown="1">
+
+Ran at:
+: <?= $status['ran_at'] ? date('Y-m-d H:i:s', $status['ran_at']) : '-' ?>
+
+Repos with a GitHub link:
+: <?= (int)($status['repos_total'] ?? 0) ?>
+
+Updated:
+: <?= (int)($status['ok'] ?? 0) ?>
+
+Unchanged:
+: <?= (int)($status['not_modified'] ?? 0) ?>
+
+Missing repos:
+: <?= (int)($status['missing'] ?? 0) ?>
+
+Rate limit remaining:
+: <?= isset($status['rate_remaining']) ? (int)$status['rate_remaining'] : '-' ?>
+
+Errors:
+: <?= count($status['errors'] ?? []) ?>
+
+</div>
 <?php else: ?>
 <div>No scan has run yet. Click <b>Refresh now</b> to populate star counts.</div>
 <?php endif; ?>

@@ -40,9 +40,10 @@
     var scanAsked = {};           // path -> 1, so a page is only auto-scanned once
     var scanInFlight = false, scanPending = false, scanTimer = null;
     var pinnedSet = null, installedSet = null;
-    // false once the server reports the GitHub token cannot read star dates,
-    // which is what the year trending windows are built from
-    var starDates = true;
+    // how many days of the plugin's own star-history snapshots this install
+    // has. The year trending windows are built from this now, since GitHub
+    // restricted the endpoints that used to backfill a year-ago baseline
+    var historyDays = 0;
     // CA's docker availability, as applist.php reports it. Docker being down
     // does NOT empty the store: CA still lists everything and still installs
     // plugins, it only blocks docker installs and says why. The modern view is
@@ -74,10 +75,12 @@
     }
 
     // Every trending sort ranks by GitHub stars; they differ only in the window.
-    // Day/week/month come from the plugin's own daily star snapshots. The year
-    // window can't: a fresh install has no year-old snapshot, so the server
-    // walks each repo's stargazer list for a real year-ago baseline (see
-    // backfill_year_baselines in fetch_stars.php) and hands it over as t365.
+    // Day/week/month/year all come from the plugin's own daily star snapshots
+    // in star_history now: GitHub restricted the stargazers-listing endpoints
+    // to admins and collaborators in July 2026, so there is no longer any way
+    // to backfill a year-ago baseline for a fresh install. The year windows
+    // (t365) just take as long to fill in as any other window would, 365 days
+    // of the plugin's own recorded history.
     // All time is the repo's whole life: every star it has ever gained, and for
     // the percentage variant the lifetime rate, since dividing by the star count
     // at a repo's birth would be dividing by zero.
@@ -111,16 +114,15 @@
       { g: 'Unraid', m: 'un', v: 'newinstalls', label: 'Top New Installs',     cmp: numDesc('dt'), filter: caTrend('dt', 6, 100000, true),  hint: 'The highest percentage of new installs this week, over apps with 6+ weeks of data and 100,000+ installs' },
       { g: 'Unraid', m: 'un', v: 'popplugins',  label: 'Most Popular Plugins', cmp: numDesc('dl'), filter: isCountedPlugin,          hint: 'Plugins only, ranked by Unraid downloads; plugins with no download count are left out' },
       { g: 'GitHub', m: 'gh', v: 'ghstars', label: 'Most Stars',              cmp: numDesc('s') },
-      { g: 'GitHub', m: 'gh', v: 'ght1',    label: 'Trending (today)',        cmp: numDesc('t1'),   filter: hasTrend('t1'),   hint: 'Stars gained in the last day' },
-      { g: 'GitHub', m: 'gh', v: 'ght7',    label: 'Trending (this week)',    cmp: numDesc('t7'),   filter: hasTrend('t7'),   hint: 'Stars gained in the last 7 days' },
-      { g: 'GitHub', m: 'gh', v: 'ght30',   label: 'Trending (this month)',   cmp: numDesc('t30'),  filter: hasTrend('t30'),  hint: 'Stars gained in the last 30 days' },
-      { g: 'GitHub', m: 'gh', v: 'ght365',  label: 'Trending (this year)',    cmp: numDesc('t365'), filter: hasTrend('t365'), hint: 'Stars gained in the last 365 days' },
-      { g: 'GitHub', m: 'gh', v: 'ghtall',  label: 'Trending (all time)',     cmp: numDesc('s'),    filter: hasStars,         hint: 'Every star the repo has ever gained' },
-      { g: 'GitHub', m: 'gh', v: 'ghp1',    label: 'Trending % (today)',      cmp: pctDesc('t1'),   filter: hasPct('t1'),   hint: 'Growth today, against the star count a day ago' },
-      { g: 'GitHub', m: 'gh', v: 'ghp7',    label: 'Trending % (this week)',  cmp: pctDesc('t7'),   filter: hasPct('t7'),   hint: 'Growth this week, against the star count 7 days ago' },
-      { g: 'GitHub', m: 'gh', v: 'ghp30',   label: 'Trending % (this month)', cmp: pctDesc('t30'),  filter: hasPct('t30'),  hint: 'Growth this month, against the star count 30 days ago' },
-      { g: 'GitHub', m: 'gh', v: 'ghp365',  label: 'Trending % (this year)',  cmp: pctDesc('t365'), filter: hasPct('t365'), hint: 'Growth this year, against the star count a year ago' },
-      { g: 'GitHub', m: 'gh', v: 'ghpall',  label: 'Trending % (all time)',   cmp: rateDesc,        filter: hasRate,        hint: 'Lifetime growth rate: stars per year since the repo was created' }
+      { g: 'GitHub', m: 'gh', v: 'ght1',    label: 'Most Stars Gained (today)',        cmp: numDesc('t1'),   filter: hasTrend('t1'),   hint: 'Most stars added today, whatever the size of the repo' },
+      { g: 'GitHub', m: 'gh', v: 'ght7',    label: 'Most Stars Gained (this week)',    cmp: numDesc('t7'),   filter: hasTrend('t7'),   hint: 'Most stars added this week, whatever the size of the repo' },
+      { g: 'GitHub', m: 'gh', v: 'ght30',   label: 'Most Stars Gained (this month)',   cmp: numDesc('t30'),  filter: hasTrend('t30'),  hint: 'Most stars added this month, whatever the size of the repo' },
+      { g: 'GitHub', m: 'gh', v: 'ght365',  label: 'Most Stars Gained (this year)',    cmp: numDesc('t365'), filter: hasTrend('t365'), hint: 'Most stars added this year, whatever the size of the repo' },
+      { g: 'GitHub', m: 'gh', v: 'ghp1',    label: 'Fastest Growing (today)',      cmp: pctDesc('t1'),   filter: hasPct('t1'),   hint: 'Biggest growth today measured against the stars a repo already had, so a small project can beat a large one' },
+      { g: 'GitHub', m: 'gh', v: 'ghp7',    label: 'Fastest Growing (this week)',  cmp: pctDesc('t7'),   filter: hasPct('t7'),   hint: 'Biggest growth this week measured against the stars a repo already had, so a small project can beat a large one' },
+      { g: 'GitHub', m: 'gh', v: 'ghp30',   label: 'Fastest Growing (this month)', cmp: pctDesc('t30'),  filter: hasPct('t30'),  hint: 'Biggest growth this month measured against the stars a repo already had, so a small project can beat a large one' },
+      { g: 'GitHub', m: 'gh', v: 'ghp365',  label: 'Fastest Growing (this year)',  cmp: pctDesc('t365'), filter: hasPct('t365'), hint: 'Biggest growth this year measured against the stars a repo already had, so a small project can beat a large one' },
+      { g: 'GitHub', m: 'gh', v: 'ghpall',  label: 'Fastest Growing (all time)',   cmp: rateDesc,        filter: hasRate,        hint: 'Lifetime growth rate: stars per year since the repo was created' }
     ];
     function optFor(v) { for (var i = 0; i < SORT_OPTS.length; i++) if (SORT_OPTS[i].v === v) return SORT_OPTS[i]; return SORT_OPTS[0]; }
     // numeric descending; null/undefined sinks to the bottom
@@ -188,7 +190,7 @@
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) {
           APPS = dedupe((j && j.apps) || []);
-          if (j && j.starDates === false) starDates = false;
+          if (j && j.historyDays != null) historyDays = j.historyDays;
           if (j && j.docker) docker = j.docker;
           // same validity test optFor() already backs the saved-sort read with,
           // so a config value the grid doesn't recognise is silently ignored
@@ -845,17 +847,24 @@
 
     // A trending sort filters to apps that moved in its window, so an empty grid
     // is ambiguous: nothing moved, or the data for that window was never
-    // gathered. The year windows are the ones that can genuinely be unavailable,
-    // so say which it is instead of leaving a blank page.
+    // gathered. The year windows are the ones that can genuinely be unavailable:
+    // GitHub restricted the stargazers-listing endpoints in July 2026, so their
+    // only remaining source is the plugin's own recorded star history, and this
+    // says exactly how much of that this install has instead of leaving a blank
+    // page.
     function emptySortNote() {
       if (view.sort !== 'ght365' && view.sort !== 'ghp365') return '';
-      if (!starDates) {
-        return 'The "this year" windows need GitHub star dates, which the configured token cannot read. ' +
-               'A classic token (ghp_...) with no scopes can read them; a fine-grained token (github_pat_...) cannot. ' +
-               'Swap the token in Settings, or wait for the plugin to record a year of its own star history.';
+      var need = 365 - historyDays;
+      var when = '';
+      if (historyDays > 0 && need > 0) {
+        var target = new Date(Date.now() + need * 86400000);
+        var stamp;
+        try { stamp = target.toLocaleString(undefined, { month: 'long', year: 'numeric' }); }
+        catch (e) { stamp = target.toDateString(); }
+        when = ', filling in around ' + stamp;
       }
-      return 'No star data reaches back a year yet. This fills in as the plugin records history, ' +
-             'or straight away once a full catalog scan has run.';
+      return 'The "this year" windows are built from the plugin\'s own recorded star history, not from GitHub. ' +
+             'This install has ' + historyDays + ' of the 365 days it needs' + when + '.';
     }
 
     // The catalog is CA's file in /tmp, rebuilt by CA's own Apps page after a
@@ -1070,6 +1079,16 @@
         '<select id="asga-sortsel" class="asga-sortsel">' + opts + '</select>' +
         '<a id="asga-refresh" class="asga-refreshlink" title="Refresh GitHub star data">↻</a>' +
         '<span id="asga-updated" class="asga-updated"></span></span>' +
+        // The help button opens a slide-in panel rather than navigating anywhere,
+        // so unlike the gear it is a <button>, not a link: a middle click has
+        // nothing to open in a tab. It sits immediately before the gear in the
+        // markup so it reads as the gear's left-hand neighbour in both the
+        // absolutely-positioned 7.2+ layout and 7.1's inline flow.
+        '<button type="button" id="asga-help" class="asga-help" ' +
+          'title="About and help" aria-label="About and help">' +
+          '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zM8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1z"/>' +
+          '<path d="M5.255 5.786a.237.237 0 0 0 .241.247h.825c.138 0 .248-.113.266-.25.09-.656.54-1.134 1.342-1.134.686 0 1.314.343 1.314 1.168 0 .635-.374.927-.965 1.371-.673.489-1.206 1.06-1.168 1.987l.003.217a.25.25 0 0 0 .25.246h.811a.25.25 0 0 0 .25-.25v-.105c0-.718.273-.927 1.01-1.486.609-.463 1.244-.977 1.244-2.056 0-1.511-1.276-2.241-2.673-2.241-1.267 0-2.655.59-2.75 2.286zm1.557 5.763c0 .533.425.927 1 .927.609 0 1.028-.394 1.028-.927 0-.552-.42-.94-1.028-.94-.575 0-1 .388-1 .94z"/></svg>' +
+        '</button>' +
         // The gear lives in the bar so it is present in both view states, and
         // it is a plain link so a middle click opens the settings in a tab.
         '<a id="asga-settings" class="asga-settings" href="/Settings/ModernAppStore" ' +
@@ -1083,6 +1102,7 @@
       sel.addEventListener('change', function (e) { view.sort = e.target.value; view.page = 1; saveSort(); render(); });
       wireSortMenu(sel);
       document.getElementById('asga-refresh').addEventListener('click', onRefreshClick);
+      document.getElementById('asga-help').addEventListener('click', openAboutPanel);
       var cb = document.getElementById('asga-toggle-cb');
       cb.checked = isOn();
       cb.addEventListener('change', function () { setOn(cb.checked); });
@@ -1180,6 +1200,182 @@
           }, true);
         }, 0);
       });
+    }
+
+    // ---- About / Help panel: what the plugin is, its last few changelog
+    // entries, and when it was last updated. The panel and its backdrop are
+    // built once, the first time the help button is clicked, and reused after
+    // that (unlike the attention modal or the lightbox, which are thrown away
+    // on close), so opening it a second time never rebuilds the DOM or refires
+    // the network request. ----
+    var aboutData = null;    // about.php's answer, or the string 'error' after a failed fetch; null means "not fetched yet"
+    var aboutPanel = null;   // { backdrop, panel, body, closeBtn }, built lazily by ensureAboutPanel()
+    var aboutOpener = null;  // the button to hand focus back to once the panel closes
+    function aboutEscHandler(ev) { if (ev.key === 'Escape') closeAboutPanel(); }
+
+    function ensureAboutPanel() {
+      if (aboutPanel) return aboutPanel;
+      var backdrop = document.createElement('div');
+      backdrop.className = 'asga-about-backdrop';
+      backdrop.addEventListener('click', closeAboutPanel);
+
+      var panel = document.createElement('div');
+      panel.id = 'asga-about-panel';
+      panel.className = 'asga-about-panel';
+      panel.setAttribute('role', 'dialog');
+      panel.setAttribute('aria-modal', 'true');
+      panel.setAttribute('aria-labelledby', 'asga-about-title');
+
+      var header = document.createElement('div');
+      header.className = 'asga-about-header';
+      var title = document.createElement('h2');
+      title.id = 'asga-about-title';
+      title.className = 'asga-about-title';
+      title.textContent = 'Unraid Modern App Store';
+      var closeBtn = document.createElement('button');
+      closeBtn.type = 'button';
+      closeBtn.className = 'asga-about-close';
+      closeBtn.title = 'Close';
+      closeBtn.setAttribute('aria-label', 'Close');
+      closeBtn.textContent = '✕';
+      closeBtn.addEventListener('click', closeAboutPanel);
+      header.appendChild(title);
+      header.appendChild(closeBtn);
+
+      var body = document.createElement('div');
+      body.className = 'asga-about-body';
+
+      panel.appendChild(header);
+      panel.appendChild(body);
+      document.body.appendChild(backdrop);
+      document.body.appendChild(panel);
+
+      aboutPanel = { backdrop: backdrop, panel: panel, body: body, closeBtn: closeBtn };
+      return aboutPanel;
+    }
+
+    // one heading plus a run of plain paragraphs, built from our own copy
+    // rather than anything the endpoint returns
+    function appendAboutSection(body, heading, paragraphs) {
+      var sec = document.createElement('div');
+      sec.className = 'asga-about-section';
+      var h = document.createElement('h3');
+      h.className = 'asga-about-heading';
+      h.textContent = heading;
+      sec.appendChild(h);
+      paragraphs.forEach(function (t) {
+        var p = document.createElement('p');
+        p.textContent = t;
+        sec.appendChild(p);
+      });
+      body.appendChild(sec);
+    }
+
+    // Repaints the panel body from aboutData: once with nothing yet (the
+    // loading line), and again once the fetch settles, success or failure.
+    // The two explainer sections are our own copy and always render; only the
+    // version line and the changelog depend on the endpoint actually answering,
+    // and the changelog falls back to a plain line rather than staying blank
+    // or throwing when it can't be read.
+    function renderAboutBody() {
+      var body = aboutPanel.body;
+      while (body.firstChild) body.removeChild(body.firstChild);
+
+      if (aboutData === null) {
+        var loading = document.createElement('p');
+        loading.className = 'asga-about-muted';
+        loading.textContent = 'Loading...';
+        body.appendChild(loading);
+        return;
+      }
+      var data = (aboutData && aboutData !== 'error') ? aboutData : null;
+
+      if (data && data.version) {
+        var verLine = document.createElement('p');
+        verLine.className = 'asga-about-version';
+        var txt = 'Version ' + data.version;
+        if (data.updatedAt) txt += ' (updated ' + new Date(data.updatedAt * 1000).toLocaleDateString() + ')';
+        verLine.textContent = txt;
+        body.appendChild(verLine);
+      }
+
+      appendAboutSection(body, 'What this does', [
+        'It replaces Community Applications\' own grid with its own: every app in the catalog, sorted and paged right on the page instead of round-tripping to the server.',
+        'It adds GitHub star counts to app tiles, and sort orders (trending, most starred, recently updated) the stock store does not have.',
+        'The Modern view toggle in the toolbar turns this off and hands the page straight back to Community Applications.'
+      ]);
+
+      appendAboutSection(body, 'Why some sorts can be empty', [
+        'GitHub restricted its stargazers listing endpoints in July 2026, so dated star data can no longer be fetched from GitHub at all. The plugin records its own daily star snapshot instead, and the "this year" windows need 365 days of that history before they can show anything.'
+      ]);
+
+      var whatsNew = document.createElement('div');
+      whatsNew.className = 'asga-about-section';
+      var wnHead = document.createElement('h3');
+      wnHead.className = 'asga-about-heading';
+      wnHead.textContent = 'What\'s new';
+      whatsNew.appendChild(wnHead);
+      if (data && data.entries && data.entries.length) {
+        data.entries.forEach(function (entry) {
+          var ver = document.createElement('div');
+          ver.className = 'asga-about-entry-version';
+          ver.textContent = entry.version;
+          whatsNew.appendChild(ver);
+          var ul = document.createElement('ul');
+          ul.className = 'asga-about-entry-list';
+          (entry.bullets || []).forEach(function (b) {
+            var li = document.createElement('li');
+            li.textContent = b;
+            ul.appendChild(li);
+          });
+          whatsNew.appendChild(ul);
+        });
+      } else {
+        var none = document.createElement('p');
+        none.className = 'asga-about-muted';
+        none.textContent = 'The changelog could not be read.';
+        whatsNew.appendChild(none);
+      }
+      body.appendChild(whatsNew);
+
+      if (data && data.support) {
+        var link = document.createElement('a');
+        link.className = 'asga-about-link';
+        link.href = data.support;
+        link.target = '_blank';
+        link.rel = 'noopener noreferrer';
+        link.textContent = 'Support and source';
+        body.appendChild(link);
+      }
+    }
+
+    function openAboutPanel() {
+      aboutOpener = document.getElementById('asga-help');
+      ensureAboutPanel();
+      renderAboutBody();
+      // fetched once per page load and cached in aboutData; reopening just
+      // repaints from the cache instead of asking about.php again
+      if (aboutData === null) {
+        fetch(PREFIX + 'about.php?_=' + Date.now())
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (j) { aboutData = j || 'error'; renderAboutBody(); })
+          .catch(function () { aboutData = 'error'; renderAboutBody(); });
+      }
+      document.body.classList.add('asga-about-open');
+      aboutPanel.backdrop.classList.add('asga-open');
+      aboutPanel.panel.classList.add('asga-open');
+      document.addEventListener('keydown', aboutEscHandler, true);
+      // preventScroll: the button that opened this sits far down the sticky
+      // toolbar, and a plain focus() would otherwise scroll the page back to it
+      try { aboutPanel.closeBtn.focus({ preventScroll: true }); } catch (e) { aboutPanel.closeBtn.focus(); }
+    }
+    function closeAboutPanel() {
+      if (!aboutPanel) return;
+      aboutPanel.backdrop.classList.remove('asga-open');
+      aboutPanel.panel.classList.remove('asga-open');
+      document.body.classList.remove('asga-about-open');
+      document.removeEventListener('keydown', aboutEscHandler, true);
+      if (aboutOpener) try { aboutOpener.focus({ preventScroll: true }); } catch (e) { aboutOpener.focus(); }
     }
 
     // "Updated 12 min ago" beside the refresh icon. The visible time is CA's
