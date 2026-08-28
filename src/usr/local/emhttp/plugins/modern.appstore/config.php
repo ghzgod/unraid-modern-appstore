@@ -73,6 +73,34 @@ function gas_write_cron($path, $scanDays = 1) {
 // has always used when the file is missing, empty, or only partially
 // written, so a fresh install and a hand-edited config both land on values
 // the rest of the plugin, and every caller of this function, can trust.
+/**
+ * A token rendered the way every other web app renders a saved secret: its
+ * kind, then dots, then the last four characters. That is enough for someone
+ * to recognise WHICH token is saved without the value ever being useful.
+ *
+ * The prefix is kept because it is the part that identifies the token type
+ * (ghp_ for classic, github_pat_ for fine-grained) and is not secret. The
+ * run of dots is a fixed length rather than the token's real one, so the
+ * mask does not quietly publish how long the secret is.
+ */
+function gas_mask_token($token) {
+    $token = trim((string)$token);
+    if ($token === '') return '';
+    $prefix = '';
+    // the LAST underscore in the opening stretch, not the first: a classic
+    // token prefixes with ghp_ (one underscore) but a fine-grained one with
+    // github_pat_ (two), and splitting on the first would call that github_
+    // and hide the part that actually names the type.
+    $us = strrpos(substr($token, 0, 13), '_');
+    if ($us !== false) {
+        $prefix = substr($token, 0, $us + 1);
+        $token  = substr($token, $us + 1);
+    }
+    // too short to reveal a tail from without giving away most of it
+    if (strlen($token) < 8) return $prefix . str_repeat("\u{2022}", 8);
+    return $prefix . str_repeat("\u{2022}", 12) . substr($token, -4);
+}
+
 function gas_read_cfg($path) {
     $cfg = is_file($path) ? @parse_ini_file($path) : [];
     if (!is_array($cfg)) $cfg = [];

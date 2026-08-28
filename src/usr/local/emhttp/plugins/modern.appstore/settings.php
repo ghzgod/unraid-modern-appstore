@@ -36,6 +36,10 @@ function gas_settings_response($cfg, $extra = []) {
         // no legitimate use for the secret, and returning it would put a
         // GitHub token into page JS state, dev tools, and any network log.
         'hasToken'      => trim($cfg['token']) !== '',
+        // the MASK is safe to send where the token is not: kind, dots, last
+        // four. It lets the panel show which token is saved the way GitHub
+        // and Stripe do, instead of a sentence claiming one exists.
+        'tokenHint'     => gas_mask_token($cfg['token']),
         'scanDays'      => $cfg['scandays'],
         'defaultSort'   => $cfg['defaultsort'],
         'dataDir'       => $cfg['datadir'],

@@ -1554,8 +1554,16 @@
       // across a reopen would be the one place this panel disagreed with the
       // settings page, which never does that either
       els.token.value = '';
+      // the mask stands in for the saved token the way every other web app
+      // shows a stored secret, so the field reads as populated and the user
+      // can tell WHICH token is on file. It is a placeholder rather than a
+      // value, so it clears itself the moment they start typing a new one,
+      // and an empty box still means keep what is saved.
       els.token.placeholder = j.hasToken
-        ? 'A token is saved. Leave this box blank to keep it.'
+        ? (j.tokenHint || 'A token is saved. Leave blank to keep it.')
+        : '';
+      els.token.title = j.hasToken
+        ? 'A token is saved. Leave this box blank to keep it, or type a new one to replace it.'
         : '';
       els.clearWrap.style.display = j.hasToken ? '' : 'none';
     }
