@@ -28,6 +28,13 @@
 
     var APPS = [];
     var view = { sort: 'new', q: '', cat: '', catLabel: 'All Apps', special: '', page: 1, perPage: 96 };
+    // the configured opening sort, overwritten once applist.php answers with the
+    // server's real value; 'new' is only what's used before that response lands
+    // or if the config on disk can't be read
+    var defaultSort = 'new';
+    // initSort() must run exactly once per page load (see its own comment); this
+    // is the guard, since loadApps() itself refires several times after start()
+    var sortInited = false;
     var polling = false, wasRunning = false;
     var pageItemsNow = [];        // apps the grid is currently showing
     var scanAsked = {};           // path -> 1, so a page is only auto-scanned once
@@ -80,23 +87,35 @@
     // GitHub's own 16x16 mark, inlined so it draws in currentColor and follows
     // the menu header's muted text on the dark and light themes alike.
     var GH_MARK = '<svg class="asga-gh-mark" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>';
+    // Unraid's own mark (the nine bars from its logo), inlined the same way so
+    // it too draws in currentColor and reads correctly on both themes.
+    var UN_MARK = '<svg class="asga-un-mark" viewBox="0 0 133.52 76.97" aria-hidden="true"><path d="M0 19.24h6.54v38.49H0zM15.87 45.84h6.54v23.78h-6.54zM31.74 62.27h6.55v14.73h-6.55zM47.62 45.84h6.54v23.78h-6.54zM63.49 19.24h6.51v38.49h-6.51zM79.36 7.35h6.54v23.79h-6.54zM95.23 0h6.54v14.7h-6.54zM111.1 7.35h6.55v23.79h-6.55zM127 19.24h6.52v38.49H127z"/></svg>';
     var SORT_OPTS = [
-      { g: 'Name', v: 'name_asc',  label: 'Name Ascending',  cmp: function (a, b) { return a.sn < b.sn ? -1 : a.sn > b.sn ? 1 : 0; } },
-      { g: 'Name', v: 'name_desc', label: 'Name Descending', cmp: function (a, b) { return a.sn < b.sn ? 1 : a.sn > b.sn ? -1 : 0; } },
-      { g: 'Popularity', v: 'downloads', label: 'Unraid Downloads', cmp: numDesc('dl') },
-      { g: 'Popularity', v: 'new',       label: 'Newest to the App Store', cmp: numDesc('fs') },
-      { g: 'Popularity', v: 'updated',   label: 'Recently Updated', cmp: numDesc('lu'), hint: 'Latest app update first; apps with no update date in the feed sort last' },
-      { g: 'Popularity', v: 'ghstars',   label: 'GitHub Stars',    cmp: numDesc('s') },
-      { g: 'GitHub Trending', v: 'ght1',    label: 'Trending (today)',      cmp: numDesc('t1'),   filter: hasTrend('t1'),   hint: 'Stars gained in the last day' },
-      { g: 'GitHub Trending', v: 'ght7',    label: 'Trending (this week)',  cmp: numDesc('t7'),   filter: hasTrend('t7'),   hint: 'Stars gained in the last 7 days' },
-      { g: 'GitHub Trending', v: 'ght30',   label: 'Trending (this month)', cmp: numDesc('t30'),  filter: hasTrend('t30'),  hint: 'Stars gained in the last 30 days' },
-      { g: 'GitHub Trending', v: 'ght365',  label: 'Trending (this year)',  cmp: numDesc('t365'), filter: hasTrend('t365'), hint: 'Stars gained in the last 365 days' },
-      { g: 'GitHub Trending', v: 'ghtall',  label: 'Trending (all time)',   cmp: numDesc('s'),    filter: hasStars,         hint: 'Every star the repo has ever gained' },
-      { g: 'GitHub Trending %', v: 'ghp1',   label: 'Trending % (today)',      cmp: pctDesc('t1'),   filter: hasPct('t1'),   hint: 'Growth today, against the star count a day ago' },
-      { g: 'GitHub Trending %', v: 'ghp7',   label: 'Trending % (this week)',  cmp: pctDesc('t7'),   filter: hasPct('t7'),   hint: 'Growth this week, against the star count 7 days ago' },
-      { g: 'GitHub Trending %', v: 'ghp30',  label: 'Trending % (this month)', cmp: pctDesc('t30'),  filter: hasPct('t30'),  hint: 'Growth this month, against the star count 30 days ago' },
-      { g: 'GitHub Trending %', v: 'ghp365', label: 'Trending % (this year)',  cmp: pctDesc('t365'), filter: hasPct('t365'), hint: 'Growth this year, against the star count a year ago' },
-      { g: 'GitHub Trending %', v: 'ghpall', label: 'Trending % (all time)',   cmp: rateDesc,        filter: hasRate,        hint: 'Lifetime growth rate: stars per year since the repo was created' }
+      { g: 'General', v: 'name_asc',  label: 'Name Ascending',  cmp: function (a, b) { return a.sn < b.sn ? -1 : a.sn > b.sn ? 1 : 0; } },
+      { g: 'General', v: 'name_desc', label: 'Name Descending', cmp: function (a, b) { return a.sn < b.sn ? 1 : a.sn > b.sn ? -1 : 0; } },
+      { g: 'Unraid', m: 'un', v: 'downloads', label: 'Unraid Downloads', cmp: numDesc('dl') },
+      { g: 'Unraid', m: 'un', v: 'new',       label: 'Newest to the App Store', cmp: numDesc('fs') },
+      { g: 'Unraid', m: 'un', v: 'updated',   label: 'Recently Updated', cmp: numDesc('lu'), hint: 'Latest app update first; apps with no update date in the feed sort last' },
+      // These four mirror Community Applications' own homepage sections
+      // (appOfDay() and mySort() in its include/exec.php and include/helpers.php),
+      // so the numbers behind them come straight from CA's own feed, never from
+      // GitHub. The thresholds each one filters on are CA's own, and since this
+      // menu is the only place they show up, they are spelled out in the hints.
+      { g: 'Unraid', m: 'un', v: 'spotlight',   label: 'Spotlight Apps',       cmp: numDesc('rd'), filter: hasSpotlight,             hint: 'Apps recommended by the Unraid team, most recently featured first' },
+      { g: 'Unraid', m: 'un', v: 'trending',    label: 'Top Trending',         cmp: numDesc('td'), filter: caTrend('td', 3, 10000, false),  hint: 'Up and coming apps: the biggest week-on-week jump in install rate, over apps with 3+ weeks of data and 10,000+ installs' },
+      { g: 'Unraid', m: 'un', v: 'newinstalls', label: 'Top New Installs',     cmp: numDesc('dt'), filter: caTrend('dt', 6, 100000, true),  hint: 'The highest percentage of new installs this week, over apps with 6+ weeks of data and 100,000+ installs' },
+      { g: 'Unraid', m: 'un', v: 'popplugins',  label: 'Most Popular Plugins', cmp: numDesc('dl'), filter: isCountedPlugin,          hint: 'Plugins only, ranked by Unraid downloads; plugins with no download count are left out' },
+      { g: 'GitHub', m: 'gh', v: 'ghstars',   label: 'GitHub Stars',    cmp: numDesc('s') },
+      { g: 'GitHub Trending', m: 'gh', v: 'ght1',    label: 'Trending (today)',      cmp: numDesc('t1'),   filter: hasTrend('t1'),   hint: 'Stars gained in the last day' },
+      { g: 'GitHub Trending', m: 'gh', v: 'ght7',    label: 'Trending (this week)',  cmp: numDesc('t7'),   filter: hasTrend('t7'),   hint: 'Stars gained in the last 7 days' },
+      { g: 'GitHub Trending', m: 'gh', v: 'ght30',   label: 'Trending (this month)', cmp: numDesc('t30'),  filter: hasTrend('t30'),  hint: 'Stars gained in the last 30 days' },
+      { g: 'GitHub Trending', m: 'gh', v: 'ght365',  label: 'Trending (this year)',  cmp: numDesc('t365'), filter: hasTrend('t365'), hint: 'Stars gained in the last 365 days' },
+      { g: 'GitHub Trending', m: 'gh', v: 'ghtall',  label: 'Trending (all time)',   cmp: numDesc('s'),    filter: hasStars,         hint: 'Every star the repo has ever gained' },
+      { g: 'GitHub Trending %', m: 'gh', v: 'ghp1',   label: 'Trending % (today)',      cmp: pctDesc('t1'),   filter: hasPct('t1'),   hint: 'Growth today, against the star count a day ago' },
+      { g: 'GitHub Trending %', m: 'gh', v: 'ghp7',   label: 'Trending % (this week)',  cmp: pctDesc('t7'),   filter: hasPct('t7'),   hint: 'Growth this week, against the star count 7 days ago' },
+      { g: 'GitHub Trending %', m: 'gh', v: 'ghp30',  label: 'Trending % (this month)', cmp: pctDesc('t30'),  filter: hasPct('t30'),  hint: 'Growth this month, against the star count 30 days ago' },
+      { g: 'GitHub Trending %', m: 'gh', v: 'ghp365', label: 'Trending % (this year)',  cmp: pctDesc('t365'), filter: hasPct('t365'), hint: 'Growth this year, against the star count a year ago' },
+      { g: 'GitHub Trending %', m: 'gh', v: 'ghpall', label: 'Trending % (all time)',   cmp: rateDesc,        filter: hasRate,        hint: 'Lifetime growth rate: stars per year since the repo was created' }
     ];
     function optFor(v) { for (var i = 0; i < SORT_OPTS.length; i++) if (SORT_OPTS[i].v === v) return SORT_OPTS[i]; return SORT_OPTS[0]; }
     // numeric descending; null/undefined sinks to the bottom
@@ -122,6 +141,33 @@
     function hasPct(k) { return function (a) { return pct(a, k) > 0; }; }
     function hasStars(a) { return a.s != null && a.s > 0; }
     function hasRate(a) { return rate(a) > 0; }
+    // Spotlight Apps: CA's RecommendedDate, 0 meaning the app was never recommended
+    function hasSpotlight(a) { return a.rd > 0; }
+    // ich777/steamcmd backs dozens of unrelated game-server apps under one
+    // shared image, so without this exclusion both trending sorts would fill
+    // up with near-identical numbers instead of reading as "what's hot".
+    function isSharedSteamImage(a) { return (a.ri || '').indexOf('ich777/steamcmd') === 0; }
+    // Shared by Top Trending and Top New Installs: both need a run of weekly
+    // samples and a download floor before a trending number means anything,
+    // and both skip the shared SteamCMD image for the reason above. key is the
+    // field each list actually ranks by, and it has to be present: the feed
+    // carries a trending figure for 41 apps that have no trendDelta yet, and
+    // without this they would pass the filter only to sink to the bottom of the
+    // list, padding the count with apps that hold no position in it. nonZero is
+    // set for New Installs, since CA defines that list as apps still actually
+    // gaining installs, not merely ones it happens to have a reading for.
+    function caTrend(key, minSamples, minDownloads, nonZero) {
+      return function (a) {
+        if (a.tc == null || a.tc < minSamples) return false;
+        if (!(a.dl > minDownloads)) return false;
+        if (a[key] == null) return false;
+        if (nonZero && a[key] === 0) return false;
+        return !isSharedSteamImage(a);
+      };
+    }
+    // Most Popular Plugins: plugins only, and only ones the feed has a real
+    // download count for
+    function isCountedPlugin(a) { return a.ty === 'plugin' && a.dl > 0; }
 
     function fmt(n) {
       if (n == null) return '';
@@ -139,6 +185,10 @@
           APPS = dedupe((j && j.apps) || []);
           if (j && j.starDates === false) starDates = false;
           if (j && j.docker) docker = j.docker;
+          // same validity test optFor() already backs the saved-sort read with,
+          // so a config value the grid doesn't recognise is silently ignored
+          // rather than handed straight to view.sort
+          if (j && j.defaultSort && optFor(j.defaultSort).v === j.defaultSort) defaultSort = j.defaultSort;
           if (j) { stamps.feed = j.feedAt || 0; stamps.scan = j.scanAt || 0; updateStamp(); }
           // no answer at all counts as not ready, so a failed request retries
           // rather than freezing the grid on an empty catalog
@@ -169,13 +219,20 @@
       return order.map(function (k) { return by[k]; });
     }
 
-    // ---- sort persistence: remember the last sort, but reset to Newest if it
-    // has been more than 20 minutes since the Apps page was last opened. ----
+    // ---- sort persistence: remember the last sort, but reset to the
+    // configured default if it has been more than 20 minutes since the Apps
+    // page was last opened. Guarded to run once: loadApps() (which this relies
+    // on for defaultSort) refires from waitForFeed(), a completed page scan and
+    // pollProgress(), and running this again on any of those would yank the
+    // sort out from under someone already mid-browse. ----
     function initSort() {
+      if (sortInited) return;
+      sortInited = true;
       try {
         var ts = parseInt(localStorage.getItem('asga_visit_ts') || '0', 10);
         var saved = localStorage.getItem('asga_sort');
         if (saved && optFor(saved).v === saved && (Date.now() - ts) < 20 * 60 * 1000) view.sort = saved;
+        else view.sort = defaultSort;
         localStorage.setItem('asga_visit_ts', '' + Date.now());
       } catch (e) {}
     }
@@ -605,7 +662,10 @@
         var dlb = document.createElement('span');
         dlb.className = 'ghdl-badge';
         dlb.textContent = '⤓ ' + fmt(a.dl);
-        dlb.title = a.dl.toLocaleString() + ' Docker image pulls';
+        // plugins now carry a real download count of their own, and "Docker
+        // image pulls" is simply the wrong noun for something that was never
+        // pulled from a registry
+        dlb.title = a.dl.toLocaleString() + (a.ty === 'plugin' ? ' Unraid servers have installed this plugin' : ' Docker image pulls');
         badges.appendChild(dlb);
       }
       if (badges.children.length) { tile.appendChild(badges); tile.classList.add('asga-has-badges'); }
@@ -1067,13 +1127,15 @@
             group = o.g;
             var h = document.createElement('div');
             h.className = 'asga-sortmenu-group';
-            // the GitHub groups carry the mark to say where the numbers come from
-            if (o.g.indexOf('GitHub') === 0) {
-              h.innerHTML = GH_MARK;
-              h.appendChild(document.createTextNode(' ' + o.g));
-            } else {
-              h.textContent = o.g;
-            }
+            // the group header carries a mark to say where its numbers come
+            // from, off the option's own m property rather than a string test
+            // on the group name: a rename would silently break a test like that.
+            // It goes AFTER the name, not before: the two marks are different
+            // widths and General has none, so leading them started the five
+            // labels on three different left edges in one short list.
+            var mark = o.m === 'un' ? UN_MARK : o.m === 'gh' ? GH_MARK : '';
+            h.textContent = o.g;
+            if (mark) h.insertAdjacentHTML('beforeend', mark);
             menu.appendChild(h);
           }
           var it = document.createElement('span');
@@ -1371,10 +1433,13 @@
     }
 
     function start() {
-      initSort();    // restore last sort (or reset to Newest after 20 min)
       triggerNewScan();
       loadViews();   // pin/installed membership, so tiles show correct pin state
       loadApps(function () {
+        // has to run after loadApps() lands: that's what carries the configured
+        // default this falls back to, and it must run before attachUI()/render()
+        // paint the sort menu and the first page
+        initSort();    // restore last sort (or the configured default after 20 min)
         attachUI();
         render();
         waitForFeed();   // no-op unless CA's catalog is still being downloaded

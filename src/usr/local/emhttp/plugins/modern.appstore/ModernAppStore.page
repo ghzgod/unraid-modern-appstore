@@ -14,13 +14,14 @@ $gas_msg  = "";
 
 if (!is_dir($gas_dir)) @mkdir($gas_dir, 0755, true);
 
-function gas_write_cfg($path, $token, $service, $datadir, $scanDays) {
+function gas_write_cfg($path, $token, $service, $datadir, $scanDays, $defaultSort) {
     $token   = str_replace(["\"", "\n", "\r"], "", $token);
     $datadir = rtrim(str_replace(["\"", "\n", "\r"], "", $datadir), '/');
     if ($datadir === '') $datadir = '/boot/config/plugins/modern.appstore';
     $service = ($service === 'enabled') ? 'enabled' : 'disabled';
     $scanDays = gas_scan_days($scanDays);
-    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nDATA_DIR=\"$datadir\"\nSCAN_DAYS=\"$scanDays\"\n";
+    $defaultSort = gas_default_sort($defaultSort);
+    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nDATA_DIR=\"$datadir\"\nSCAN_DAYS=\"$scanDays\"\nDEFAULT_SORT=\"$defaultSort\"\n";
     file_put_contents($path, $out);
     @chmod($path, 0600);
     @mkdir($datadir, 0755, true);
@@ -31,6 +32,16 @@ function gas_write_cfg($path, $token, $service, $datadir, $scanDays) {
 function gas_scan_days($v) {
     $v = (int)$v;
     return in_array($v, [1, 2, 3, 7], true) ? $v : 1;
+}
+
+// The grid's own SORT_OPTS list, mirrored here so a hand-edited config cannot
+// name a sort order the grid does not have; anything unrecognised opens on
+// Newest to the App Store instead.
+function gas_default_sort($v) {
+    $valid = ['name_asc', 'name_desc', 'downloads', 'new', 'updated', 'spotlight', 'trending',
+              'newinstalls', 'popplugins', 'ghstars', 'ght1', 'ght7', 'ght30', 'ght365', 'ghtall',
+              'ghp1', 'ghp7', 'ghp30', 'ghp365', 'ghpall'];
+    return in_array($v, $valid, true) ? $v : 'new';
 }
 
 function gas_write_cron($path, $scanDays = 1) {
@@ -54,7 +65,8 @@ if ($_POST) {
         $service  = $_POST['SERVICE'] ?? 'disabled';
         $datadir  = $_POST['DATA_DIR'] ?? '';
         $scandays = $_POST['SCAN_DAYS'] ?? '1';
-        gas_write_cfg($gas_cfg, $token, $service, $datadir, $scandays);
+        $defsort  = $_POST['DEFAULT_SORT'] ?? 'new';
+        gas_write_cfg($gas_cfg, $token, $service, $datadir, $scandays, $defsort);
         gas_write_cron($gas_cron, $scandays);
         $gas_msg = "Settings saved." . (trim($token) === '' ? " WARNING: no token set - star counts are disabled." : "");
     }
@@ -69,6 +81,7 @@ $token    = $cfg['TOKEN'] ?? '';
 $service  = $cfg['SERVICE'] ?? 'enabled';
 $datadir  = $cfg['DATA_DIR'] ?? '/boot/config/plugins/modern.appstore';
 $scandays = (string)gas_scan_days($cfg['SCAN_DAYS'] ?? 1);
+$defsort  = gas_default_sort($cfg['DEFAULT_SORT'] ?? 'new');
 
 $status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/modern.appstore/status.json"), true) ?: [];
 ?>
@@ -113,6 +126,42 @@ _(Refresh GitHub Trending Data)_:
 > This also sets the finest trending window that can hold data, because every trending order is the difference between two scans. On a three-day schedule **Trending (today)** compares a star count against itself and shows nothing at all; on a weekly one the daily and monthly windows both go flat. Leave this at **Every day** unless you have a reason not to.
 >
 > Newly published apps are picked up every hour regardless of this setting.
+
+_(Default sort order)_:
+: <select name="DEFAULT_SORT" size="1">
+    <optgroup label="General">
+    <?= mk_option($defsort, "name_asc", "Name Ascending") ?>
+    <?= mk_option($defsort, "name_desc", "Name Descending") ?>
+    </optgroup>
+    <optgroup label="Unraid">
+    <?= mk_option($defsort, "downloads", "Unraid Downloads") ?>
+    <?= mk_option($defsort, "new", "Newest to the App Store") ?>
+    <?= mk_option($defsort, "updated", "Recently Updated") ?>
+    <?= mk_option($defsort, "spotlight", "Spotlight Apps") ?>
+    <?= mk_option($defsort, "trending", "Top Trending") ?>
+    <?= mk_option($defsort, "newinstalls", "Top New Installs") ?>
+    <?= mk_option($defsort, "popplugins", "Most Popular Plugins") ?>
+    </optgroup>
+    <optgroup label="GitHub">
+    <?= mk_option($defsort, "ghstars", "GitHub Stars") ?>
+    </optgroup>
+    <optgroup label="GitHub Trending">
+    <?= mk_option($defsort, "ght1", "Trending (today)") ?>
+    <?= mk_option($defsort, "ght7", "Trending (this week)") ?>
+    <?= mk_option($defsort, "ght30", "Trending (this month)") ?>
+    <?= mk_option($defsort, "ght365", "Trending (this year)") ?>
+    <?= mk_option($defsort, "ghtall", "Trending (all time)") ?>
+    </optgroup>
+    <optgroup label="GitHub Trending %">
+    <?= mk_option($defsort, "ghp1", "Trending % (today)") ?>
+    <?= mk_option($defsort, "ghp7", "Trending % (this week)") ?>
+    <?= mk_option($defsort, "ghp30", "Trending % (this month)") ?>
+    <?= mk_option($defsort, "ghp365", "Trending % (this year)") ?>
+    <?= mk_option($defsort, "ghpall", "Trending % (all time)") ?>
+    </optgroup>
+  </select>
+
+> The order the Apps page opens in. The page remembers whichever sort you picked last for 20 minutes, so paging back and forth keeps your place; past that window it opens back on this one.
 
 _(Database directory)_:
 : <input type="text" name="DATA_DIR" value="<?= htmlspecialchars($datadir) ?>" style="width:520px;max-width:90%;" spellcheck="false">

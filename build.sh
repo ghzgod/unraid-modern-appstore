@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.08.23d}"
+VERSION="${1:-2026.08.28}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -57,6 +57,19 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- The four orders the App Store's own front page is built from are in the sort
+  menu: Spotlight Apps, Top Trending, Top New Installs and Most Popular
+  Plugins. They are worked out from the same feed and the same thresholds the
+  App Store uses itself, so a list here holds every app that qualifies rather
+  than the handful a front-page row has space for.
+- The sort menu is grouped by where its numbers come from. Name ordering sits
+  under General, everything counted by the App Store sits under Unraid with
+  Unraid's mark beside it, and the star orders keep GitHub's mark. Reading a
+  label no longer means guessing which of the two sources it came from.
+- Plugins show how many servers have installed them. Every plugin in the store
+  reported zero, because the count is thrown away for any image published
+  without an owner name (that number belongs to a base image like nginx, not
+  to the app), and a plugin has no image reference at all to test.
 - The plugin's own icon shows everywhere it should. The Settings tile under
   Utilities, Unraid's Plugins page and the app drawer in Community
   Applications all drew a grey star, because the package declared its icon as

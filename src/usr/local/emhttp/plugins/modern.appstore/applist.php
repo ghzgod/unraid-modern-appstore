@@ -13,8 +13,8 @@
  *   - CA's templates_new.json      (FirstSeen, LastUpdate, downloads, displayable flags), never written
  * It writes nothing, anywhere. All CA paths are opened read-only.
  *
- * Output: { "generated": <ts>, "feedReady": <bool>, "docker": {...},
- *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,lu,lk,ca,sx,t1,t7,t30,t365 } ] }
+ * Output: { "generated": <ts>, "feedReady": <bool>, "docker": {...}, "defaultSort": <string>,
+ *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,lu,lk,ca,sx,t1,t7,t30,t365,rd,dt,td,tc } ] }
  *   p  = template path (passed to CA's showSidebarApp for Info/Install)
  *   n  = display name          sn = lowercase sort-name
  *   ic = icon URL              ct = category
@@ -27,11 +27,26 @@
  *   t1/t7/t30/t365 = star trend deltas (day/week/month/year)
  *   rq = install-time Attention notice text (requires/moderator comment), '' if none
  *   po = bridge-mode host ports the template claims, for the install port-conflict warning
+ *   rd = RecommendedDate unix ts (0 if never), CA's Spotlight Apps list
+ *   dt = CA's trending value, week-on-week download growth percent (null if absent)
+ *   td = CA's trendDelta value, change in that growth percent (null if absent)
+ *   tc = count of CA's weekly trend samples (0 if absent), for CA's ranking floor
  */
 header('Content-Type: application/json');
 
 $dataDir = '/boot/config/plugins/modern.appstore';
 $caTmp   = '/tmp/community.applications/tempFiles';
+
+// the grid has no other channel to the plugin's config, so the chosen
+// opening sort rides along on this same response. sanitised loosely
+// (charset and length only) rather than validated against the full sort
+// list: the grid checks the value against its own SORT_OPTS and falls back
+// silently for anything it doesn't recognise, so a second copy of that
+// whitelist here would just be a thing that goes stale.
+$gas_cfg = '/boot/config/plugins/modern.appstore/modern.appstore.cfg';
+$cfg = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
+$defaultSort = preg_replace('/[^a-z0-9_]/', '', strtolower((string)($cfg['DEFAULT_SORT'] ?? '')));
+$defaultSort = substr($defaultSort, 0, 20);
 
 // An author line is a person or org, never a URL. CA leaves Author empty for
 // most plugins and puts the .plg URL (cdn-wrapped) in Repository, so a stored or
@@ -204,10 +219,15 @@ foreach ($tmpl as $t) {
     // reference it as a bare "name:tag" with no owner namespace, and then this
     // number is the BASE image's global pulls (e.g. nginx = 13.2B), not the
     // app's. That's misleading, so we drop it for those; real app images are
-    // "owner/name" and keep their genuine count.
+    // "owner/name" and keep their genuine count. Plugins are exempt from this
+    // guard: a plugin's Repository is a CDN link to its .plg file, not a docker
+    // image reference, so the namespace test means nothing there and was
+    // silently zeroing every plugin's download count.
     $dl = (int)($t['downloads'] ?? 0);
-    $imgName = explode(':', trim($t['Repository'] ?? ''))[0];
-    if ($imgName === '' || strpos($imgName, '/') === false) $dl = 0;
+    if (empty($t['Plugin'])) {
+        $imgName = explode(':', trim($t['Repository'] ?? ''))[0];
+        if ($imgName === '' || strpos($imgName, '/') === false) $dl = 0;
+    }
 
     // description: prefer our stored copy, fall back to CA's Overview; trim to a
     // card-sized blurb (tiles clamp it anyway) to keep the payload lean.
@@ -273,6 +293,15 @@ foreach ($tmpl as $t) {
         't7'  => $mine['t7'] ?? null,
         't30' => $mine['t30'] ?? null,
         't365'=> $mine['t365'] ?? null,
+        // CA's own homepage ranking inputs, read straight out of its feed. rd is
+        // the Spotlight Apps date, dt/td are the Top Trending Apps growth percent
+        // and its change, and tc is how many weekly samples back them, the same
+        // floor (3 for Trending, 6 for New Installs) CA itself enforces before
+        // ranking an app at all.
+        'rd'  => (int)($t['RecommendedDate'] ?? 0),
+        'dt'  => isset($t['trending']) ? (float)$t['trending'] : null,
+        'td'  => isset($t['trendDelta']) ? (float)$t['trendDelta'] : null,
+        'tc'  => count((array)($t['trends'] ?? [])),
         'rq'  => install_notice($t),
         'po'  => template_ports($t),
     ];
@@ -288,7 +317,7 @@ $starDates = empty($scan['stargazers_blocked']);
 // would otherwise make json_encode() return false and emit an empty body.
 echo json_encode(
     ['generated' => time(), 'count' => count($out), 'starDates' => $starDates,
-     'feedReady' => $feedReady, 'docker' => docker_state(),
+     'feedReady' => $feedReady, 'docker' => docker_state(), 'defaultSort' => $defaultSort,
      // when CA last synced its feed (the store's own check for new and updated
      // apps) and when the last star scan ran, for the toolbar's Updated stamp
      'feedAt' => (int)@filemtime("$caTmp/templates_new.json"),

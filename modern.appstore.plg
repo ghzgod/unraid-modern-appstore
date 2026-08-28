@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.08.23d">
+<!ENTITY version "2026.08.28">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
@@ -14,7 +14,20 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" support="&support;">
 
 <CHANGES>
-##2026.08.23d
+##2026.08.28
+- The four orders the App Store's own front page is built from are in the sort
+  menu: Spotlight Apps, Top Trending, Top New Installs and Most Popular
+  Plugins. They are worked out from the same feed and the same thresholds the
+  App Store uses itself, so a list here holds every app that qualifies rather
+  than the handful a front-page row has space for.
+- The sort menu is grouped by where its numbers come from. Name ordering sits
+  under General, everything counted by the App Store sits under Unraid with
+  Unraid's mark beside it, and the star orders keep GitHub's mark. Reading a
+  label no longer means guessing which of the two sources it came from.
+- Plugins show how many servers have installed them. Every plugin in the store
+  reported zero, because the count is thrown away for any image published
+  without an owner name (that number belongs to a base image like nginx, not
+  to the app), and a plugin has no image reference at all to test.
 - The plugin's own icon shows everywhere it should. The Settings tile under
   Utilities, Unraid's Plugins page and the app drawer in Community
   Applications all drew a grey star, because the package declared its icon as
@@ -1698,8 +1711,8 @@ echo json_encode(['scanned' => count($valid), 'stars' => $out ?: (object)[]], JS
  *   - CA's templates_new.json      (FirstSeen, LastUpdate, downloads, displayable flags), never written
  * It writes nothing, anywhere. All CA paths are opened read-only.
  *
- * Output: { "generated": <ts>, "feedReady": <bool>, "docker": {...},
- *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,lu,lk,ca,sx,t1,t7,t30,t365 } ] }
+ * Output: { "generated": <ts>, "feedReady": <bool>, "docker": {...}, "defaultSort": <string>,
+ *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,lu,lk,ca,sx,t1,t7,t30,t365,rd,dt,td,tc } ] }
  *   p  = template path (passed to CA's showSidebarApp for Info/Install)
  *   n  = display name          sn = lowercase sort-name
  *   ic = icon URL              ct = category
@@ -1712,11 +1725,26 @@ echo json_encode(['scanned' => count($valid), 'stars' => $out ?: (object)[]], JS
  *   t1/t7/t30/t365 = star trend deltas (day/week/month/year)
  *   rq = install-time Attention notice text (requires/moderator comment), '' if none
  *   po = bridge-mode host ports the template claims, for the install port-conflict warning
+ *   rd = RecommendedDate unix ts (0 if never), CA's Spotlight Apps list
+ *   dt = CA's trending value, week-on-week download growth percent (null if absent)
+ *   td = CA's trendDelta value, change in that growth percent (null if absent)
+ *   tc = count of CA's weekly trend samples (0 if absent), for CA's ranking floor
  */
 header('Content-Type: application/json');
 
 $dataDir = '/boot/config/plugins/modern.appstore';
 $caTmp   = '/tmp/community.applications/tempFiles';
+
+// the grid has no other channel to the plugin's config, so the chosen
+// opening sort rides along on this same response. sanitised loosely
+// (charset and length only) rather than validated against the full sort
+// list: the grid checks the value against its own SORT_OPTS and falls back
+// silently for anything it doesn't recognise, so a second copy of that
+// whitelist here would just be a thing that goes stale.
+$gas_cfg = '/boot/config/plugins/modern.appstore/modern.appstore.cfg';
+$cfg = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
+$defaultSort = preg_replace('/[^a-z0-9_]/', '', strtolower((string)($cfg['DEFAULT_SORT'] ?? '')));
+$defaultSort = substr($defaultSort, 0, 20);
 
 // An author line is a person or org, never a URL. CA leaves Author empty for
 // most plugins and puts the .plg URL (cdn-wrapped) in Repository, so a stored or
@@ -1889,10 +1917,15 @@ foreach ($tmpl as $t) {
     // reference it as a bare "name:tag" with no owner namespace, and then this
     // number is the BASE image's global pulls (e.g. nginx = 13.2B), not the
     // app's. That's misleading, so we drop it for those; real app images are
-    // "owner/name" and keep their genuine count.
+    // "owner/name" and keep their genuine count. Plugins are exempt from this
+    // guard: a plugin's Repository is a CDN link to its .plg file, not a docker
+    // image reference, so the namespace test means nothing there and was
+    // silently zeroing every plugin's download count.
     $dl = (int)($t['downloads'] ?? 0);
-    $imgName = explode(':', trim($t['Repository'] ?? ''))[0];
-    if ($imgName === '' || strpos($imgName, '/') === false) $dl = 0;
+    if (empty($t['Plugin'])) {
+        $imgName = explode(':', trim($t['Repository'] ?? ''))[0];
+        if ($imgName === '' || strpos($imgName, '/') === false) $dl = 0;
+    }
 
     // description: prefer our stored copy, fall back to CA's Overview; trim to a
     // card-sized blurb (tiles clamp it anyway) to keep the payload lean.
@@ -1958,6 +1991,15 @@ foreach ($tmpl as $t) {
         't7'  => $mine['t7'] ?? null,
         't30' => $mine['t30'] ?? null,
         't365'=> $mine['t365'] ?? null,
+        // CA's own homepage ranking inputs, read straight out of its feed. rd is
+        // the Spotlight Apps date, dt/td are the Top Trending Apps growth percent
+        // and its change, and tc is how many weekly samples back them, the same
+        // floor (3 for Trending, 6 for New Installs) CA itself enforces before
+        // ranking an app at all.
+        'rd'  => (int)($t['RecommendedDate'] ?? 0),
+        'dt'  => isset($t['trending']) ? (float)$t['trending'] : null,
+        'td'  => isset($t['trendDelta']) ? (float)$t['trendDelta'] : null,
+        'tc'  => count((array)($t['trends'] ?? [])),
         'rq'  => install_notice($t),
         'po'  => template_ports($t),
     ];
@@ -1973,7 +2015,7 @@ $starDates = empty($scan['stargazers_blocked']);
 // would otherwise make json_encode() return false and emit an empty body.
 echo json_encode(
     ['generated' => time(), 'count' => count($out), 'starDates' => $starDates,
-     'feedReady' => $feedReady, 'docker' => docker_state(),
+     'feedReady' => $feedReady, 'docker' => docker_state(), 'defaultSort' => $defaultSort,
      // when CA last synced its feed (the store's own check for new and updated
      // apps) and when the last star scan ran, for the toolbar's Updated stamp
      'feedAt' => (int)@filemtime("$caTmp/templates_new.json"),
@@ -2063,6 +2105,13 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
 
     var APPS = [];
     var view = { sort: 'new', q: '', cat: '', catLabel: 'All Apps', special: '', page: 1, perPage: 96 };
+    // the configured opening sort, overwritten once applist.php answers with the
+    // server's real value; 'new' is only what's used before that response lands
+    // or if the config on disk can't be read
+    var defaultSort = 'new';
+    // initSort() must run exactly once per page load (see its own comment); this
+    // is the guard, since loadApps() itself refires several times after start()
+    var sortInited = false;
     var polling = false, wasRunning = false;
     var pageItemsNow = [];        // apps the grid is currently showing
     var scanAsked = {};           // path -> 1, so a page is only auto-scanned once
@@ -2115,23 +2164,35 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
     // GitHub's own 16x16 mark, inlined so it draws in currentColor and follows
     // the menu header's muted text on the dark and light themes alike.
     var GH_MARK = '<svg class="asga-gh-mark" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27s1.36.09 2 .27c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>';
+    // Unraid's own mark (the nine bars from its logo), inlined the same way so
+    // it too draws in currentColor and reads correctly on both themes.
+    var UN_MARK = '<svg class="asga-un-mark" viewBox="0 0 133.52 76.97" aria-hidden="true"><path d="M0 19.24h6.54v38.49H0zM15.87 45.84h6.54v23.78h-6.54zM31.74 62.27h6.55v14.73h-6.55zM47.62 45.84h6.54v23.78h-6.54zM63.49 19.24h6.51v38.49h-6.51zM79.36 7.35h6.54v23.79h-6.54zM95.23 0h6.54v14.7h-6.54zM111.1 7.35h6.55v23.79h-6.55zM127 19.24h6.52v38.49H127z"/></svg>';
     var SORT_OPTS = [
-      { g: 'Name', v: 'name_asc',  label: 'Name Ascending',  cmp: function (a, b) { return a.sn < b.sn ? -1 : a.sn > b.sn ? 1 : 0; } },
-      { g: 'Name', v: 'name_desc', label: 'Name Descending', cmp: function (a, b) { return a.sn < b.sn ? 1 : a.sn > b.sn ? -1 : 0; } },
-      { g: 'Popularity', v: 'downloads', label: 'Unraid Downloads', cmp: numDesc('dl') },
-      { g: 'Popularity', v: 'new',       label: 'Newest to the App Store', cmp: numDesc('fs') },
-      { g: 'Popularity', v: 'updated',   label: 'Recently Updated', cmp: numDesc('lu'), hint: 'Latest app update first; apps with no update date in the feed sort last' },
-      { g: 'Popularity', v: 'ghstars',   label: 'GitHub Stars',    cmp: numDesc('s') },
-      { g: 'GitHub Trending', v: 'ght1',    label: 'Trending (today)',      cmp: numDesc('t1'),   filter: hasTrend('t1'),   hint: 'Stars gained in the last day' },
-      { g: 'GitHub Trending', v: 'ght7',    label: 'Trending (this week)',  cmp: numDesc('t7'),   filter: hasTrend('t7'),   hint: 'Stars gained in the last 7 days' },
-      { g: 'GitHub Trending', v: 'ght30',   label: 'Trending (this month)', cmp: numDesc('t30'),  filter: hasTrend('t30'),  hint: 'Stars gained in the last 30 days' },
-      { g: 'GitHub Trending', v: 'ght365',  label: 'Trending (this year)',  cmp: numDesc('t365'), filter: hasTrend('t365'), hint: 'Stars gained in the last 365 days' },
-      { g: 'GitHub Trending', v: 'ghtall',  label: 'Trending (all time)',   cmp: numDesc('s'),    filter: hasStars,         hint: 'Every star the repo has ever gained' },
-      { g: 'GitHub Trending %', v: 'ghp1',   label: 'Trending % (today)',      cmp: pctDesc('t1'),   filter: hasPct('t1'),   hint: 'Growth today, against the star count a day ago' },
-      { g: 'GitHub Trending %', v: 'ghp7',   label: 'Trending % (this week)',  cmp: pctDesc('t7'),   filter: hasPct('t7'),   hint: 'Growth this week, against the star count 7 days ago' },
-      { g: 'GitHub Trending %', v: 'ghp30',  label: 'Trending % (this month)', cmp: pctDesc('t30'),  filter: hasPct('t30'),  hint: 'Growth this month, against the star count 30 days ago' },
-      { g: 'GitHub Trending %', v: 'ghp365', label: 'Trending % (this year)',  cmp: pctDesc('t365'), filter: hasPct('t365'), hint: 'Growth this year, against the star count a year ago' },
-      { g: 'GitHub Trending %', v: 'ghpall', label: 'Trending % (all time)',   cmp: rateDesc,        filter: hasRate,        hint: 'Lifetime growth rate: stars per year since the repo was created' }
+      { g: 'General', v: 'name_asc',  label: 'Name Ascending',  cmp: function (a, b) { return a.sn < b.sn ? -1 : a.sn > b.sn ? 1 : 0; } },
+      { g: 'General', v: 'name_desc', label: 'Name Descending', cmp: function (a, b) { return a.sn < b.sn ? 1 : a.sn > b.sn ? -1 : 0; } },
+      { g: 'Unraid', m: 'un', v: 'downloads', label: 'Unraid Downloads', cmp: numDesc('dl') },
+      { g: 'Unraid', m: 'un', v: 'new',       label: 'Newest to the App Store', cmp: numDesc('fs') },
+      { g: 'Unraid', m: 'un', v: 'updated',   label: 'Recently Updated', cmp: numDesc('lu'), hint: 'Latest app update first; apps with no update date in the feed sort last' },
+      // These four mirror Community Applications' own homepage sections
+      // (appOfDay() and mySort() in its include/exec.php and include/helpers.php),
+      // so the numbers behind them come straight from CA's own feed, never from
+      // GitHub. The thresholds each one filters on are CA's own, and since this
+      // menu is the only place they show up, they are spelled out in the hints.
+      { g: 'Unraid', m: 'un', v: 'spotlight',   label: 'Spotlight Apps',       cmp: numDesc('rd'), filter: hasSpotlight,             hint: 'Apps recommended by the Unraid team, most recently featured first' },
+      { g: 'Unraid', m: 'un', v: 'trending',    label: 'Top Trending',         cmp: numDesc('td'), filter: caTrend('td', 3, 10000, false),  hint: 'Up and coming apps: the biggest week-on-week jump in install rate, over apps with 3+ weeks of data and 10,000+ installs' },
+      { g: 'Unraid', m: 'un', v: 'newinstalls', label: 'Top New Installs',     cmp: numDesc('dt'), filter: caTrend('dt', 6, 100000, true),  hint: 'The highest percentage of new installs this week, over apps with 6+ weeks of data and 100,000+ installs' },
+      { g: 'Unraid', m: 'un', v: 'popplugins',  label: 'Most Popular Plugins', cmp: numDesc('dl'), filter: isCountedPlugin,          hint: 'Plugins only, ranked by Unraid downloads; plugins with no download count are left out' },
+      { g: 'GitHub', m: 'gh', v: 'ghstars',   label: 'GitHub Stars',    cmp: numDesc('s') },
+      { g: 'GitHub Trending', m: 'gh', v: 'ght1',    label: 'Trending (today)',      cmp: numDesc('t1'),   filter: hasTrend('t1'),   hint: 'Stars gained in the last day' },
+      { g: 'GitHub Trending', m: 'gh', v: 'ght7',    label: 'Trending (this week)',  cmp: numDesc('t7'),   filter: hasTrend('t7'),   hint: 'Stars gained in the last 7 days' },
+      { g: 'GitHub Trending', m: 'gh', v: 'ght30',   label: 'Trending (this month)', cmp: numDesc('t30'),  filter: hasTrend('t30'),  hint: 'Stars gained in the last 30 days' },
+      { g: 'GitHub Trending', m: 'gh', v: 'ght365',  label: 'Trending (this year)',  cmp: numDesc('t365'), filter: hasTrend('t365'), hint: 'Stars gained in the last 365 days' },
+      { g: 'GitHub Trending', m: 'gh', v: 'ghtall',  label: 'Trending (all time)',   cmp: numDesc('s'),    filter: hasStars,         hint: 'Every star the repo has ever gained' },
+      { g: 'GitHub Trending %', m: 'gh', v: 'ghp1',   label: 'Trending % (today)',      cmp: pctDesc('t1'),   filter: hasPct('t1'),   hint: 'Growth today, against the star count a day ago' },
+      { g: 'GitHub Trending %', m: 'gh', v: 'ghp7',   label: 'Trending % (this week)',  cmp: pctDesc('t7'),   filter: hasPct('t7'),   hint: 'Growth this week, against the star count 7 days ago' },
+      { g: 'GitHub Trending %', m: 'gh', v: 'ghp30',  label: 'Trending % (this month)', cmp: pctDesc('t30'),  filter: hasPct('t30'),  hint: 'Growth this month, against the star count 30 days ago' },
+      { g: 'GitHub Trending %', m: 'gh', v: 'ghp365', label: 'Trending % (this year)',  cmp: pctDesc('t365'), filter: hasPct('t365'), hint: 'Growth this year, against the star count a year ago' },
+      { g: 'GitHub Trending %', m: 'gh', v: 'ghpall', label: 'Trending % (all time)',   cmp: rateDesc,        filter: hasRate,        hint: 'Lifetime growth rate: stars per year since the repo was created' }
     ];
     function optFor(v) { for (var i = 0; i < SORT_OPTS.length; i++) if (SORT_OPTS[i].v === v) return SORT_OPTS[i]; return SORT_OPTS[0]; }
     // numeric descending; null/undefined sinks to the bottom
@@ -2157,6 +2218,33 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
     function hasPct(k) { return function (a) { return pct(a, k) > 0; }; }
     function hasStars(a) { return a.s != null && a.s > 0; }
     function hasRate(a) { return rate(a) > 0; }
+    // Spotlight Apps: CA's RecommendedDate, 0 meaning the app was never recommended
+    function hasSpotlight(a) { return a.rd > 0; }
+    // ich777/steamcmd backs dozens of unrelated game-server apps under one
+    // shared image, so without this exclusion both trending sorts would fill
+    // up with near-identical numbers instead of reading as "what's hot".
+    function isSharedSteamImage(a) { return (a.ri || '').indexOf('ich777/steamcmd') === 0; }
+    // Shared by Top Trending and Top New Installs: both need a run of weekly
+    // samples and a download floor before a trending number means anything,
+    // and both skip the shared SteamCMD image for the reason above. key is the
+    // field each list actually ranks by, and it has to be present: the feed
+    // carries a trending figure for 41 apps that have no trendDelta yet, and
+    // without this they would pass the filter only to sink to the bottom of the
+    // list, padding the count with apps that hold no position in it. nonZero is
+    // set for New Installs, since CA defines that list as apps still actually
+    // gaining installs, not merely ones it happens to have a reading for.
+    function caTrend(key, minSamples, minDownloads, nonZero) {
+      return function (a) {
+        if (a.tc == null || a.tc < minSamples) return false;
+        if (!(a.dl > minDownloads)) return false;
+        if (a[key] == null) return false;
+        if (nonZero && a[key] === 0) return false;
+        return !isSharedSteamImage(a);
+      };
+    }
+    // Most Popular Plugins: plugins only, and only ones the feed has a real
+    // download count for
+    function isCountedPlugin(a) { return a.ty === 'plugin' && a.dl > 0; }
 
     function fmt(n) {
       if (n == null) return '';
@@ -2174,6 +2262,10 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
           APPS = dedupe((j && j.apps) || []);
           if (j && j.starDates === false) starDates = false;
           if (j && j.docker) docker = j.docker;
+          // same validity test optFor() already backs the saved-sort read with,
+          // so a config value the grid doesn't recognise is silently ignored
+          // rather than handed straight to view.sort
+          if (j && j.defaultSort && optFor(j.defaultSort).v === j.defaultSort) defaultSort = j.defaultSort;
           if (j) { stamps.feed = j.feedAt || 0; stamps.scan = j.scanAt || 0; updateStamp(); }
           // no answer at all counts as not ready, so a failed request retries
           // rather than freezing the grid on an empty catalog
@@ -2204,13 +2296,20 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
       return order.map(function (k) { return by[k]; });
     }
 
-    // ---- sort persistence: remember the last sort, but reset to Newest if it
-    // has been more than 20 minutes since the Apps page was last opened. ----
+    // ---- sort persistence: remember the last sort, but reset to the
+    // configured default if it has been more than 20 minutes since the Apps
+    // page was last opened. Guarded to run once: loadApps() (which this relies
+    // on for defaultSort) refires from waitForFeed(), a completed page scan and
+    // pollProgress(), and running this again on any of those would yank the
+    // sort out from under someone already mid-browse. ----
     function initSort() {
+      if (sortInited) return;
+      sortInited = true;
       try {
         var ts = parseInt(localStorage.getItem('asga_visit_ts') || '0', 10);
         var saved = localStorage.getItem('asga_sort');
         if (saved && optFor(saved).v === saved && (Date.now() - ts) < 20 * 60 * 1000) view.sort = saved;
+        else view.sort = defaultSort;
         localStorage.setItem('asga_visit_ts', '' + Date.now());
       } catch (e) {}
     }
@@ -2640,7 +2739,10 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
         var dlb = document.createElement('span');
         dlb.className = 'ghdl-badge';
         dlb.textContent = '⤓ ' + fmt(a.dl);
-        dlb.title = a.dl.toLocaleString() + ' Docker image pulls';
+        // plugins now carry a real download count of their own, and "Docker
+        // image pulls" is simply the wrong noun for something that was never
+        // pulled from a registry
+        dlb.title = a.dl.toLocaleString() + (a.ty === 'plugin' ? ' Unraid servers have installed this plugin' : ' Docker image pulls');
         badges.appendChild(dlb);
       }
       if (badges.children.length) { tile.appendChild(badges); tile.classList.add('asga-has-badges'); }
@@ -3102,13 +3204,15 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
             group = o.g;
             var h = document.createElement('div');
             h.className = 'asga-sortmenu-group';
-            // the GitHub groups carry the mark to say where the numbers come from
-            if (o.g.indexOf('GitHub') === 0) {
-              h.innerHTML = GH_MARK;
-              h.appendChild(document.createTextNode(' ' + o.g));
-            } else {
-              h.textContent = o.g;
-            }
+            // the group header carries a mark to say where its numbers come
+            // from, off the option's own m property rather than a string test
+            // on the group name: a rename would silently break a test like that.
+            // It goes AFTER the name, not before: the two marks are different
+            // widths and General has none, so leading them started the five
+            // labels on three different left edges in one short list.
+            var mark = o.m === 'un' ? UN_MARK : o.m === 'gh' ? GH_MARK : '';
+            h.textContent = o.g;
+            if (mark) h.insertAdjacentHTML('beforeend', mark);
             menu.appendChild(h);
           }
           var it = document.createElement('span');
@@ -3406,10 +3510,13 @@ echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
     }
 
     function start() {
-      initSort();    // restore last sort (or reset to Newest after 20 min)
       triggerNewScan();
       loadViews();   // pin/installed membership, so tiles show correct pin state
       loadApps(function () {
+        // has to run after loadApps() lands: that's what carries the configured
+        // default this falls back to, and it must run before attachUI()/render()
+        // paint the sort menu and the first page
+        initSort();    // restore last sort (or the configured default after 20 min)
         attachUI();
         render();
         waitForFeed();   // no-op unless CA's catalog is still being downloaded
@@ -3920,7 +4027,17 @@ html:not(.Theme--legacyOS) body.asga-active .asga-sortbtn:focus-visible { outlin
   padding: 8px 14px 3px; font-size: 1rem; opacity: 0.5;
   text-transform: uppercase; letter-spacing: 0.05em;
 }
-.asga-gh-mark { width: 12px; height: 12px; fill: currentColor; vertical-align: -2px; margin-right: 3px; }
+/* Both marks TRAIL their group's name instead of leading it, so that every
+   group label in the list starts on one left edge. Led, they started on three:
+   the two marks are different widths and General carries none at all, which
+   put the labels at 14px, 29px and 41px in the same short list. */
+.asga-gh-mark { width: 12px; height: 12px; fill: currentColor; vertical-align: -2px; margin-left: 7px; }
+/* the Unraid mark is a wide, short bar block (133.52 x 76.97), not a square
+   like the GitHub glyph, so it gets its own box. It is nine separate bars
+   rather than one solid shape too: under about 20px wide each bar falls below
+   a device pixel and the whole mark greys into a smudge, so it is drawn wider
+   than the GitHub one on purpose. */
+.asga-un-mark { width: 22px; height: 13px; fill: currentColor; vertical-align: -2px; margin-left: 7px; }
 .asga-sortmenu-item { padding-left: 22px; }
 /* the current sort is named in the accent colour alone: a tick would push its
    label out of line with every other entry in the list */
@@ -4408,13 +4525,14 @@ $gas_msg  = "";
 
 if (!is_dir($gas_dir)) @mkdir($gas_dir, 0755, true);
 
-function gas_write_cfg($path, $token, $service, $datadir, $scanDays) {
+function gas_write_cfg($path, $token, $service, $datadir, $scanDays, $defaultSort) {
     $token   = str_replace(["\"", "\n", "\r"], "", $token);
     $datadir = rtrim(str_replace(["\"", "\n", "\r"], "", $datadir), '/');
     if ($datadir === '') $datadir = '/boot/config/plugins/modern.appstore';
     $service = ($service === 'enabled') ? 'enabled' : 'disabled';
     $scanDays = gas_scan_days($scanDays);
-    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nDATA_DIR=\"$datadir\"\nSCAN_DAYS=\"$scanDays\"\n";
+    $defaultSort = gas_default_sort($defaultSort);
+    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nDATA_DIR=\"$datadir\"\nSCAN_DAYS=\"$scanDays\"\nDEFAULT_SORT=\"$defaultSort\"\n";
     file_put_contents($path, $out);
     @chmod($path, 0600);
     @mkdir($datadir, 0755, true);
@@ -4425,6 +4543,16 @@ function gas_write_cfg($path, $token, $service, $datadir, $scanDays) {
 function gas_scan_days($v) {
     $v = (int)$v;
     return in_array($v, [1, 2, 3, 7], true) ? $v : 1;
+}
+
+// The grid's own SORT_OPTS list, mirrored here so a hand-edited config cannot
+// name a sort order the grid does not have; anything unrecognised opens on
+// Newest to the App Store instead.
+function gas_default_sort($v) {
+    $valid = ['name_asc', 'name_desc', 'downloads', 'new', 'updated', 'spotlight', 'trending',
+              'newinstalls', 'popplugins', 'ghstars', 'ght1', 'ght7', 'ght30', 'ght365', 'ghtall',
+              'ghp1', 'ghp7', 'ghp30', 'ghp365', 'ghpall'];
+    return in_array($v, $valid, true) ? $v : 'new';
 }
 
 function gas_write_cron($path, $scanDays = 1) {
@@ -4448,7 +4576,8 @@ if ($_POST) {
         $service  = $_POST['SERVICE'] ?? 'disabled';
         $datadir  = $_POST['DATA_DIR'] ?? '';
         $scandays = $_POST['SCAN_DAYS'] ?? '1';
-        gas_write_cfg($gas_cfg, $token, $service, $datadir, $scandays);
+        $defsort  = $_POST['DEFAULT_SORT'] ?? 'new';
+        gas_write_cfg($gas_cfg, $token, $service, $datadir, $scandays, $defsort);
         gas_write_cron($gas_cron, $scandays);
         $gas_msg = "Settings saved." . (trim($token) === '' ? " WARNING: no token set - star counts are disabled." : "");
     }
@@ -4463,6 +4592,7 @@ $token    = $cfg['TOKEN'] ?? '';
 $service  = $cfg['SERVICE'] ?? 'enabled';
 $datadir  = $cfg['DATA_DIR'] ?? '/boot/config/plugins/modern.appstore';
 $scandays = (string)gas_scan_days($cfg['SCAN_DAYS'] ?? 1);
+$defsort  = gas_default_sort($cfg['DEFAULT_SORT'] ?? 'new');
 
 $status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/modern.appstore/status.json"), true) ?: [];
 ?>
@@ -4494,7 +4624,7 @@ _(GitHub Personal Access Token)_:
 >
 > While this field is empty the Apps page shows a yellow warning and star counts stay disabled.
 
-_(Refresh star data)_:
+_(Refresh GitHub Trending Data)_:
 : <select name="SCAN_DAYS" size="1">
     <?= mk_option($scandays, "1", "Every day") ?>
     <?= mk_option($scandays, "2", "Every 2 days") ?>
@@ -4507,6 +4637,42 @@ _(Refresh star data)_:
 > This also sets the finest trending window that can hold data, because every trending order is the difference between two scans. On a three-day schedule **Trending (today)** compares a star count against itself and shows nothing at all; on a weekly one the daily and monthly windows both go flat. Leave this at **Every day** unless you have a reason not to.
 >
 > Newly published apps are picked up every hour regardless of this setting.
+
+_(Default sort order)_:
+: <select name="DEFAULT_SORT" size="1">
+    <optgroup label="General">
+    <?= mk_option($defsort, "name_asc", "Name Ascending") ?>
+    <?= mk_option($defsort, "name_desc", "Name Descending") ?>
+    </optgroup>
+    <optgroup label="Unraid">
+    <?= mk_option($defsort, "downloads", "Unraid Downloads") ?>
+    <?= mk_option($defsort, "new", "Newest to the App Store") ?>
+    <?= mk_option($defsort, "updated", "Recently Updated") ?>
+    <?= mk_option($defsort, "spotlight", "Spotlight Apps") ?>
+    <?= mk_option($defsort, "trending", "Top Trending") ?>
+    <?= mk_option($defsort, "newinstalls", "Top New Installs") ?>
+    <?= mk_option($defsort, "popplugins", "Most Popular Plugins") ?>
+    </optgroup>
+    <optgroup label="GitHub">
+    <?= mk_option($defsort, "ghstars", "GitHub Stars") ?>
+    </optgroup>
+    <optgroup label="GitHub Trending">
+    <?= mk_option($defsort, "ght1", "Trending (today)") ?>
+    <?= mk_option($defsort, "ght7", "Trending (this week)") ?>
+    <?= mk_option($defsort, "ght30", "Trending (this month)") ?>
+    <?= mk_option($defsort, "ght365", "Trending (this year)") ?>
+    <?= mk_option($defsort, "ghtall", "Trending (all time)") ?>
+    </optgroup>
+    <optgroup label="GitHub Trending %">
+    <?= mk_option($defsort, "ghp1", "Trending % (today)") ?>
+    <?= mk_option($defsort, "ghp7", "Trending % (this week)") ?>
+    <?= mk_option($defsort, "ghp30", "Trending % (this month)") ?>
+    <?= mk_option($defsort, "ghp365", "Trending % (this year)") ?>
+    <?= mk_option($defsort, "ghpall", "Trending % (all time)") ?>
+    </optgroup>
+  </select>
+
+> The order the Apps page opens in. The page remembers whichever sort you picked last for 20 minutes, so paging back and forth keeps your place; past that window it opens back on this one.
 
 _(Database directory)_:
 : <input type="text" name="DATA_DIR" value="<?= htmlspecialchars($datadir) ?>" style="width:520px;max-width:90%;" spellcheck="false">

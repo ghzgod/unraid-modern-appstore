@@ -483,7 +483,17 @@ html:not(.Theme--legacyOS) body.asga-active .asga-sortbtn:focus-visible { outlin
   padding: 8px 14px 3px; font-size: 1rem; opacity: 0.5;
   text-transform: uppercase; letter-spacing: 0.05em;
 }
-.asga-gh-mark { width: 12px; height: 12px; fill: currentColor; vertical-align: -2px; margin-right: 3px; }
+/* Both marks TRAIL their group's name instead of leading it, so that every
+   group label in the list starts on one left edge. Led, they started on three:
+   the two marks are different widths and General carries none at all, which
+   put the labels at 14px, 29px and 41px in the same short list. */
+.asga-gh-mark { width: 12px; height: 12px; fill: currentColor; vertical-align: -2px; margin-left: 7px; }
+/* the Unraid mark is a wide, short bar block (133.52 x 76.97), not a square
+   like the GitHub glyph, so it gets its own box. It is nine separate bars
+   rather than one solid shape too: under about 20px wide each bar falls below
+   a device pixel and the whole mark greys into a smudge, so it is drawn wider
+   than the GitHub one on purpose. */
+.asga-un-mark { width: 22px; height: 13px; fill: currentColor; vertical-align: -2px; margin-left: 7px; }
 .asga-sortmenu-item { padding-left: 22px; }
 /* the current sort is named in the accent colour alone: a tick would push its
    label out of line with every other entry in the list */
