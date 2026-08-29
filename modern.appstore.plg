@@ -3251,8 +3251,12 @@ echo json_encode(['error' => 'method not allowed']);
         if (o.g !== group) {
           if (group) opts += '</optgroup>';
           // g: '' is the ungrouped tier, so no optgroup ever opens for it,
-          // not even an empty-labelled one
-          if (o.g) opts += '<optgroup label="' + o.g + '">';
+          // not even an empty-labelled one. data-mark carries the option's
+          // own m property onto the optgroup markup itself, so themeSelect()
+          // can draw the GitHub/Unraid glyph on the group heading by reading
+          // the DOM, the same place it reads everything else about this
+          // list, rather than reaching back into SORT_OPTS.
+          if (o.g) opts += '<optgroup label="' + o.g + '"' + (o.m ? ' data-mark="' + o.m + '"' : '') + '>';
           group = o.g;
         }
         opts += '<option value="' + o.v + '"' + (o.hint ? ' title="' + o.hint + '"' : '') + '>' + o.label + '</option>';
@@ -3301,7 +3305,17 @@ echo json_encode(['error' => 'method not allowed']);
       var sel = document.getElementById('asga-sortsel');
       sel.value = view.sort;
       sel.addEventListener('change', function (e) { view.sort = e.target.value; view.page = 1; saveSort(); render(); });
-      wireSortMenu(sel);
+      // toolbar specifics (the button's own id, its width measured from the
+      // widest label, and the menu positioned absolute inside .asga-sortwrap
+      // so it matches the button's exact left edge and width) are passed in
+      // as options; the shared widget itself knows none of that
+      themeSelect(sel, {
+        btnId: 'asga-sortbtn',
+        btnClass: 'asga-sortbtn',
+        btnTitle: 'Change the sort order',
+        fixedWidth: true,
+        position: 'absolute'
+      });
       document.getElementById('asga-refresh').addEventListener('click', onRefreshClick);
       document.getElementById('asga-help').addEventListener('click', openAboutPanel);
       document.getElementById('asga-settings').addEventListener('click', function (e) {
@@ -3322,94 +3336,254 @@ echo json_encode(['error' => 'method not allowed']);
     }
 
     // Safari renders a <select>'s open list as a native macOS menu that no CSS
-    // can theme, so on 7.2+ the select becomes the state holder for a menu of
-    // our own, drawn with the refresh menu's language. 7.1 keeps the native
-    // select, since its layout is verified and left alone.
-    function wireSortMenu(sel) {
-      if (document.documentElement.classList.contains('Theme--legacyOS')) return;
-      var wrap = sel.parentNode;   // .asga-sortwrap
+    // can theme, so this turns ANY native select into a button that opens a
+    // themed menu of our own, drawn with the refresh menu's language. 7.1
+    // keeps every native select, since that layout is verified and left
+    // alone. The select stays in the DOM as the state holder: it is what
+    // code reads and writes, and it keeps firing a change event when a menu
+    // item is picked, so an existing change listener (the toolbar's own,
+    // wired before this is called) never has to know this widget exists.
+    //
+    // Started life as the toolbar's own sort menu; the settings drawer's four
+    // selects need the identical look, so this is now that same code with
+    // its toolbar-only specifics (the fixed id, the width measured from the
+    // widest label, the menu positioned to match a non-scrolling button)
+    // pulled out into options, and the drawer-only specifics (full width,
+    // no id transfer needed vs. transferred, fixed positioning so the drawer's
+    // own scrolling body can't clip the open list) added as options too.
+    //
+    // options:
+    //   btnId          a fixed id for the trigger button (the toolbar's own)
+    //   moveIdToButton if true, moves the SELECT's existing id onto the
+    //                  button instead (so a <label for> written before
+    //                  theming keeps pointing at whichever element is now
+    //                  the interactive one)
+    //   btnClass       class(es) for the trigger button
+    //   btnTitle       the trigger button's title attribute
+    //   fixedWidth     true sizes the button to its widest OPTION TEXT, read
+    //                  off the select's own <option> elements, never
+    //                  SORT_OPTS, since reading the DOM rather than any one
+    //                  caller's data is what makes this reusable. Left
+    //                  unset, the button takes whatever width its CSS gives
+    //                  it (100%, for the drawer's full-width fields).
+    //   position       'absolute' (default): the menu is inserted next to
+    //                  the button and positioned to match its exact left
+    //                  edge and width, the way the toolbar always has.
+    //                  'fixed': the menu is appended to <body> instead and
+    //                  pinned with position:fixed from the button's live
+    //                  getBoundingClientRect(). Needed inside the settings
+    //                  drawer, whose body scrolls (overflow-y:auto) and
+    //                  would otherwise clip an absolutely positioned menu;
+    //                  appending to <body> also steps around the drawer
+    //                  panel's own transform, which would otherwise become
+    //                  the containing block for a fixed-position descendant.
+    //   scrollHost     (fixed mode only) the scrolling ancestor to close the
+    //                  menu on scroll, since a fixed menu does not follow
+    //                  its trigger and re-tracking it on every scroll tick
+    //                  is not worth doing when closing is the honest fix.
+    function themeSelect(sel, options) {
+      if (document.documentElement.classList.contains('Theme--legacyOS')) return null;
+      var opts = options || {};
+      var wrap = sel.parentNode;
       var btn = document.createElement('button');
       btn.type = 'button';
-      btn.id = 'asga-sortbtn';
-      btn.className = 'asga-sortbtn';
-      btn.title = 'Change the sort order';
+      if (opts.moveIdToButton && sel.id) { btn.id = sel.id; sel.removeAttribute('id'); }
+      else if (opts.btnId) { btn.id = opts.btnId; }
+      btn.className = opts.btnClass || '';
+      if (opts.btnTitle) btn.title = opts.btnTitle;
       wrap.insertBefore(btn, sel);
       sel.classList.add('asga-sortsel-hidden');
+
       function label() {
         var o = sel.options[sel.selectedIndex];
         btn.textContent = o ? o.text : '';
       }
       label();
       sel.addEventListener('change', label);
-      // The button is as wide as the widest entry, measured in its own font,
-      // so changing the selection never resizes it and the open list can
-      // share its exact box.
-      var probe = document.createElement('span');
-      probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;';
-      wrap.appendChild(probe);
-      probe.style.font = getComputedStyle(btn).font;
-      var maxW = 0;
-      SORT_OPTS.forEach(function (o) {
-        probe.textContent = o.label;
-        maxW = Math.max(maxW, probe.getBoundingClientRect().width);
-      });
-      wrap.removeChild(probe);
-      // 14px left padding plus 30px right padding, and a little slack so a
-      // fractional measurement never wraps the longest label
-      btn.style.width = Math.ceil(maxW + 44 + 4) + 'px';
+      // A caller that sets sel.value directly, rather than through this
+      // widget's own menu, never fires a change event (the settings drawer
+      // repopulates its selects with fresh server data every time it opens,
+      // straight assignment, no event), so the button would silently go
+      // stale. Wrapping the property is what lets every existing
+      // "sel.value = x" line keep working untouched while the button still
+      // follows it.
+      var nativeValue = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+      if (nativeValue && nativeValue.configurable) {
+        Object.defineProperty(sel, 'value', {
+          configurable: true,
+          get: function () { return nativeValue.get.call(sel); },
+          set: function (v) { nativeValue.set.call(sel, v); label(); }
+        });
+      }
+
+      if (opts.fixedWidth) {
+        // The button is as wide as the widest entry, measured in its own
+        // font, so changing the selection never resizes it and the open
+        // list can share its exact box.
+        var probe = document.createElement('span');
+        probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;';
+        wrap.appendChild(probe);
+        probe.style.font = getComputedStyle(btn).font;
+        var maxW = 0;
+        for (var i = 0; i < sel.options.length; i++) {
+          probe.textContent = sel.options[i].text;
+          maxW = Math.max(maxW, probe.getBoundingClientRect().width);
+        }
+        wrap.removeChild(probe);
+        // 14px left padding plus 30px right padding, and a little slack so a
+        // fractional measurement never wraps the longest label
+        btn.style.width = Math.ceil(maxW + 44 + 4) + 'px';
+      }
+
       btn.addEventListener('click', function (e) {
         e.stopPropagation(); e.preventDefault();
-        var open = document.querySelector('.asga-sortmenu');
-        if (open) { open.remove(); return; }
-        var menu = document.createElement('div');
-        menu.className = 'asga-refmenu asga-sortmenu';
-        var group = '';
-        SORT_OPTS.forEach(function (o) {
-          if (o.g !== group) {
-            group = o.g;
-            // g: '' is the ungrouped tier (the two name orders): no header div
-            // is ever built for it, so the list opens straight on an item
-            if (group) {
-              var h = document.createElement('div');
-              h.className = 'asga-sortmenu-group';
-              // the group header carries a mark to say where its numbers come
-              // from, off the option's own m property rather than a string test
-              // on the group name: a rename would silently break a test like that.
-              // It goes AFTER the name, not before: the two marks are different
-              // widths, so leading them would start the two headers on
-              // different left edges instead of one.
-              var mark = o.m === 'un' ? UN_MARK : o.m === 'gh' ? GH_MARK : '';
-              h.textContent = o.g;
-              if (mark) h.insertAdjacentHTML('beforeend', mark);
-              menu.appendChild(h);
-            }
-          }
-          var it = document.createElement('span');
-          it.className = 'asga-refitem asga-sortmenu-item' + (o.v === view.sort ? ' asga-sortmenu-cur' : '');
-          it.setAttribute('data-v', o.v);
-          if (o.hint) it.title = o.hint;
-          it.textContent = o.label;
-          menu.appendChild(it);
-        });
+        if (openThemeMenu && openThemeMenu.btn === btn) { closeThemeMenu(); return; }
+        closeThemeMenu();
+        openThemeMenuFor(sel, btn, wrap, opts);
+      });
+
+      return { sel: sel, btn: btn };
+    }
+
+    // Only one themed menu is ever open at a time anywhere on the page: the
+    // toolbar's sort menu and the drawer's four each go through this same
+    // slot, so opening one closes whichever other is already up first.
+    var openThemeMenu = null;
+    function closeThemeMenu() {
+      if (!openThemeMenu) return;
+      var cur = openThemeMenu;
+      openThemeMenu = null;
+      cur.cleanup();
+    }
+
+    // Builds the menu's items straight from the select's own <option> and
+    // <optgroup> elements, in document order, so the menu can never drift
+    // out of step with whatever the select actually offers. curValue is
+    // read once, at open time, and marks the matching item the way the sort
+    // menu always has: the accent colour alone, no tick, since a tick would
+    // knock its label out of line with every other entry.
+    function appendThemeItems(menu, optList, curValue) {
+      for (var i = 0; i < optList.length; i++) {
+        var opt = optList[i];
+        var it = document.createElement('span');
+        it.className = 'asga-refitem asga-sortmenu-item' + (opt.value === curValue ? ' asga-sortmenu-cur' : '');
+        it.setAttribute('data-v', opt.value);
+        if (opt.title) it.title = opt.title;
+        it.textContent = opt.text;
+        menu.appendChild(it);
+      }
+    }
+    function buildThemeMenuBody(menu, sel) {
+      var curValue = sel.value;
+      var kids = sel.children;
+      for (var i = 0; i < kids.length; i++) {
+        var el = kids[i];
+        if (el.tagName === 'OPTGROUP') {
+          var h = document.createElement('div');
+          h.className = 'asga-sortmenu-group';
+          // the group header carries a mark to say where its numbers come
+          // from, read off the optgroup's own data-mark attribute (see
+          // sortOptionsHtml()) rather than a string test on the group name,
+          // which a rename would silently break. It goes AFTER the name, not
+          // before: the two marks are different widths, so leading them
+          // would start the two headers on different left edges instead of
+          // one.
+          var mark = el.getAttribute('data-mark');
+          h.textContent = el.label;
+          if (mark === 'un') h.insertAdjacentHTML('beforeend', UN_MARK);
+          else if (mark === 'gh') h.insertAdjacentHTML('beforeend', GH_MARK);
+          menu.appendChild(h);
+          appendThemeItems(menu, el.children, curValue);
+        } else if (el.tagName === 'OPTION') {
+          appendThemeItems(menu, [el], curValue);
+        }
+      }
+    }
+
+    // Positions a position:fixed menu from the trigger's live viewport box.
+    // Opens downward by default; if the list is taller than the room left
+    // below the button before the viewport's bottom edge, and there is more
+    // room above, it opens upward instead. Either way its height is capped
+    // to whatever room it actually has, so a long list (the drawer's Default
+    // sort order field carries 19 entries) scrolls internally rather than
+    // running off the screen.
+    function positionFixedMenu(menu, btn) {
+      var r = btn.getBoundingClientRect();
+      var gap = 6;
+      menu.style.position = 'fixed';
+      menu.style.left = r.left + 'px';
+      menu.style.width = r.width + 'px';
+      menu.style.zIndex = '10070';   // above the drawer panel (10061) and its backdrop (10060)
+      // already appended to <body> by the caller, so scrollHeight reads the
+      // list's full natural height even though its own CSS caps what shows
+      var natural = menu.scrollHeight;
+      var vh = window.innerHeight;
+      var below = vh - r.bottom - gap;
+      var above = r.top - gap;
+      if (natural > below && above > below) {
+        menu.style.top = 'auto';
+        menu.style.bottom = (vh - r.top + gap) + 'px';
+        menu.style.maxHeight = Math.max(100, Math.min(natural, above)) + 'px';
+      } else {
+        menu.style.bottom = 'auto';
+        menu.style.top = (r.bottom + gap) + 'px';
+        menu.style.maxHeight = Math.max(100, Math.min(natural, below)) + 'px';
+      }
+    }
+
+    function openThemeMenuFor(sel, btn, wrap, opts) {
+      var menu = document.createElement('div');
+      menu.className = 'asga-refmenu asga-sortmenu';
+      buildThemeMenuBody(menu, sel);
+
+      var fixed = opts.position === 'fixed';
+      if (fixed) {
+        document.body.appendChild(menu);
+        positionFixedMenu(menu, btn);
+      } else {
         wrap.insertBefore(menu, btn.nextSibling);
         // the open list wears the button's exact left edge and width
         menu.style.left = btn.offsetLeft + 'px';
         menu.style.width = btn.offsetWidth + 'px';
-        menu.addEventListener('click', function (ev) {
-          var item = ev.target.closest ? ev.target.closest('.asga-sortmenu-item') : null;
-          if (!item) return;
+      }
+
+      function pick(ev) {
+        var item = ev.target.closest ? ev.target.closest('.asga-sortmenu-item') : null;
+        if (!item) return;
+        closeThemeMenu();
+        sel.value = item.getAttribute('data-v');   // the wrapped setter above keeps the button's label in step
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      menu.addEventListener('click', pick);
+
+      function outside(ev) {
+        if (menu.contains(ev.target) || ev.target === btn) return;
+        closeThemeMenu();
+      }
+      function onKey(ev) { if (ev.key === 'Escape') closeThemeMenu(); }
+      function onScroll() { closeThemeMenu(); }
+      function onResize() { closeThemeMenu(); }
+
+      setTimeout(function () { document.addEventListener('click', outside, true); }, 0);
+      document.addEventListener('keydown', onKey, true);
+      if (fixed) {
+        window.addEventListener('resize', onResize);
+        if (opts.scrollHost) opts.scrollHost.addEventListener('scroll', onScroll);
+      }
+
+      openThemeMenu = {
+        btn: btn,
+        menu: menu,
+        cleanup: function () {
           menu.remove();
-          sel.value = item.getAttribute('data-v');
-          view.sort = sel.value; view.page = 1; saveSort(); label(); render();
-        });
-        setTimeout(function () {
-          document.addEventListener('click', function close(ev) {
-            if (menu.contains(ev.target)) return;
-            menu.remove();
-            document.removeEventListener('click', close, true);
-          }, true);
-        }, 0);
-      });
+          document.removeEventListener('click', outside, true);
+          document.removeEventListener('keydown', onKey, true);
+          if (fixed) {
+            window.removeEventListener('resize', onResize);
+            if (opts.scrollHost) opts.scrollHost.removeEventListener('scroll', onScroll);
+          }
+        }
+      };
     }
 
     // ---- drawer shell: a right-edge slide-in panel with a backdrop, a
@@ -3420,7 +3594,16 @@ echo json_encode(['error' => 'method not allowed']);
     // is written, and fixed, exactly once. Only one drawer is ever open at a
     // time: opening one closes whichever other one is already open first. ----
     var openDrawerNow = null;   // the drawer object currently open, or null
-    function drawerEscHandler(ev) { if (ev.key === 'Escape') closeDrawer(openDrawerNow); }
+    // A themed select's own menu (see themeSelect() above) also closes on
+    // Escape, and its keydown listener sits on the same document node this
+    // one does, so without this check one Escape press would close both at
+    // once. The first press instead only closes the open menu; a second
+    // press is what closes the drawer behind it.
+    function drawerEscHandler(ev) {
+      if (ev.key !== 'Escape') return;
+      if (openThemeMenu) { closeThemeMenu(); return; }
+      closeDrawer(openDrawerNow);
+    }
 
     function makeDrawer(id, titleText) {
       var d = {};
@@ -3480,6 +3663,10 @@ echo json_encode(['error' => 'method not allowed']);
     }
     function closeDrawer(d) {
       if (!d) return;
+      // a fixed-position themed menu is appended to <body>, outside the
+      // panel, so it would otherwise be left floating on screen with its
+      // trigger already gone
+      closeThemeMenu();
       d.backdrop.classList.remove('asga-open');
       d.panel.classList.remove('asga-open');
       document.body.classList.remove('asga-drawer-open');
@@ -3657,12 +3844,33 @@ echo json_encode(['error' => 'method not allowed']);
       var body = d.body;
       var els = {};
 
+      // Every select in this drawer gets the same themed button the toolbar's
+      // sort control uses (see themeSelect() above): a native <select>'s open
+      // list is browser chrome no CSS can reach, and it read as a jarring,
+      // unthemed system menu next to every other control here. Full width
+      // rather than the toolbar's fixed-to-the-widest-label sizing, since
+      // every other control in this form is full width too, and 'fixed'
+      // positioning rather than 'absolute', since this panel's body scrolls
+      // (overflow-y:auto) and would otherwise clip the open list. The id
+      // already carries the <label for> written by addSettingsField(), so it
+      // moves onto the button instead of a fixed one being set here.
+      function themeSettingsSelect(sel) {
+        themeSelect(sel, {
+          moveIdToButton: true,
+          btnClass: 'asga-settings-selectbtn',
+          position: 'fixed',
+          scrollHost: body
+        });
+      }
+
       els.service = addSettingsSelect(body, 'asga-set-service', 'Enable Unraid Modern App Store', [
         { v: 'enabled', label: 'Yes' }, { v: 'disabled', label: 'No' }
       ]);
+      themeSettingsSelect(els.service);
       els.notif = addSettingsSelect(body, 'asga-set-notif', 'Enable Notifications', [
         { v: 'enabled', label: 'Yes' }, { v: 'disabled', label: 'No' }
       ]);
+      themeSettingsSelect(els.notif);
 
       // token: a password input that never carries the saved secret (the
       // endpoint never returns it either), plus a clear-token control that
@@ -3688,6 +3896,7 @@ echo json_encode(['error' => 'method not allowed']);
         { v: '1', label: 'Every day' }, { v: '2', label: 'Every 2 days' },
         { v: '3', label: 'Every 3 days' }, { v: '7', label: 'Every week' }
       ]);
+      themeSettingsSelect(els.scanDays);
 
       // built FROM SORT_OPTS via the same helper the toolbar's own sort
       // select uses, so this list is exactly the grid's own sort menu and
@@ -3696,6 +3905,7 @@ echo json_encode(['error' => 'method not allowed']);
       sortSel.className = 'asga-settings-select';
       sortSel.innerHTML = sortOptionsHtml();
       els.sort = addSettingsField(body, 'asga-set-sort', 'Default sort order', sortSel);
+      themeSettingsSelect(els.sort);
 
       var dataDirInput = document.createElement('input');
       dataDirInput.type = 'text';
@@ -4424,6 +4634,52 @@ body.dark .asga-settings-select { color-scheme: dark; }
   background: var(--background-color, #1c1c1c);
   color: var(--text-color, #f2f2f2);
 }
+/* Every select in this drawer is themed by the same widget the toolbar's own
+   sort control uses (themeSelect() in inject.js): the native select stays in
+   the DOM as the state holder, off screen (.asga-sortsel-hidden, defined with
+   the toolbar's sort control further down), and this button is what actually
+   shows. It wears the drawer's own control clothes (.asga-settings-select's
+   height, border, radius, background and padding) rather than the toolbar
+   button's fixed-to-the-widest-label width, since every other control in
+   this form is full width, plus the same two-gradient dropdown triangle
+   .asga-sortbtn draws, so it still reads as a select rather than a button.
+   Unraid's global button rule (button:where(:not(.unapi *))) sets exactly
+   four properties on every <button>: min-width, text-transform, padding and
+   margin. :where() carries no specificity, but those four still win the
+   cascade in practice, so they are the four forced back here with
+   !important, the same pattern .asga-drawer-close and the shared
+   .asga-settings-select/.asga-settings-input rule above both already use. */
+.asga-settings-selectbtn {
+  display: block; width: 100%; box-sizing: border-box; height: 36px;
+  /* every one of these is forced. Unraid's button rule does not just colour a
+     button, it sets the type as well (centred, bold, 11px, accent colour), so
+     unforced these read as four little orange labels sitting above a normal
+     left-aligned white text field. They have to match the inputs beside them. */
+  font-size: 1.3rem !important; color: var(--text-color, #f2f2f2) !important;
+  font-family: inherit; text-align: left !important;
+  cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0 !important; text-transform: none !important; letter-spacing: normal !important;
+  font-weight: 400 !important; margin: 0 !important; padding: 0 30px 0 12px !important;
+  /* border and radius need !important for the same reason min-width and the
+     rest above do: Unraid's global button rule sets border: var(--button-border)
+     and radius 4px, and it beats this class in practice. Without the override
+     these drew as borderless 4px boxes beside the 1px 8px inputs they sit with. */
+  background-color: rgba(127, 127, 127, 0.08) !important;
+  border: 1px solid rgba(127, 127, 127, 0.3) !important;
+  border-radius: 8px !important;
+  /* the same two-gradient triangle .asga-sortbtn draws, at the same inset.
+     !important here too, and this one was the loudest miss: Unraid paints its
+     buttons with a red-to-orange linear-gradient BACKGROUND-IMAGE, which is a
+     different property from the background-color already overridden above, so
+     without this every one of these drew as a solid orange bar. */
+  background-image: linear-gradient(66.6deg, transparent 60%, var(--input-border-color, #999) 40%),
+    linear-gradient(113.4deg, var(--input-border-color, #999) 40%, transparent 60%) !important;
+  background-position: calc(100% - 12px), calc(100% - 8px) !important;
+  background-size: 4px 6px, 4px 6px !important;
+  background-repeat: no-repeat !important;
+}
+.asga-settings-selectbtn:hover { border-color: #ff8c2f !important; background-color: rgba(255, 140, 47, 0.14) !important; }
+.asga-settings-selectbtn:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 1px; }
 /* Clear token is a small link-like control next to the password field, not a
    form button, so every property Unraid's global button rule sets is reset
    here, the same way .asga-drawer-close resets it above. */

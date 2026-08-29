@@ -266,6 +266,52 @@ body.dark .asga-settings-select { color-scheme: dark; }
   background: var(--background-color, #1c1c1c);
   color: var(--text-color, #f2f2f2);
 }
+/* Every select in this drawer is themed by the same widget the toolbar's own
+   sort control uses (themeSelect() in inject.js): the native select stays in
+   the DOM as the state holder, off screen (.asga-sortsel-hidden, defined with
+   the toolbar's sort control further down), and this button is what actually
+   shows. It wears the drawer's own control clothes (.asga-settings-select's
+   height, border, radius, background and padding) rather than the toolbar
+   button's fixed-to-the-widest-label width, since every other control in
+   this form is full width, plus the same two-gradient dropdown triangle
+   .asga-sortbtn draws, so it still reads as a select rather than a button.
+   Unraid's global button rule (button:where(:not(.unapi *))) sets exactly
+   four properties on every <button>: min-width, text-transform, padding and
+   margin. :where() carries no specificity, but those four still win the
+   cascade in practice, so they are the four forced back here with
+   !important, the same pattern .asga-drawer-close and the shared
+   .asga-settings-select/.asga-settings-input rule above both already use. */
+.asga-settings-selectbtn {
+  display: block; width: 100%; box-sizing: border-box; height: 36px;
+  /* every one of these is forced. Unraid's button rule does not just colour a
+     button, it sets the type as well (centred, bold, 11px, accent colour), so
+     unforced these read as four little orange labels sitting above a normal
+     left-aligned white text field. They have to match the inputs beside them. */
+  font-size: 1.3rem !important; color: var(--text-color, #f2f2f2) !important;
+  font-family: inherit; text-align: left !important;
+  cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0 !important; text-transform: none !important; letter-spacing: normal !important;
+  font-weight: 400 !important; margin: 0 !important; padding: 0 30px 0 12px !important;
+  /* border and radius need !important for the same reason min-width and the
+     rest above do: Unraid's global button rule sets border: var(--button-border)
+     and radius 4px, and it beats this class in practice. Without the override
+     these drew as borderless 4px boxes beside the 1px 8px inputs they sit with. */
+  background-color: rgba(127, 127, 127, 0.08) !important;
+  border: 1px solid rgba(127, 127, 127, 0.3) !important;
+  border-radius: 8px !important;
+  /* the same two-gradient triangle .asga-sortbtn draws, at the same inset.
+     !important here too, and this one was the loudest miss: Unraid paints its
+     buttons with a red-to-orange linear-gradient BACKGROUND-IMAGE, which is a
+     different property from the background-color already overridden above, so
+     without this every one of these drew as a solid orange bar. */
+  background-image: linear-gradient(66.6deg, transparent 60%, var(--input-border-color, #999) 40%),
+    linear-gradient(113.4deg, var(--input-border-color, #999) 40%, transparent 60%) !important;
+  background-position: calc(100% - 12px), calc(100% - 8px) !important;
+  background-size: 4px 6px, 4px 6px !important;
+  background-repeat: no-repeat !important;
+}
+.asga-settings-selectbtn:hover { border-color: #ff8c2f !important; background-color: rgba(255, 140, 47, 0.14) !important; }
+.asga-settings-selectbtn:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 1px; }
 /* Clear token is a small link-like control next to the password field, not a
    form button, so every property Unraid's global button rule sets is reset
    here, the same way .asga-drawer-close resets it above. */
