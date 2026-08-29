@@ -37,6 +37,10 @@
     var sortInited = false;
     var polling = false, wasRunning = false;
     var pageItemsNow = [];        // apps the grid is currently showing
+    // bumped by render() on every repaint, so an in-flight fillMissingDates()
+    // left over from a page the user has since paged away from knows to stop
+    // touching tiles that no longer belong to the page it started on
+    var renderGen = 0;
     var scanAsked = {};           // path -> 1, so a page is only auto-scanned once
     var scanInFlight = false, scanPending = false, scanTimer = null;
     var pinnedSet = null, installedSet = null;
@@ -66,6 +70,15 @@
     var caSpecial = false;
     var CA_SPECIAL = /^(previous_apps|prev_docker|prev_plugins|action_centre|repos)$/;
     function stripTag(ri) { return (ri || '').toLowerCase().split(':')[0]; }
+    // Template path of the app whose drawer is open. The drawer is CA's and CA
+    // never tells us which app it just painted, so the path we handed
+    // showSidebarApp is kept here for fixDrawerDetails() to look the app back
+    // up with. Every open goes through openSidebar() so this cannot go stale.
+    var openPath = '';
+    // Image ref -> registry push time, filled by lastupdate.php. 0 means asked
+    // and nothing was there, which is remembered too so re-opening a drawer
+    // never refires a request that already came back empty.
+    var regDates = {};
 
     function loadViews(cb) {
       fetch(PREFIX + 'pinned.php?_=' + Date.now())
@@ -343,12 +356,12 @@
           } else if (btn.classList.contains('asga-pin')) {
             pinApp(tile, btn);
           } else { // Info
-            try { window.showSidebarApp(p, n); } catch (err) {}
+            openSidebar(p, n);
           }
           return;
         }
         // click anywhere else on the card opens the Info/Install drawer
-        try { window.showSidebarApp(p, n); } catch (err) {}
+        openSidebar(p, n);
       });
       return wrap;
     }
@@ -373,6 +386,15 @@
     }
 
     function openExt(url) { if (url) try { window.open(url, '_blank', 'noopener'); } catch (e) {} }
+
+    // The one way the grid opens CA's drawer, so the app it is showing is
+    // always recorded. Everything the drawer does on our side (see
+    // fixDrawerDetails) needs to know which app that is, and CA offers no way
+    // to ask after the fact.
+    function openSidebar(p, n) {
+      openPath = p || '';
+      try { window.showSidebarApp(p, n); } catch (e) {}
+    }
 
     // Screenshot lightbox. CA's own gallery (magnificPopup) closes the whole
     // drawer when a preview opens and re-opens it on close, which flashes the
@@ -435,7 +457,7 @@
       var walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
       var node;
       while ((node = walk.nextNode())) {
-        if (node.nodeValue.indexOf(' ') !== -1) node.nodeValue = node.nodeValue.replace(/ +/g, ' ');
+        if (node.nodeValue.indexOf(' ') !== -1) node.nodeValue = node.nodeValue.replace(/ +/g, ' ');
       }
       var brs = [].slice.call(el.querySelectorAll('br'));
       for (var i = 0; i < brs.length; i++) {
@@ -447,7 +469,7 @@
       }
     }
     function isBr(n) { return !!n && n.nodeName === 'BR'; }
-    function blankText(n) { return n && n.nodeType === 3 && !/[^\s ]/.test(n.nodeValue); }
+    function blankText(n) { return n && n.nodeType === 3 && !/[^\s ]/.test(n.nodeValue); }
     function meaningBefore(n) { n = n.previousSibling; while (blankText(n)) n = n.previousSibling; return n; }
     function meaningAfter(n) { n = n.nextSibling; while (blankText(n)) n = n.nextSibling; return n; }
     // the text of the line this break ends, back to the previous break. Reading
@@ -457,6 +479,185 @@
       var s = '', n = br.previousSibling;
       while (n && n.nodeName !== 'BR') { s = (n.textContent || '') + s; n = n.previousSibling; }
       return s.replace(/\s+/g, ' ').trim();
+    }
+
+    // ---- CA's own Details table: the two dates, plus stars and downloads ----
+    //
+    // CA prints "Last Update: Unknown" whenever its feed carries no LastUpdate
+    // for an app, which is 1,164 of the 4,251 docker apps in the catalog. It
+    // then tries to fill the row asynchronously, but that fallback only ever
+    // asks Docker Hub, so an image published solely to ghcr.io, lscr.io or
+    // quay.io stays Unknown for good however long you wait.
+    //
+    // The grid already knows the feed's date (applist.php sends it as lu, and
+    // the card footer prints it), and lastupdate.php resolves the rest from
+    // whichever registry actually hosts the image, so in modern view both dates
+    // in this table are answered from our own data. Added gains its age for the
+    // same reason the card shows one, and Last Update moves up to sit directly
+    // under Added, because the two are the same kind of fact and reading them
+    // together is the point.
+    //
+    // Taking the row over means dropping the id CA hung on it. CA fills it with
+    // $("#template<ID>").html(...) once its own lookup returns; with the id
+    // gone that call finds nothing and leaves our value alone, which is cleaner
+    // than racing it. CA's asterisk marker goes with it: it points at a
+    // footnote about statistics gathered every 30 days, and our value is not
+    // that statistic.
+    //
+    // Below the dates go GitHub stars and Unraid downloads, the grid's s and dl
+    // fields. Both figures already sit on the card as a corner badge, but a
+    // badge only has room for an abbreviated number ("1.2k"), so the drawer is
+    // where the exact count belongs. Downloads reuses CA's own row when it
+    // wrote one, because applist.php's count is the more honest of the two: CA
+    // credits an app built FROM an official base image with pulls of that base
+    // image rather than the app, and CA omits the row for plugins entirely.
+    //
+    // CA runs every label in this table through window.tr() (its own
+    // javascript/helpers.js), which swaps in the active language's string, so
+    // recognising a row CA already wrote means asking tr() the same question
+    // rather than matching the English text directly.
+    function caLabel(english) {
+      try { return (typeof window.tr === 'function') ? window.tr(english) : english; }
+      catch (e) { return english; }
+    }
+    function rowByLabel(table, english) {
+      var want = caLabel(english);
+      for (var i = 0; i < table.rows.length; i++) {
+        var cell = table.rows[i].querySelector('.popupTableLeft');
+        if (cell && cell.textContent.trim() === want) return table.rows[i];
+      }
+      return null;
+    }
+    function wireDrawerDetails() {
+      if (document.body.__asgaDrawerDetails) return;
+      document.body.__asgaDrawerDetails = true;
+      var host = document.getElementById('sidenavContent') || document.querySelector('.sidenav');
+      if (!host) return;
+      new MutationObserver(fixDrawerDetails).observe(host, { childList: true, subtree: true });
+      fixDrawerDetails();
+    }
+    function fixDrawerDetails() {
+      if (!isOn()) return;
+      var table = document.querySelector('#sidenavContent .popupTable.contents');
+      if (!table || table.__asgaDetails) return;
+      table.__asgaDetails = true;
+      // CA restores a drawer from its own cookie on a page load, which never
+      // goes through openSidebar(), so its own record of what is open is the
+      // fallback.
+      var path = openPath || (window.data && window.data.sidebarapppath) || '';
+      var app = null;
+      for (var i = 0; i < APPS.length; i++) { if (APPS[i].p === path) { app = APPS[i]; break; } }
+      if (!app) return;
+
+      // Added is the third row CA emits and is the only one always present, so
+      // it is found by position. Matching its label would break on every
+      // non-English server, since CA runs every one of these through tr().
+      var addedRow = table.rows.length > 2 ? table.rows[2] : null;
+      var addedCell = addedRow && addedRow.querySelector('.popupTableRight');
+      if (addedCell && app.fs) {
+        addedCell.textContent = absDate(app.fs, false) + ageBracket(app.fs, false);
+        addedCell.title = absDate(app.fs, app.fs > 1433649600);
+      }
+
+      // The Last Update row is found by the id CA hangs on it rather than by
+      // its label, for the same translation reason. This whole block is
+      // skippable rather than an early return, because stars and downloads
+      // below still need to run even on the apps that qualify for neither a
+      // CA row nor a built one.
+      var span = table.querySelector('td.popupTableRight span[id^="template"]');
+      var luRow = span ? span.parentNode.parentNode : null;
+      if (span) span.removeAttribute('id');
+      // CA omits this row for plugins, and for any app pinned to a tag other
+      // than :latest, because the only date CA has is the repository's rather
+      // than that tag's. Both now have a real answer here: a plugin's version
+      // number IS its release date, and lastupdate.php resolves the exact tag
+      // from the registry rather than the repository, so the row is built in
+      // both cases.
+      if (!luRow && ((app.lu && app.lk === 'v') || (app.ty === 'docker' && app.ri))) luRow = buildDetailRow(table, 'Last Update');
+      if (luRow) {
+        var luCell = luRow.querySelector('.popupTableRight');
+        if (luCell) {
+          // CA labels this one row "Last Update:" while every other row in the
+          // table goes without a colon. Sitting three rows down that was easy
+          // to miss; directly under Added it is the only punctuation in the
+          // column.
+          var luLabel = luRow.querySelector('.popupTableLeft');
+          if (luLabel) luLabel.textContent = luLabel.textContent.replace(/\s*:\s*$/, '');
+          if (addedRow && addedRow.parentNode) addedRow.parentNode.insertBefore(luRow, addedRow.nextSibling);
+          if (app.lu) setLuCell(luCell, app.lu, app.lk);
+          else resolveLastUpdate(app, luCell);
+        }
+      }
+
+      // Stars then downloads, directly under whichever of Last Update / Added
+      // is the last row placed above, so the run reads as one story: when it
+      // arrived, when it last changed, how popular it is upstream, how popular
+      // it is here. insertBefore against the anchor's own nextSibling each
+      // time keeps the second insert from pushing the first out of order.
+      var anchor = luRow || addedRow;
+      if (anchor && anchor.parentNode && app.s != null) {
+        var starRow = buildDetailRow(table, 'GitHub stars');
+        anchor.parentNode.insertBefore(starRow, anchor.nextSibling);
+        var starCell = starRow.querySelector('.popupTableRight');
+        starCell.textContent = app.s.toLocaleString();
+        starCell.title = starTitle(app.s);
+        anchor = starRow;
+      }
+      if (anchor && anchor.parentNode && app.dl > 0) {
+        var dlRow = rowByLabel(table, 'Downloads') || buildDetailRow(table, 'Downloads');
+        anchor.parentNode.insertBefore(dlRow, anchor.nextSibling);
+        var dlCell = dlRow.querySelector('.popupTableRight');
+        dlCell.textContent = app.dl.toLocaleString();
+        dlCell.title = downloadTitle(app.dl, app.ty);
+      }
+    }
+    // CA's own markup for a Details row, so the drawer's stylesheet applies to
+    // this one exactly as it does to the rows CA wrote. The label loses CA's
+    // trailing colon, which no other row in the table carries. Shared by the
+    // Last Update, GitHub stars and Downloads rows, since all three are this
+    // same two-cell shape with only the label differing.
+    function buildDetailRow(table, label) {
+      var tr = document.createElement('tr');
+      var td1 = document.createElement('td');
+      td1.className = 'popupTableLeft';
+      td1.textContent = label;
+      var td2 = document.createElement('td');
+      td2.className = 'popupTableRight';
+      tr.appendChild(td1); tr.appendChild(td2);
+      (table.tBodies[0] || table).appendChild(tr);
+      return tr;
+    }
+    function ageBracket(ts, dayOnly) {
+      var rel = relDate(ts, dayOnly);
+      return rel ? ' (' + rel + ')' : '';
+    }
+    function setLuCell(cell, ts, kind) {
+      cell.textContent = absDate(ts, false) + ageBracket(ts, kind !== 'r');
+      cell.title = kind === 'v'
+        ? 'Release date of this plugin\'s current version, read from the version number itself.'
+        : 'When this app\'s image was last published to its container registry.\n' + absDate(ts, true);
+    }
+    // Nothing in CA's feed, so ask the registry that actually hosts the image.
+    // The answer is written back onto the catalog entry as well, so the app's
+    // own card carries the date the next time the grid repaints.
+    function resolveLastUpdate(app, cell) {
+      var ref = app.ri || '';
+      if (!ref || app.ty !== 'docker') { cell.textContent = 'Unknown'; return; }
+      var done = function (ts) {
+        // the drawer can be closed or already showing another app by the time
+        // this lands, and writing into a detached cell would be invisible at
+        // best and wrong at worst
+        if (!document.contains(cell)) return;
+        if (!ts) { cell.textContent = 'Unknown'; return; }
+        app.lu = ts; app.lk = 'r';
+        setLuCell(cell, ts, 'r');
+      };
+      if (regDates[ref] != null) { done(regDates[ref]); return; }
+      cell.textContent = 'Checking…';
+      fetch(PREFIX + 'lastupdate.php?repo=' + encodeURIComponent(ref))
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) { var ts = (j && j.ts) || 0; regDates[ref] = ts; done(ts); })
+        .catch(function () { regDates[ref] = 0; done(0); });
     }
 
     function openLightbox(srcs, idx) {
@@ -582,7 +783,7 @@
       var p = tile.getAttribute('data-apppath'), ty = tile.getAttribute('data-type'), pu = tile.getAttribute('data-plugurl');
       if (ty === 'plugin') {
         // plugins: let CA drive its own plugin install (its flow differs from docker)
-        try { window.showSidebarApp(p, tile.getAttribute('data-appname')); } catch (e) {}
+        openSidebar(p, tile.getAttribute('data-appname'));
         return;
       }
       if (!docker.running) return;   // nothing to install into; the card says why
@@ -655,24 +856,26 @@
       iconWrap.appendChild(img);
       head.appendChild(iconWrap);
 
-      // stars + downloads sit inline in the tile's top-right corner
+      // stars + downloads sit inline in the tile's top-right corner. The badge
+      // itself only has room for a glyph and an abbreviated number ("★ 1.2k"),
+      // which says nothing about what is being counted, so each one carries the
+      // full figure and the noun as its title. Both are built here rather than
+      // inline because paintStars() rewrites the star badge later, after a page
+      // scan lands, and the two have to agree on the wording.
       var badges = document.createElement('div');
       badges.className = 'asga-tile-badges';
       if (a.s != null) {
         var badge = document.createElement('span');
         badge.className = 'ghstars-badge';
         badge.textContent = '★ ' + fmt(a.s);
-        badge.title = a.s + ' GitHub stars';
+        badge.title = starTitle(a.s);
         badges.appendChild(badge);
       }
       if (a.dl > 0) {
         var dlb = document.createElement('span');
         dlb.className = 'ghdl-badge';
         dlb.textContent = '⤓ ' + fmt(a.dl);
-        // plugins now carry a real download count of their own, and "Docker
-        // image pulls" is simply the wrong noun for something that was never
-        // pulled from a registry
-        dlb.title = a.dl.toLocaleString() + (a.ty === 'plugin' ? ' Unraid servers have installed this plugin' : ' Docker image pulls');
+        dlb.title = downloadTitle(a.dl, a.ty);
         badges.appendChild(dlb);
       }
       if (badges.children.length) { tile.appendChild(badges); tile.classList.add('asga-has-badges'); }
@@ -748,11 +951,13 @@
       btns.appendChild(ib);
       tile.appendChild(btns);
 
-      // when CA's feed first saw this app, and when the app itself last shipped,
-      // on one line at the foot of the card: Added at the left edge, Updated at
-      // the right. Both halves are appended even when their date is unknown, so
-      // the Updated column stays put on a card that knows only one of the two,
-      // and so every button row in a grid row still bottom-aligns.
+      // when CA's feed first saw this app, and when the app itself last shipped.
+      // These sat side by side on one line until each grew its age in brackets,
+      // which no longer fits across a 340px card, so they stack: Added, then
+      // Updated under it. Both halves are appended even when their date is
+      // unknown, so a card that knows only one of the two reserves the same two
+      // lines as its neighbours and every button row in a grid row still
+      // bottom-aligns.
       var dates = document.createElement('div');
       dates.className = 'asga-tile-dates';
       var added = addedLabel(a.fs);
@@ -791,21 +996,21 @@
       try { return d.toLocaleString(undefined, opts); }
       catch (e) { return d.toDateString(); }
     }
-    // A recent date reads better as an interval than as a timestamp: "3 hours
-    // ago" places an app against now, where "Aug 6, 2026, 2:14 PM" has to be
-    // worked out first. Past a month the interval stops helping ("94 days ago"
-    // is worse than a date), so that is where this returns nothing and the
-    // caller falls back to absDate.
+    // How long ago, expressed in one unit, at any distance. This used to stop
+    // at 30 days and return nothing, because a bare "94 days ago" reads worse
+    // than a date and the caller printed the date instead. Now that both are
+    // always shown together (see dateWithAge), the interval is the gloss rather
+    // than the whole answer, and a coarse "3 months ago" is exactly what it
+    // should say at that distance.
     // dayOnly is for a value that was only ever a day, such as a plugin's
     // date-formed version number. Its clock reads midnight because that is what
     // a bare date parses to, not because anything happened then, so those never
     // report hours or minutes.
-    var REL_MAX_AGE = 30 * 86400;
     function relDate(ts, dayOnly) {
       var now = Math.floor(Date.now() / 1000);
       var age = now - ts;
       // a feed clock running ahead of ours would otherwise read "-2 hours ago"
-      if (age < 0 || age > REL_MAX_AGE) return '';
+      if (age < 0) return '';
       if (!dayOnly) {
         if (age < 60) return 'just now';
         if (age < 3600) return countOf(Math.floor(age / 60), 'minute') + ' ago';
@@ -814,7 +1019,11 @@
       var days = dayGap(ts, now);
       if (days <= 0) return 'today';
       if (days === 1) return 'yesterday';
-      return countOf(days, 'day') + ' ago';
+      if (days < 14) return countOf(days, 'day') + ' ago';
+      if (days < 61) return countOf(Math.floor(days / 7), 'week') + ' ago';
+      var months = monthGap(ts, now);
+      if (months < 24) return countOf(Math.max(1, months), 'month') + ' ago';
+      return countOf(Math.floor(months / 12), 'year') + ' ago';
     }
     function countOf(n, unit) { return n + ' ' + unit + (n === 1 ? '' : 's'); }
     // Calendar days apart rather than 24-hour blocks, so 11pm last night is
@@ -825,18 +1034,48 @@
       b.setHours(0, 0, 0, 0);
       return Math.round((b - a) / 86400000);
     }
-    function addedLabel(fs) {
-      if (!fs) return '';
-      var abs = absDate(fs, fs > 1433649600);
-      return abs ? 'Added ' + (relDate(fs, false) || abs) : '';
+    // Calendar months for the same reason: someone reading "Nov 13, 2024" on
+    // the 29th of August counts nine months off a calendar, not 289 days
+    // divided by 30. The day-of-month test is what stops a date eight days
+    // short of its anniversary being called a full month older.
+    function monthGap(ts, now) {
+      var a = new Date(ts * 1000), b = new Date(now * 1000);
+      var m = (b.getFullYear() - a.getFullYear()) * 12 + (b.getMonth() - a.getMonth());
+      if (b.getDate() < a.getDate()) m--;
+      return m;
     }
-    // A registry push has a real time of day and is shown with one. A plugin's
-    // date-formed version carries no time, so that variant stops at the day
-    // rather than inventing midnight.
+    // The date is the fact and the age is what makes it mean something at a
+    // glance, so both are shown: "Nov 13, 2024 (9 months ago)". The time of day
+    // is deliberately not in here even when the timestamp carries one, since it
+    // would double the length of a card footer for a detail nobody reads at
+    // this distance; the tooltip on the same element still has it in full.
+    // The bracket is dropped rather than left empty when no age can be worked
+    // out, which today means only a feed clock running ahead of ours.
+    function dateWithAge(label, ts, dayOnly) {
+      var abs = absDate(ts, false);
+      if (!abs) return '';
+      var rel = relDate(ts, dayOnly);
+      return label + abs + (rel ? ' (' + rel + ')' : '');
+    }
+    function addedLabel(fs) {
+      return fs ? dateWithAge('Added ', fs, false) : '';
+    }
+    // A registry push has a real time of day. A plugin's date-formed version
+    // carries none, so that variant never reports hours or minutes rather than
+    // inventing midnight.
     function updatedLabel(lu, lk) {
-      if (!lu) return '';
-      var abs = absDate(lu, lk === 'r');
-      return abs ? 'Updated ' + (relDate(lu, lk !== 'r') || abs) : '';
+      return lu ? dateWithAge('Updated ', lu, lk !== 'r') : '';
+    }
+    function starTitle(s) {
+      return s.toLocaleString() + ' GitHub star' + (s === 1 ? '' : 's') +
+             ' on this app\'s source repository';
+    }
+    // Plugins carry a real install count of their own, and "Docker image pulls"
+    // is the wrong noun for something that was never pulled from a registry.
+    function downloadTitle(dl, ty) {
+      return ty === 'plugin'
+        ? dl.toLocaleString() + ' Unraid servers have installed this plugin'
+        : dl.toLocaleString() + ' pulls of this app\'s Docker image';
     }
     function mkBtn(label, cls) {
       var b = document.createElement('span');
@@ -896,6 +1135,7 @@
 
     function render() {
       if (!isOn() || caSpecial) return;
+      renderGen++;
       var wrap = ensureGrid();
       if (!wrap) return;
       renderDockerNotice();
@@ -946,6 +1186,68 @@
       pageItemsNow = pageItems;
       queueScan();
       try { window.scrollTo(0, 0); } catch (e) {}
+      fillMissingDates();
+    }
+
+    // 1,164 of the 4,251 docker apps in CA's feed carry no LastUpdate at all,
+    // and every app pinned to a tag other than :latest reports none either,
+    // so those cards land here with an empty right-hand slot. lastupdate.php
+    // can resolve all of them from the registry that actually hosts the
+    // image, same as a drawer open already does for one app at a time; this
+    // walks the page that just painted and asks for the rest of it. Capped at
+    // 4 requests in flight because this is a background fill behind a page
+    // the user is already reading, not something that should open dozens of
+    // sockets at once. The server caches each repo's answer, so paging back
+    // and forth through the catalog costs nothing after the first pass.
+    function fillMissingDates() {
+      try {
+        var gen = renderGen;
+        var queue = [];
+        for (var i = 0; i < pageItemsNow.length; i++) {
+          var a = pageItemsNow[i];
+          if (!a || a.lu || a.ty !== 'docker' || !a.ri) continue;
+          if (Object.prototype.hasOwnProperty.call(regDates, a.ri)) {
+            // already asked this session; a real answer still needs painting
+            // onto this card, since a freshly rendered tile has lost the text
+            if (regDates[a.ri]) paintFilledDate(a, regDates[a.ri], gen);
+            continue;
+          }
+          queue.push(a);
+        }
+        var pump = function () {
+          if (!queue.length) return;
+          fetchOne(queue.shift());
+        };
+        var fetchOne = function (a) {
+          var ref = a.ri;
+          fetch(PREFIX + 'lastupdate.php?repo=' + encodeURIComponent(ref))
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (j) { var ts = (j && j.ts) || 0; regDates[ref] = ts; if (ts) paintFilledDate(a, ts, gen); })
+            .catch(function () { regDates[ref] = 0; })
+            .then(function () { pump(); });
+        };
+        var n = Math.min(4, queue.length);
+        for (var k = 0; k < n; k++) pump();
+      } catch (e) {}
+    }
+    // Writing the date onto the app record happens whether or not this page
+    // is still the one on screen, since the next render should not have to
+    // ask again; painting the tile itself is guarded by gen, because a paint
+    // that lands after the user has turned the page would touch a card that
+    // no longer belongs to this walk (or, worse, a different app that has
+    // since reused the same DOM node).
+    function paintFilledDate(a, ts, gen) {
+      a.lu = ts; a.lk = 'r';
+      try {
+        if (gen !== renderGen) return;
+        if (typeof CSS === 'undefined' || !CSS.escape) return;
+        var tile = document.querySelector('#asga-grid .asga-tile[data-apppath="' + CSS.escape(a.p) + '"]');
+        if (!tile) return;
+        var up = tile.querySelector('.asga-tile-updated');
+        if (!up) return;
+        up.textContent = updatedLabel(a.lu, a.lk);
+        up.title = absDate(a.lu, true) + '\n' + 'When this app\'s image was last published to its container registry.';
+      } catch (e) {}
     }
 
     // Stars are fetched for the apps on screen rather than the whole 3600-app
@@ -972,7 +1274,13 @@
         if (!force && scanAsked[a.p]) continue;
         want.push(a.p);
       }
-      if (!want.length) { setRefreshSpin(false); return; }
+      if (!want.length) {
+        setRefreshSpin(false);
+        // only when the user asked: the automatic top-up runs on every page
+        // turn and has nothing to announce when the page is already current
+        if (force) scanStatus('Nothing to refresh on this page');
+        return;
+      }
       want.forEach(function (p) { scanAsked[p] = 1; });
       scanInFlight = true;
       fetch(PREFIX + 'scanpage.php', {
@@ -989,13 +1297,21 @@
           var stars = (j && j.stars) || {};
           var byPath = {};
           for (var i = 0; i < APPS.length; i++) byPath[APPS[i].p] = APPS[i];
+          var changed = 0;
           want.forEach(function (p) {
             var a = byPath[p];
             if (!a) return;
             a.sa = now;                                    // tried; don't ask again this week
-            if (Object.prototype.hasOwnProperty.call(stars, p)) a.s = stars[p];
+            if (!Object.prototype.hasOwnProperty.call(stars, p)) return;
+            if (stars[p] !== a.s) changed++;
+            a.s = stars[p];
           });
           paintStars(stars);
+          if (force) {
+            if (!j) scanStatus('Refresh failed, the server did not answer');
+            else scanStatus('Checked ' + want.length + ' app' + (want.length === 1 ? '' : 's') + ', ' +
+                            (changed ? changed + ' star count' + (changed === 1 ? '' : 's') + ' changed' : 'all up to date'));
+          }
         });
     }
     // Repaint badges in place. A full render() would jump the page back to the
@@ -1023,7 +1339,7 @@
           wrap.insertBefore(b, wrap.firstChild);
         }
         b.textContent = '\u2605 ' + fmt(v);
-        b.title = v + ' GitHub stars';
+        b.title = starTitle(v);
       }
     }
 
@@ -2033,6 +2349,21 @@
       var el = document.getElementById('asga-refresh');
       if (el) el.classList[on ? 'add' : 'remove']('asga-spinning');
     }
+    // "Refresh this page" rescans the stars for what is on screen, and a scan
+    // that finds every count unchanged (the normal outcome on a page looked at
+    // recently) repaints identical numbers, so the only thing that moved was a
+    // 14px icon in the corner. That reads as a dead button. The word beside the
+    // icon says what is happening instead, then says what happened, then goes
+    // back to being the catalog timestamp it normally is.
+    var stampRestore = null;
+    function scanStatus(msg, hold) {
+      var el = document.getElementById('asga-updated');
+      if (!el) return;
+      clearTimeout(stampRestore);
+      el.textContent = msg;
+      el.title = '';
+      if (!hold) stampRestore = setTimeout(updateStamp, 4000);
+    }
     function onRefreshClick(e) {
       if (e) { e.stopPropagation(); e.preventDefault(); }
       var host = document.getElementById('asga-refresh');
@@ -2048,7 +2379,11 @@
         var item = ev.target.closest ? ev.target.closest('.asga-refitem') : null;
         if (!item) return;
         menu.remove();
-        if (item.getAttribute('data-act') === 'page') { setRefreshSpin(true); scanVisible(true); }
+        if (item.getAttribute('data-act') === 'page') {
+          setRefreshSpin(true);
+          scanStatus('Refreshing this page…', true);
+          scanVisible(true);
+        }
         else refreshAll();
       });
       setTimeout(function () {
@@ -2135,6 +2470,7 @@
       wireCategories();
       wireLightbox();
       wireDescriptionTidy();
+      wireDrawerDetails();
       showWarningIfNeeded();
       applyViewMode();
       dismissCaLoading();
