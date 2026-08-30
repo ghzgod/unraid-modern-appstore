@@ -717,6 +717,15 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    control that was not there and then opened the drawer when pressed. */
 .asga-tile-cat { cursor: inherit; }
 
+/* A description showing WHY an app matched, rather than what the app is. The
+   search reads an app's whole overview and the card prints only its opening,
+   so a result could match on a passage the reader cannot see and the list then
+   looks like it is returning anything at all. The matched words carry the
+   accent; nothing else changes, so a result still occupies the card's own
+   description slot and never grows a band its neighbours do not have. */
+.asga-tile-desc-hit { font-style: italic; }
+.asga-hit { color: #ff8c2f; font-weight: 600; font-style: normal; }
+
 /* One sentence, so two lines. applist.php now cuts the overview at its first
    sentence rather than at a character count, and that sentence fits two lines
    at nearly every column width, so the block that used to reserve six lines
@@ -1417,12 +1426,21 @@ body.asga-active .popupIcon i { padding: 0; font-size: 6.4rem; }
    icon's height the column's height, and the ratio keeps it square as it grows,
    so its bottom edge lands on the buttons' bottom edge exactly. */
 body.asga-active .popupContent:not(.asga-repo-drawer) .ca_popupIconArea { align-items: stretch; }
+/* The square itself is set by sizeDrawerIcon() in inject.js, not here. CSS
+   cannot express it: stretching the row gives the wrapper a height, but its
+   width still comes from the image's own, and an aspect-ratio cannot turn that
+   height back into a width while the row's height is itself derived from the
+   content standing in it. Written as a ratio the wrapper came out 3px wide
+   holding an 88px image, which painted straight over the text beside it. The
+   height of the column IS a number by the time the drawer has rendered, so it
+   is read and applied there. What stays here is only the shape of the box. */
 body.asga-active .popupContent:not(.asga-repo-drawer) .ca_popupIconArea > .popupIcon {
-  display: flex; align-self: stretch; flex: 0 0 auto;
+  display: block; flex: 0 0 auto; overflow: hidden;
 }
 body.asga-active .popupContent:not(.asga-repo-drawer) .ca_popupIconArea > .popupIcon > img.popupIcon,
+body.asga-active .popupContent:not(.asga-repo-drawer) .ca_popupIconArea > .popupIcon > a,
 body.asga-active .popupContent:not(.asga-repo-drawer) .ca_popupIconArea > .popupIcon > a > img.popupIcon {
-  height: 100%; width: auto; aspect-ratio: 1 / 1;
+  width: 100%; height: 100%; display: block;
 }
 /* CA absolutely positions .popupInfo at a fixed offset; put it back in flow */
 body.asga-active .popupInfo { position: static; flex: 1 1 auto; min-width: 0; }
@@ -1784,42 +1802,41 @@ body.asga-active .modComment {
   border-radius: 8px; background: var(--asga-surface);
 }
 body.asga-active .moderatorComment { font-size: 1.3rem; line-height: 1.5; }
-/* One grid, and both of CA's wrappers dissolved into it, because the pieces
-   that belong together are split across the two: the date it was picked sits in
-   the badge's column and the heading it dates sits in the other. The badge
-   spans the whole run on the left, and everything written about the pick reads
-   down the right, starting with when. spotlightHeader is empty in every sample
-   seen so far, but that is not a guarantee across a catalog this size, so it
-   gets a row of its own above the date rather than sharing one: an app where
-   it does carry text would otherwise print that text on top of the date
-   underneath it. */
+/* The same shape as the Maintainer card above it: the heading at the card's own
+   top left, then a picture on the left with everything written about it reading
+   down the right. CA splits those pieces across two wrappers, with the date
+   sitting in the badge's column and the heading it dates in the other, so both
+   wrappers are dissolved and every piece is placed here directly. */
 body.asga-active .spotlightPopup {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  column-gap: 16px; row-gap: 6px;
+  column-gap: 14px; row-gap: 6px;
   align-items: start;
   margin: 18px 0 0;
   padding: 12px 14px; border: 1px solid var(--asga-cardline); border-radius: 8px; background: var(--asga-surface);
 }
 body.asga-active .spotlightIconArea,
 body.asga-active .spotlightInfoArea { display: contents; }
-body.asga-active .spotlightIconArea > div:first-child { grid-column: 1; grid-row: 1 / span 5; }
-body.asga-active .spotlightHeader { grid-column: 2; grid-row: 1; }
+body.asga-active .spotlightWhy { grid-column: 1 / -1; grid-row: 1; }
+body.asga-active .spotlightIconArea > div:first-child { grid-column: 1; grid-row: 2 / span 3; }
+body.asga-active .spotlightDate { grid-column: 2; grid-row: 2; }
+body.asga-active .spotlightMessage { grid-column: 2; grid-row: 3; }
+body.asga-active .spotlightWho { grid-column: 2; grid-row: 4; }
+/* CA leaves this empty on every app in this catalog. Placed rather than hidden,
+   in the same cell as the heading, so an app that does carry one still has it
+   drawn instead of silently dropped. */
+body.asga-active .spotlightHeader { grid-column: 1 / -1; grid-row: 1; }
 body.asga-active .spotlightIconArea img.spotlightIcon {
-  width: 86px; height: auto; margin: 0 !important; object-fit: contain;
+  width: 52px; height: auto; margin: 0 !important; object-fit: contain;
 }
-/* Left aligned and at the top of what it dates. CA centres it under the badge
-   with a ca_center class on the wrapper, which stops meaning anything once the
-   wrapper is dissolved, so the alignment is stated here. */
+/* A caption under the heading, not a second heading. It carried the accent and
+   uppercase when it was the block's own top line; with the heading above it,
+   two accent lines stacked read as a mistake. */
 body.asga-active .spotlightDate {
-  grid-column: 2; grid-row: 2;
   font-size: 1.15rem; margin: 0 !important; text-align: left;
-  font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase;
-  color: var(--asga-accent);
+  text-transform: none; letter-spacing: normal; font-weight: 600;
+  color: color-mix(in srgb, var(--asga-fg) 72%, transparent);
 }
-body.asga-active .spotlightWhy { grid-column: 2; grid-row: 3; }
-body.asga-active .spotlightMessage { grid-column: 2; grid-row: 4; }
-body.asga-active .spotlightWho { grid-column: 2; grid-row: 5; }
 body.asga-active .spotlightInfoArea { margin: 0; padding: 0; min-width: 0; }
 body.asga-active .spotlightMessage { font-size: 1.3rem; line-height: 1.5; }
 body.asga-active .spotlightWho { margin-top: 8px; color: var(--asga-muted); }

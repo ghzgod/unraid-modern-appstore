@@ -440,8 +440,13 @@
       for (var i = 0; i < words.length; i++) if (h.indexOf(words[i]) < 0) return false;
       return true;
     }
+    // The query as the words the filters actually test, shared by the list and
+    // by the cards so the two can never disagree about what matched.
+    function searchWords() {
+      return view.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    }
     function currentList() {
-      var words = view.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      var words = searchWords();
       var opt = optFor(view.sort);
       var list = APPS.filter(function (a) {
         if (view.special === 'pinned') { if (!pinnedSet || !pinnedSet.has((a.ri || '') + '&' + (a.pn || ''))) return false; }
@@ -791,11 +796,12 @@
       document.body.__asgaDrawerDetails = true;
       var host = document.getElementById('sidenavContent') || document.querySelector('.sidenav');
       if (!host) return;
-      new MutationObserver(function () { fixDrawerDetails(); fixDrawerIcon(); fixMaintainerIcon(); fixRepoDrawer(); cacheDrawer(); })
+      new MutationObserver(function () { fixDrawerDetails(); fixDrawerIcon(); fixMaintainerIcon(); sizeDrawerIcon(); fixRepoDrawer(); cacheDrawer(); })
         .observe(host, { childList: true, subtree: true });
       fixDrawerDetails();
       fixDrawerIcon();
       fixMaintainerIcon();
+      sizeDrawerIcon();
       fixRepoDrawer();
       cacheDrawer();
       wireBackButton();
@@ -884,6 +890,40 @@
       var app = drawerApp();
       if (!app) return;
       paintMaintainerIcon(document.querySelector('#sidenavContent img.popupAuthorIcon'), app.mi);
+    }
+    // The app drawer's icon is as tall as the column beside it, and square.
+    // The measurement is taken to the BOTTOM OF THE LAST BUTTON rather than to
+    // the bottom of the column, because every button in that column carries a
+    // bottom margin for when the run wraps, and measuring the column would hand
+    // the icon that margin as extra height and drop it below the buttons it is
+    // supposed to line up with.
+    function sizeDrawerIcon() {
+      if (!isOn() || isRepoDrawer()) return;
+      var area = document.querySelector('#sidenavContent .ca_popupIconArea');
+      if (!area) return;
+      var wrap = null, info = null;
+      for (var i = 0; i < area.children.length; i++) {
+        var c = area.children[i];
+        if (c.classList.contains('popupIcon')) wrap = c;
+        else if (c.classList.contains('popupInfo')) info = c;
+      }
+      if (!wrap || !info) return;
+      var top = info.getBoundingClientRect().top;
+      var bottom = 0;
+      var btns = info.querySelectorAll('.caButton');
+      for (var k = 0; k < btns.length; k++) {
+        var b = btns[k].getBoundingClientRect().bottom;
+        if (b > bottom) bottom = b;
+      }
+      // A drawer with no buttons at all still gets a square, sized to whatever
+      // text it does carry.
+      if (!bottom) bottom = info.getBoundingClientRect().bottom;
+      var side = Math.round(bottom - top);
+      if (side < 48) return;                 // not laid out yet, or nothing to measure
+      if (wrap.__asgaSide === side) return;  // already this size, do not thrash the layout
+      wrap.__asgaSide = side;
+      wrap.style.width = side + 'px';
+      wrap.style.height = side + 'px';
     }
     // Which app the open drawer is showing. CA restores a drawer from its own
     // cookie on a page load, which never goes through openSidebar(), so its own
@@ -1478,13 +1518,166 @@
       }
     }
 
+    // A real arrival date for the apps CA never recorded one for. Its own value
+    // for those is a constant its skin manufactures, so asking is worth a
+    // request: addeddate.php reads the oldest dated entry of a plugin's own
+    // changelog, and answers -1 when the changelog cannot prove it reaches a
+    // first release. The answers are cached on flash, so this costs a request
+    // once per app for the life of the install.
+    var addedMap = {};
+    var addedPending = {};
+    var addedTimer = null;
+    function queueAdded(a) {
+      if (!a || a.fx !== 1 || !a.p) return;
+      if (addedMap[a.p] !== undefined) return;
+      addedPending[a.p] = true;
+      if (!addedTimer) addedTimer = setTimeout(flushAdded, 200);
+    }
+    function flushAdded() {
+      addedTimer = null;
+      var paths = Object.keys(addedPending);
+      if (!paths.length) return;
+      var batch = paths.slice(0, 60);
+      fetch(PREFIX + 'addeddate.php', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ p: batch })
+      }).then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          batch.forEach(function (p) {
+            addedMap[p] = (j && j[p] !== undefined) ? j[p] : -1;
+            delete addedPending[p];
+            repaintAdded(p);
+          });
+          if (Object.keys(addedPending).length && !addedTimer) addedTimer = setTimeout(flushAdded, 200);
+        })
+        .catch(function () {
+          // the endpoint is missing or the server refused; the queue is dropped
+          // rather than asked again on every render
+          batch.forEach(function (p) { addedMap[p] = -1; delete addedPending[p]; repaintAdded(p); });
+        });
+    }
+    // The card was drawn before the answer arrived, so the one date it could be
+    // wrong about is replaced in place. Same tile-lookup form paintFilledDate
+    // uses for the Updated half of the footer: CSS.escape guards the path
+    // going into the attribute selector, and the whole thing is a no-op when
+    // the tile isn't on screen any more (paged away, or never in the grid, as
+    // buildRepoApps' maintainer-drawer rows are).
+    function repaintAdded(p) {
+      if (typeof CSS === 'undefined' || !CSS.escape) return;
+      var tile = document.querySelector('#asga-grid .asga-tile[data-apppath="' + CSS.escape(p) + '"]');
+      if (!tile) return;
+      var old = tile.querySelector('.asga-tile-added');
+      var a = null;
+      for (var i = 0; i < APPS.length; i++) { if (APPS[i].p === p) { a = APPS[i]; break; } }
+      if (!a) return;
+      var fresh = addedSpan(a);
+      if (!fresh) { if (old) old.remove(); return; }
+      if (old) old.replaceWith(fresh);
+      else {
+        var dates = tile.querySelector('.asga-tile-dates');
+        if (dates) dates.insertBefore(fresh, dates.firstChild);
+      }
+    }
+
     // applist.php already applies CA's own floor to FirstSeen, so every app has
     // a date here and it is the same date CA's stock drawer prints. The time of
     // day is asked for only above that floor: below it the clock reads whatever
     // CA's constant happens to encode rather than anything that happened.
     function addedSpan(a) {
-      if (!a.fs) return null;
-      return dateSpan('asga-tile-added', CAL_ICON, 'Added', a.fs, false, a.fs > 1433649600);
+      // Not one of the apps CA lost the date for: its own value stands.
+      if (a.fx !== 1) {
+        if (!a.fs) return null;
+        return dateSpan('asga-tile-added', CAL_ICON, 'Added', a.fs, false, a.fs > 1433649600);
+      }
+      queueAdded(a);
+      var resolved = addedMap[a.p];
+      // The plugin's own changelog said when it was first released. That is a
+      // date somebody published, not one inferred from anything.
+      if (resolved > 0) {
+        var s = dateSpan('asga-tile-added', CAL_ICON, 'Added', resolved, true, false);
+        s.title = 'First released ' + absDate(resolved, false) + ', read from this plugin’s own changelog. The app catalog holds no record of when it was added.';
+        return s;
+      }
+      // Failing that, the repository it is built from has a birthday, which is
+      // the earliest the app can possibly have existed.
+      if (resolved !== undefined && a.ca) {
+        var g = dateSpan('asga-tile-added', CAL_ICON, 'Added', a.ca, true, false);
+        g.title = 'Source repository created ' + absDate(a.ca, false) + '. The app catalog holds no record of when this app was added, and this is the earliest it can have existed.';
+        return g;
+      }
+      // Nothing anywhere holds it. The field stays rather than the card growing
+      // a gap its neighbours do not have, and it says so plainly instead of
+      // printing the date CA manufactures for these.
+      if (resolved !== undefined) {
+        var u = document.createElement('span');
+        u.className = 'asga-tile-added asga-stat-none';
+        u.insertAdjacentHTML('afterbegin', CAL_ICON);
+        u.title = 'The app catalog holds no record of when this app was added';
+        var t = document.createElement('span');
+        t.className = 'asga-datetext';
+        t.textContent = 'Unknown';
+        u.appendChild(t);
+        return u;
+      }
+      // The answer has not come back yet. CA's own value holds the slot so the
+      // footer does not jump, and repaintAdded replaces it the moment it does.
+      return dateSpan('asga-tile-added', CAL_ICON, 'Added', a.fs, false, false);
+    }
+
+    // Why this app is in the results. The search reads an app's whole overview,
+    // and the card only ever prints the first sentence or two of it, so a
+    // result could match on a passage the reader cannot see and the list then
+    // looks like it is returning anything at all. When the words that matched
+    // are not in what the card would print, the card prints the passage that
+    // did instead, with those words marked. The snippet is cut on word
+    // boundaries so it never opens or closes mid-word.
+    function matchSnippet(a, words) {
+      if (!words.length) return null;
+      var shown = (a.de || '').toLowerCase();
+      var missing = words.filter(function (w) { return shown.indexOf(w) < 0; });
+      if (!missing.length) return null;              // the card already shows why
+      var full = ((a.de || '') + ' ' + (a.sx || '')).replace(/\s+/g, ' ').trim();
+      var hay = full.toLowerCase();
+      var at = -1;
+      for (var i = 0; i < missing.length && at < 0; i++) at = hay.indexOf(missing[i]);
+      if (at < 0) return null;                        // matched a field, not the prose
+      var start = Math.max(0, at - 60);
+      var end = Math.min(full.length, at + 120);
+      if (start > 0) { var sp = full.indexOf(' ', start); if (sp > -1 && sp < at) start = sp + 1; }
+      if (end < full.length) { var ep = full.lastIndexOf(' ', end); if (ep > at) end = ep; }
+      return (start > 0 ? '…' : '') + full.slice(start, end) + (end < full.length ? '…' : '');
+    }
+
+    // Built as text nodes and marked spans rather than as a string of markup,
+    // because every character of this came out of a public feed and none of it
+    // may be parsed as HTML.
+    function fillSnippet(el, text, words) {
+      el.textContent = '';
+      var low = text.toLowerCase();
+      var marks = [];
+      words.forEach(function (w) {
+        var from = 0, at;
+        while ((at = low.indexOf(w, from)) > -1) { marks.push([at, at + w.length]); from = at + w.length; }
+      });
+      if (!marks.length) { el.textContent = text; return; }
+      marks.sort(function (x, y) { return x[0] - y[0]; });
+      var merged = [marks[0]];
+      for (var i = 1; i < marks.length; i++) {
+        var last = merged[merged.length - 1];
+        if (marks[i][0] <= last[1]) last[1] = Math.max(last[1], marks[i][1]);
+        else merged.push(marks[i]);
+      }
+      var pos = 0;
+      merged.forEach(function (m) {
+        if (m[0] > pos) el.appendChild(document.createTextNode(text.slice(pos, m[0])));
+        var hit = document.createElement('span');
+        hit.className = 'asga-hit';
+        hit.textContent = text.slice(m[0], m[1]);
+        el.appendChild(hit);
+        pos = m[1];
+      });
+      if (pos < text.length) el.appendChild(document.createTextNode(text.slice(pos)));
     }
 
     function makeTile(a) {
@@ -1626,7 +1819,9 @@
       // lining up with its neighbours.
       var desc = document.createElement('div');
       desc.className = 'asga-tile-desc';
-      desc.textContent = a.de || '';
+      var snip = matchSnippet(a, searchWords());
+      if (snip) { desc.classList.add('asga-tile-desc-hit'); fillSnippet(desc, snip, searchWords()); }
+      else desc.textContent = a.de || '';
       tile.appendChild(desc);
 
       // Why Install is off. It goes INSIDE the description band rather than

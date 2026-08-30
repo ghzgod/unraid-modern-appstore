@@ -15,12 +15,14 @@
  *
  * Output: { "generated": <ts>, "feedReady": <bool>, "docker": {...}, "defaultSort": <string>,
  *           "historyDays": <int>,
- *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,fk,lu,lk,ca,sx,rn,mi,t1,t7,t30,t365,rd,dt,td,tc } ] }
+ *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,fx,fk,lu,lk,ca,sx,rn,mi,t1,t7,t30,t365,rd,dt,td,tc } ] }
  *   p  = template path (passed to CA's showSidebarApp for Info/Install)
  *   n  = display name          sn = lowercase sort-name
  *   ic = icon URL              ct = category
  *   s  = GitHub stars (or null)  dl = Unraid downloads (or 0)
  *   fs = FirstSeen unix ts (date added; 0 if unknown or if the app predates CA's records)
+ *   fx = 1 when fs is CA's manufactured floor (1433000000) rather than a date it
+ *        recorded, 0 otherwise
  *   fk = 'e' when CA's FirstSeen was the sentinel 1 rather than a real date, meaning
  *        the app existed before CA started keeping records; '' otherwise
  *   lu = last-update unix ts (0 if unknown)   lk = its source: 'r' registry push, 'v' plugin version
@@ -398,9 +400,13 @@ foreach ($tmpl as $t) {
     // it writes for an app whose arrival it never recorded, becomes 1433000000
     // and prints as an ordinary date. That is why CA's stock drawer reads
     // "May 30, 2015" for those apps. Matching it exactly is the whole point:
-    // that drawer is one toggle away and the two must not disagree.
+    // that drawer is one toggle away and the two must not disagree. fx below
+    // flags exactly that substitution, so the grid can tell a date CA observed
+    // from one it manufactured, without either of them changing what CA itself
+    // would print.
     $fs = (int)($t['FirstSeen'] ?? 0);
     if ($fs < 1433649600) $fs = 1433000000;
+    $fx = $fs === 1433000000 ? 1 : 0;
 
     list($lu, $lk) = last_update($t);
 
@@ -450,6 +456,7 @@ foreach ($tmpl as $t) {
         's'   => isset($mine['s']) ? $mine['s'] : null,
         'dl'  => $dl,
         'fs'  => $fs,
+        'fx'  => $fx,                                        // 1 when fs is CA's floor rather than a date it recorded
         'lu'  => $lu,
         'lk'  => $lk,
         'sa'  => $fetchedAt[strtolower($mine['rp'] ?? '')] ?? 0,
