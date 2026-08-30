@@ -558,9 +558,26 @@
         // img.popupIcon.screenshot (handle it too so CA's gallery never fires).
         var scr = e.target.closest ? e.target.closest('#sidenavContent .screenshot') : null;
         if (!scr) return;
+        // A video is not a picture. CA marks the two apart by class in the same
+        // strip: an image opens mfp-image and a video opens mfp-iframe, which is
+        // an embedded player in a modal. Playing a video inside a drawer inside
+        // a page is three frames deep and YouTube's own controls fight the
+        // outermost one for the click, so it leaves for a tab of its own,
+        // behind the same confirm every other outbound link in this plugin
+        // goes through.
+        if (scr.classList.contains('mfp-iframe')) {
+          e.preventDefault(); e.stopImmediatePropagation();
+          var vid = scr.getAttribute('href') || '';
+          if (vid) attentionModal(
+            'This opens the video on YouTube in a new tab.\n\n' +
+            'YouTube will see the visit, and whatever cookies your browser already holds for it.',
+            function () { openExt(vid); }
+          );
+          return;
+        }
         e.preventDefault(); e.stopImmediatePropagation();
         if (scr.classList.contains('popupIcon')) { var s = srcOf(scr); if (s) openLightbox([s], 0); return; }
-        var items = [].slice.call(document.querySelectorAll('#sidenavContent .screenshot')).filter(function (el) { return !el.classList.contains('popupIcon'); });
+        var items = [].slice.call(document.querySelectorAll('#sidenavContent .screenshot')).filter(function (el) { return !el.classList.contains('popupIcon') && !el.classList.contains('mfp-iframe'); });
         var srcs = items.map(srcOf).filter(Boolean);
         openLightbox(srcs, Math.max(0, items.indexOf(scr)));
       }, true);
@@ -706,10 +723,11 @@
       document.body.__asgaDrawerDetails = true;
       var host = document.getElementById('sidenavContent') || document.querySelector('.sidenav');
       if (!host) return;
-      new MutationObserver(function () { fixDrawerDetails(); fixDrawerIcon(); fixRepoDrawer(); cacheDrawer(); })
+      new MutationObserver(function () { fixDrawerDetails(); fixDrawerIcon(); fixMaintainerIcon(); fixRepoDrawer(); cacheDrawer(); })
         .observe(host, { childList: true, subtree: true });
       fixDrawerDetails();
       fixDrawerIcon();
+      fixMaintainerIcon();
       fixRepoDrawer();
       cacheDrawer();
       wireBackButton();
@@ -765,6 +783,31 @@
       if (img.getAttribute('src') !== app.ic) img.setAttribute('src', app.ic);
       img.setAttribute('href', app.ic);
       watchTone(img);
+    }
+    // CA publishes no icon for 511 of its 1182 repositories and serves the
+    // Docker question mark for those, which is how the same maintainer ends up
+    // with a face on the card and a placeholder in the drawer beside it.
+    // applist.php already answers this for the grid by deriving their GitHub
+    // avatar from the repository's own URL, so the drawer is handed the same
+    // picture. Only the placeholder is replaced: a maintainer who has published
+    // an icon keeps the one they chose.
+    function paintMaintainerIcon(img, url) {
+      if (!img || img.__asgaMaint || !url) return;
+      if ((img.getAttribute('src') || '').indexOf('question.png') < 0) return;
+      img.__asgaMaint = true;
+      img.setAttribute('src', url);
+      // The placeholder may already have been measured, and the flag that
+      // records it would otherwise leave the avatar wearing the question mark's
+      // verdict about how dark it is. It is a different picture, so it gets its
+      // own reading.
+      img.__asgaTone = false;
+      watchTone(img);
+    }
+    function fixMaintainerIcon() {
+      if (!isOn() || isRepoDrawer()) return;
+      var app = drawerApp();
+      if (!app) return;
+      paintMaintainerIcon(document.querySelector('#sidenavContent img.popupAuthorIcon'), app.mi);
     }
     // Which app the open drawer is showing. CA restores a drawer from its own
     // cookie on a page load, which never goes through openSidebar(), so its own
@@ -1076,6 +1119,10 @@
       // the list of their apps, each with its icon, name, blurb and a way
       // through to it.
       var mine = repoApps();
+      // The profile drawer's own header icon is the same repository picture, so
+      // it takes the same fallback. Any one of this maintainer's apps carries
+      // it, since mi is a property of the repository rather than of the app.
+      if (mine.length) paintMaintainerIcon(document.querySelector('#sidenavContent .popupIcon img'), mine[0].mi);
       fixRepoStats(mine);
       buildRepoApps(bio);
     }
