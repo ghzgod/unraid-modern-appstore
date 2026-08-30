@@ -573,8 +573,14 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
   );
   pointer-events: none;
 }
+/* The first track is pinned to the mark's own width rather than sized to
+   content. An auto track took up the rail's slack instead, and it took a
+   different amount of it depending on whether the row's word was "Stars" or
+   "Installs", which put the two rows' columns of text out of line with each
+   other. This is the same expression .asga-tile-statbox uses for its own
+   width, so the track can only ever be exactly the box's width. */
 .asga-tile-stat {
-  display: grid; grid-template-columns: auto minmax(0, auto); column-gap: calc(var(--cw) * 0.022);
+  display: grid; grid-template-columns: clamp(19px, calc(var(--cw) * 0.054), 37px) minmax(0, 1fr); column-gap: calc(var(--cw) * 0.022);
   align-items: center; cursor: inherit;
 }
 .asga-tile-statbox {
@@ -587,7 +593,7 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 .asga-tile-statlabel {
   /* the track above is fixed, so a word longer than it clips rather than
      forcing the column wider and undoing the alignment it exists for */
-  font-size: clamp(7.5px, calc(var(--cw) * 0.019), 12px); line-height: 1.2;
+  font-size: clamp(9px, calc(var(--cw) * 0.024), 15px); line-height: 1.2;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
   color: color-mix(in srgb, var(--text-color, #f2f2f2) 62%, var(--background-color, #1d1b1b));
 }
@@ -650,6 +656,13 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   min-width: 0;
 }
+/* Askable: the line is the one piece of text on the card that routinely says
+   less than it knows, so it reads as something to hover rather than as a label
+   that happens to be cut off. */
+.asga-tile-cat { cursor: help; }
+.asga-tile-cat:hover .asga-tile-catrest,
+.asga-tile-cat:hover .asga-tile-catlead { color: var(--text-color, #f2f2f2); }
+.asga-tile-cat:hover .asga-bicon { opacity: 1; }
 
 /* One sentence, so two lines. applist.php now cuts the overview at its first
    sentence rather than at a character count, and that sentence fits two lines
@@ -784,7 +797,7 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
   display: inline-flex; align-items: center; justify-content: center; gap: calc(var(--cw) * 0.010);
   cursor: pointer; user-select: none; white-space: nowrap;
   font-size: clamp(8px, calc(var(--cw) * 0.024), 15px);
-  padding: calc(var(--cw) * 0.0155) calc(var(--cw) * 0.018); border-radius: 20px;
+  padding: calc(var(--cw) * 0.0155) calc(var(--cw) * 0.0145); border-radius: 20px;
   border: 1px solid rgba(127,127,127,0.4); color: var(--text-color, inherit);
   background: rgba(127,127,127,0.08);
   /* nowrap and shrinkable: at the narrowest column the labels ellipsise rather
@@ -793,13 +806,15 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
   flex: 0 1 auto; min-width: 0;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
-.asga-tile-btns > .asga-install,
-.asga-tile-btns > .asga-btn-installed { margin-left: auto; }
+/* No auto margin. Pushing Install to the far edge handed it every pixel of the
+   row's slack as one gap, so the space before it read wider than the five gaps
+   between the buttons behind it. The run is evenly spaced and Install simply
+   ends it. */
 .asga-btn:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.14); }
 .asga-btn-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .asga-btn .asga-bicon {
-  width: clamp(7px, calc(var(--cw) * 0.021), 13px);
-  height: clamp(7px, calc(var(--cw) * 0.021), 13px);
+  width: clamp(9px, calc(var(--cw) * 0.027), 17px);
+  height: clamp(9px, calc(var(--cw) * 0.027), 17px);
 }
 /* Install is the one thing a card is for, so it is the one button that is
    filled rather than outlined. The fill is the accent this project already
@@ -1555,27 +1570,43 @@ body.asga-active .popupTable a { color: var(--asga-accent) !important; text-deco
    Maintainer card no longer sits second inside .popupInfoSection: it is moved
    up under the description (see fixDrawerDetails), and a positional selector
    would stop matching the moment it left. */
+/* One card, not two halves. The avatar leads, and everything said about the
+   maintainer stacks to its right: their name, then the three things you can do
+   about them directly underneath it. The buttons used to be thrown to the far
+   edge by an auto margin on the name, which on a wide drawer left a hand's
+   width of nothing between a person and the controls that belong to them. */
 body.asga-active .popupInfoLeft:has(.popupAuthorTitle) {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  display: grid;
+  column-gap: 14px; row-gap: 10px; align-items: center;
   margin: 18px 0 0;
 }
-body.asga-active .popupAuthorTitle { flex: 0 0 100%; margin-bottom: 0; }
-/* The avatar-and-name cluster and the three buttons are siblings on one flex
-   line. margin-right:auto on the cluster is what pushes the buttons to the far
-   edge, and align-items:center on the row above puts every one of them on the
-   same centre line, which a floated icon and a separate button run could never
-   guarantee. The cluster's own align-items centres the name against the avatar,
-   so the name's centre IS the row's centre. */
+body.asga-active .popupAuthorTitle { grid-column: 1 / -1; margin-bottom: 0; }
 body.asga-active .popupAuthorTitle + div {
-  display: flex; align-items: center; gap: 12px;
-  flex: 0 1 auto; min-width: 0; margin: 0 auto 0 0;
+  display: contents;
 }
+/* The avatar spans the name and the button run beside it, so the card is as
+   tall as what is written next to it rather than as tall as a picture. */
+body.asga-active .popupInfoLeft:has(.popupAuthorTitle) .popupAuthorIcon { grid-row: 2 / span 2; grid-column: 1; }
+body.asga-active .popupInfoLeft:has(.popupAuthorTitle) .popupAuthor { grid-column: 2; grid-row: 2; align-self: end; }
+body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .caButton { grid-column: 2; grid-row: 3; }
 body.asga-active .popupAuthor { font-size: 1.4rem; font-weight: 600; margin: 0; line-height: 1.3; overflow-wrap: anywhere; }
 body.asga-active .popupAuthorIcon { order: -1; float: none; flex: 0 0 auto; display: block; }
 body.asga-active img.popupAuthorIcon {
-  width: 40px; height: 40px; border-radius: 8px; object-fit: contain;
+  width: 52px; height: 52px; border-radius: 10px; object-fit: contain;
   background: var(--asga-surface); border: 1px solid var(--asga-line);
 }
+/* Row three is a track of its own that the three buttons share, each taking a
+   column sized to itself, so they read as a run on the name's left edge rather
+   than as three cells of a card. */
+body.asga-active .popupInfoLeft:has(.popupAuthorTitle) {
+  grid-template-columns: auto repeat(3, max-content) minmax(0, 1fr);
+}
+body.asga-active .popupAuthorTitle { grid-column: 1 / -1; }
+body.asga-active .popupInfoLeft:has(.popupAuthorTitle) .popupAuthorIcon { grid-column: 1; grid-row: 2 / span 2; align-self: start; }
+body.asga-active .popupInfoLeft:has(.popupAuthorTitle) .popupAuthor { grid-column: 2 / -1; grid-row: 2; }
+body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .caButton.repoPopup { grid-column: 2; grid-row: 3; }
+body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .caButton.ca_repoSearchPopUp { grid-column: 3; grid-row: 3; }
+body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .caButton.ca_favouriteRepo { grid-column: 4; grid-row: 3; }
 /* The #sidenavContent in the shared .caButton rule above is an id, so that
    rule outranks a plain class one and its 6px bottom margin survived here.
    With align-items:center the row centres each child's MARGIN box, so that
@@ -1739,18 +1770,6 @@ body.asga-active #sidenavContent .caButton.ca_favouriteRepo.fav:hover {
   border-color: rgba(106, 196, 127, 0.55);
 }
 
-/* Profile before All Apps. Every child of the maintainer card gets an explicit
-   order rather than just the one being moved: the card is a wrapping flex row
-   whose first child is the MAINTAINER heading at flex-basis 100%, and a lone
-   order:-1 on Profile sent it in front of that heading instead of merely in
-   front of All Apps. Scoped to this card so the profile drawer's own header
-   buttons, which share these class names, are untouched. */
-body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .popupAuthorTitle { order: -2; }
-body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .popupAuthorTitle + div { order: -1; }
-body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .caButton.repoPopup { order: 1; }
-body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .caButton.ca_repoSearchPopUp { order: 2; }
-body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .caButton.ca_favouriteRepo { order: 3; }
-
 /* The profile header mirrors the app drawer's: icon, name, then one run of
    actions under it at the same distance the app drawer puts its buttons below
    the author line. Favourite leads, since it is the one thing here that changes
@@ -1886,20 +1905,20 @@ body.asga-active .asga-repo-app {
   display: grid;
   grid-template-columns: 40px minmax(0, 1fr) auto;
   grid-template-rows: auto auto;
-  column-gap: 12px; row-gap: 6px; align-items: center;
+  column-gap: 12px; row-gap: 6px; align-items: start;
   padding: 10px 12px; border: 1px solid var(--asga-cardline);
   border-radius: 8px; background: var(--asga-surface);
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 body.asga-active .asga-repo-app-icon {
-  grid-column: 1; grid-row: 1 / span 2; align-self: center;
+  grid-column: 1; grid-row: 1 / span 2; align-self: start;
   width: 40px; height: 40px; box-sizing: border-box;
   object-fit: contain; border-radius: 8px; padding: 3px;
   background: var(--asga-control); border: 1px solid var(--asga-cardline);
 }
 body.asga-active .asga-repo-app-text {
-  grid-column: 2; grid-row: 1 / span 2; align-self: center; min-width: 0;
+  grid-column: 2; grid-row: 1; align-self: start; min-width: 0;
 }
 /* the name holds one line for the same reason the blurb below holds two: a
    row that grows to fit a long name reads as ragged next to the ones beside
@@ -1934,8 +1953,12 @@ body.asga-active .asga-repo-app-badges .asga-stat {
 }
 body.asga-active .asga-repo-app-badges .asga-stat-noun { display: none; }
 body.asga-active .asga-repo-app-badges .asga-ficon { width: 11px; height: 11px; }
+/* The dates read from the same left edge the name and the blurb do, rather
+   than from the right edge, where they were competing with the figures above
+   them for the eye. The icon is topped out against the name for the same
+   reason: both now answer to the row's left column instead of its right one. */
 body.asga-active .asga-repo-app-dates {
-  grid-column: 3; grid-row: 2; justify-self: end; align-self: end;
+  grid-column: 2; grid-row: 2; justify-self: start; align-self: end;
   display: flex; gap: 12px; align-items: center;
   font-size: 1.05rem; line-height: 1.5;
   transition: opacity 0.15s ease;

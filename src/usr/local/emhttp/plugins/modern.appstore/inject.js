@@ -1445,6 +1445,10 @@
       cat.className = 'asga-tile-cat';
       cat.insertAdjacentHTML('afterbegin', TAG_ICON);
       var raw = a.ct || '';
+      // The line truncates on a narrow card, so the whole of it lives in the
+      // tooltip, the same way an abbreviated figure in the rail keeps its exact
+      // count there.
+      if (raw) cat.title = raw;
       var colon = raw.indexOf(':');
       if (colon > 0) {
         var lead = document.createElement('span');
