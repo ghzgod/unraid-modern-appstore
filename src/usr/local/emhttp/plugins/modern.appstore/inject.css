@@ -1410,8 +1410,28 @@ body.asga-active .popupIcon img {
   border-radius: 10px; background: var(--asga-control); border: 1px solid var(--asga-cardline);
 }
 body.asga-active .popupIcon i { padding: 0; font-size: 6.4rem; }
+/* The icon is as tall as what sits beside it. CA gives it a fixed square while
+   the column to its right runs to a name, an author line and a row of buttons,
+   so the header always ended with the icon stopping well short of the buttons'
+   own baseline and a band of nothing under it. Stretching the row makes the
+   icon's height the column's height, and the ratio keeps it square as it grows,
+   so its bottom edge lands on the buttons' bottom edge exactly. */
+body.asga-active .popupContent:not(.asga-repo-drawer) .ca_popupIconArea { align-items: stretch; }
+body.asga-active .popupContent:not(.asga-repo-drawer) .ca_popupIconArea > .popupIcon {
+  display: flex; align-self: stretch; flex: 0 0 auto;
+}
+body.asga-active .popupContent:not(.asga-repo-drawer) .ca_popupIconArea > .popupIcon > img.popupIcon,
+body.asga-active .popupContent:not(.asga-repo-drawer) .ca_popupIconArea > .popupIcon > a > img.popupIcon {
+  height: 100%; width: auto; aspect-ratio: 1 / 1;
+}
 /* CA absolutely positions .popupInfo at a fixed offset; put it back in flow */
 body.asga-active .popupInfo { position: static; flex: 1 1 auto; min-width: 0; }
+/* Every button in this column carries a bottom margin for when the run wraps,
+   so the column's box is 6px taller than anything drawn in it and the space
+   under the buttons read wider than the space above the icon. The column gives
+   that 6px back, which is the same correction the profile drawer's own header
+   makes for the same reason. */
+body.asga-active .popupContent:not(.asga-repo-drawer) .popupInfo { margin-bottom: -6px; }
 body.asga-active .popupName { font-size: 2rem; font-weight: 700; line-height: 1.2; max-height: none; }
 body.asga-active .popupAuthorMain {
   font-size: 1.3rem; line-height: 1.4; margin: 4px 0 14px; color: var(--asga-muted);
