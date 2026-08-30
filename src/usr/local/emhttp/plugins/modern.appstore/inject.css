@@ -1804,12 +1804,21 @@ body.asga-active .popupTable a { color: var(--asga-accent) !important; text-deco
    about them directly underneath it. The buttons used to be thrown to the far
    edge by an auto margin on the name, which on a wide drawer left a hand's
    width of nothing between a person and the controls that belong to them. */
+/* The Maintainer and Spotlight cards are siblings in this same column and, until
+   now, disagreed on every shell value: Maintainer padded 14px 16px with its
+   eyebrow sitting 15px below the card's top edge and its left edge at x=1261,
+   while Spotlight padded 12px 14px with its eyebrow 13px from the top and its
+   left edge at x=1259. Two cards a few pixels out of step read as a mistake
+   rather than a choice, so both now share one shell, 16px 18px, so both
+   eyebrows land at exactly the same offset from their own card's top edge and
+   both cards open on one left edge. */
 body.asga-active .popupInfoLeft:has(.popupAuthorTitle) {
   display: grid;
   column-gap: 14px; row-gap: 10px; align-items: center;
   margin: 18px 0 0;
+  padding: 16px 18px;
 }
-body.asga-active .popupAuthorTitle { grid-column: 1 / -1; margin-bottom: 0; }
+body.asga-active .popupAuthorTitle { grid-column: 1 / -1; margin: 0; }
 body.asga-active .popupAuthorTitle + div {
   display: contents;
 }
@@ -1818,10 +1827,14 @@ body.asga-active .popupAuthorTitle + div {
 body.asga-active .popupInfoLeft:has(.popupAuthorTitle) .popupAuthorIcon { grid-row: 2 / span 2; grid-column: 1; }
 body.asga-active .popupInfoLeft:has(.popupAuthorTitle) .popupAuthor { grid-column: 2; grid-row: 2; align-self: end; }
 body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .caButton { grid-column: 2; grid-row: 3; }
-body.asga-active .popupAuthor { font-size: 1.4rem; font-weight: 600; margin: 0; line-height: 1.3; overflow-wrap: anywhere; }
+body.asga-active .popupAuthor { font-size: 1.5rem; font-weight: 600; margin: 0; line-height: 1.3; overflow-wrap: anywhere; }
 body.asga-active .popupAuthorIcon { order: -1; float: none; flex: 0 0 auto; display: block; }
+/* 56 rather than 52, and box-sizing so 56 is what it actually measures rather
+   than 54 once the border is added outside it. 56 is also exactly the height
+   of the name and the button run stacked beside it (18 + 10 + 28), so the
+   avatar's top and bottom edges land on theirs. */
 body.asga-active img.popupAuthorIcon {
-  width: 52px; height: 52px; border-radius: 10px; object-fit: contain;
+  box-sizing: border-box; width: 56px; height: 56px; border-radius: 10px; object-fit: contain;
   background: var(--asga-surface); border: 1px solid var(--asga-line);
 }
 /* Nobody anywhere holds a picture of this maintainer, so the drawer draws the
@@ -1837,7 +1850,7 @@ body.asga-active #sidenavContent .asga-avatar-glyph {
   background: var(--asga-surface); border: 1px solid var(--asga-line);
   color: var(--asga-muted);
 }
-body.asga-active #sidenavContent .popupAuthorIcon.asga-avatar-glyph { width: 52px; height: 52px; }
+body.asga-active #sidenavContent .popupAuthorIcon.asga-avatar-glyph { width: 56px; height: 56px; }
 body.asga-active #sidenavContent .ca_popupIconArea > .popupIcon > .asga-avatar-glyph { width: 100%; height: 100%; }
 /* PERSON_ICON carries the card's own .asga-bicon-line, whose size is a clamp
    against a --cw the grid sets on a tile and nothing sets in here, so the size
@@ -1856,7 +1869,7 @@ body.asga-active .popupInfoLeft:has(.popupAuthorTitle) {
   grid-template-columns: auto repeat(4, max-content) minmax(0, 1fr);
 }
 body.asga-active .popupAuthorTitle { grid-column: 1 / -1; }
-body.asga-active .popupInfoLeft:has(.popupAuthorTitle) .popupAuthorIcon { grid-column: 1; grid-row: 2 / span 2; align-self: start; }
+body.asga-active .popupInfoLeft:has(.popupAuthorTitle) .popupAuthorIcon { grid-column: 1; grid-row: 2 / span 2; align-self: center; }
 body.asga-active .popupInfoLeft:has(.popupAuthorTitle) .popupAuthor { grid-column: 2 / -1; grid-row: 2; }
 body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .caButton.repoPopup { grid-column: 2; grid-row: 3; }
 body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .caButton.ca_repoSearchPopUp { grid-column: 3; grid-row: 3; }
@@ -1950,33 +1963,42 @@ body.asga-active .moderatorComment { font-size: 1.3rem; line-height: 1.5; }
    top left, then a picture on the left with everything written about it reading
    down the right. CA splits those pieces across two wrappers, with the date
    sitting in the badge's column and the heading it dates in the other, so both
-   wrappers are dissolved and every piece is placed here directly. */
+   wrappers are dissolved and every piece is placed here directly. It now shares
+   that card's own shell too, 18px column-gap, 10px row-gap and 16px 18px
+   padding in place of the 14px, 6px and 12px 14px this card used to carry on
+   its own, so the two read as one family rather than as two cards that happen
+   to sit next to each other. */
 body.asga-active .spotlightPopup {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
-  column-gap: 14px; row-gap: 6px;
+  column-gap: 18px; row-gap: 10px;
   align-items: start;
   margin: 18px 0 0;
-  padding: 12px 14px; border: 1px solid var(--asga-cardline); border-radius: 8px; background: var(--asga-surface);
+  padding: 16px 18px; border: 1px solid var(--asga-cardline); border-radius: 8px; background: var(--asga-surface);
 }
 body.asga-active .spotlightIconArea,
 body.asga-active .spotlightInfoArea { display: contents; }
-body.asga-active .spotlightWhy { grid-column: 1 / -1; grid-row: 1; }
+body.asga-active .spotlightWhy { grid-column: 1 / -1; grid-row: 1; margin: 0; }
 body.asga-active .spotlightIconArea > div:first-child { grid-column: 1; grid-row: 2 / span 3; }
 body.asga-active .spotlightDate { grid-column: 2; grid-row: 2; }
 body.asga-active .spotlightMessage { grid-column: 2; grid-row: 3; }
-body.asga-active .spotlightWho { grid-column: 2; grid-row: 4; }
+/* The badge is taller than the three lines of text beside it, and the
+   attribution pinned to the bottom of that span is what makes the text column
+   fill the badge's height instead of leaving a band of nothing under it. The
+   date holds the top, the attribution holds the bottom, and the reason sits
+   between them. */
+body.asga-active .spotlightWho { grid-column: 2; grid-row: 4; align-self: end; }
 /* CA leaves this empty on every app in this catalog. Placed rather than hidden,
    in the same cell as the heading, so an app that does carry one still has it
    drawn instead of silently dropped. */
 body.asga-active .spotlightHeader { grid-column: 1 / -1; grid-row: 1; }
-/* 96px, not 52. This is not a decorative mark: CA's badge has the words
-   MONTHLY SPOTLIGHT set inside the ring, and at 52px they are a grey smudge,
-   so the one block in the drawer that says why the Unraid team picked this app
-   opened with an illegible label above the reason. 96 is the size those two
-   words become readable at. */
+/* This went 52 to 96 to make the words MONTHLY SPOTLIGHT legible, and now to
+   128 so the badge is the thing the eye lands on in this card, which is the
+   whole point of a spotlight. The source image is 500 by 500, so height is
+   stated rather than left to auto, and the box is square whatever the file
+   turns out to be. */
 body.asga-active .spotlightIconArea img.spotlightIcon {
-  width: 96px; height: auto; margin: 0 !important; object-fit: contain;
+  width: 128px; height: 128px; margin: 0 !important; object-fit: contain;
 }
 /* A caption under the heading, not a second heading. It carried the accent and
    uppercase when it was the block's own top line; with the heading above it,
@@ -1987,8 +2009,11 @@ body.asga-active .spotlightDate {
   color: color-mix(in srgb, var(--asga-fg) 72%, transparent);
 }
 body.asga-active .spotlightInfoArea { margin: 0; padding: 0; min-width: 0; }
-body.asga-active .spotlightMessage { font-size: 1.3rem; line-height: 1.5; }
-body.asga-active .spotlightWho { margin-top: 8px; color: var(--asga-muted); }
+/* This sentence is the whole content of the card, the editorial reason the app
+   was picked, and it was set at body size, the same as every ordinary
+   paragraph in the drawer. It leads now. */
+body.asga-active .spotlightMessage { font-size: 1.5rem; line-height: 1.45; }
+body.asga-active .spotlightWho { margin: 0; color: var(--asga-muted); }
 /* 22px, the top of the drawer's section rhythm, rather than the 18px between
    a heading and its own body. These three open a new section of the drawer. */
 body.asga-active .charts.chartTitle, body.asga-active .changelogTitle, body.asga-active .templateErrors { margin-top: 22px; }
