@@ -419,12 +419,7 @@ body.dark .asga-settings-select { color-scheme: dark; }
 }
 .asga-tile {
   position: relative;
-  /* A card is lit from the top. The gradient runs from a grey a shade above
-     the page down to the page's own colour, so a card reads as a raised
-     surface rather than a rectangle drawn on the background, and the run is
-     built out of the same rgba(127,127,127,a) scale every other surface in
-     this file uses rather than a second palette. */
-  background: linear-gradient(180deg, rgba(127, 127, 127, 0.13) 0%, rgba(127, 127, 127, 0.04) 55%, rgba(127, 127, 127, 0) 100%), var(--background-color, #1d1b1b);
+  background: var(--background-color, rgba(127,127,127,0.06));
   border: 1px solid rgba(127, 127, 127, 0.22);
   border-radius: 8px;
   /* No padding here: a subgrid item's own padding offsets its tracks from the
@@ -439,7 +434,6 @@ body.dark .asga-settings-select { color-scheme: dark; }
   overflow: hidden;
   overflow-wrap: break-word;
   word-break: break-word;
-  --asga-desc-indent: calc(88px + 12px);
 }
 .asga-tile > *, .asga-tile-head > *, .asga-tile-htext > * { min-width: 0; max-width: 100%; }
 .asga-tile:hover { border-color: #ff8c2f; }
@@ -447,31 +441,19 @@ body.dark .asga-settings-select { color-scheme: dark; }
    padding would shift its tracks off the parent's and undo the alignment the
    subgrid exists for, so the four bands each carry the side inset and the
    first and last carry the top and bottom. */
-.asga-tile > * { padding-left: 14px; padding-right: 14px; }
+.asga-tile > *:not(.asga-tile-badges) { padding-left: 14px; padding-right: 14px; }
 .asga-tile > .asga-tile-head { padding-top: 14px; }
 .asga-tile > .asga-tile-dates { padding-bottom: 14px; }
 
-/* 88px is a flat design token now, not the font-metric calc it used to be: the
-   header became a three-column grid, and the icon's own column no longer needs
-   to track how many lines the text beside it happens to wrap to. Both axes are
-   still pinned to the one custom property rather than either being derived
-   with aspect-ratio, because an aspect-ratio box can resolve from EITHER axis:
-   given a wide enough column the width won, the height followed, and the icon
-   grew to fill the whole card. */
-/* Three columns: the icon, everything written about the app, and the two
-   figures. The middle column is the only one that gives, so a long name wraps
-   instead of squeezing the figures out of the card. */
+/* The icon's side, computed from the very type tokens the three text lines are
+   built from: two reserved title lines, the author line, its 2px gap, and the
+   category line. Both axes are pinned to it rather than one being derived with
+   aspect-ratio, because an aspect-ratio box can resolve from EITHER axis: given
+   a wide enough column the width won, the height followed, and the icon grew to
+   fill the whole card. */
 .asga-tile-head {
-  /* The stat column is a fixed track rather than an auto one. Sized to its
-     contents it came out 82px on a card reading "0 Stars" and 98px on one
-     reading "9.1M Downloads", which put the rule that divides the card at a
-     different place on every tile in a row: three cards side by side drew
-     three vertical lines that almost, but did not, agree. A fixed track is
-     wide enough for the longest figure the feed carries and lands the rule on
-     one line across the whole grid. */
-  display: grid; grid-template-columns: auto minmax(0, 1fr) 100px;
-  gap: 12px; align-items: start;
-  --asga-icon-side: 88px;
+  display: flex; gap: 12px; align-items: flex-start;
+  --asga-icon-side: calc(2 * 1.25rem * 1.2 + 1rem * 1.35 + 2px + 0.95rem * 1.35);
 }
 .asga-tile-icon {
   position: relative; align-self: flex-start;
@@ -504,51 +486,6 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
   background: rgba(238, 238, 242, 0.94);
   border-color: rgba(255, 255, 255, 0.3);
 }
-/* The maintainer's picture sits where a person glyph used to, at the size of
-   the line it shares rather than the size of an avatar, so the author line
-   keeps its own height. */
-.asga-tile-author, .asga-tile-cat { display: flex; align-items: center; gap: 6px; min-width: 0; }
-.asga-tile-authorname, .asga-tile-cat > span {
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
-}
-.asga-tile-avatar {
-  width: 16px; height: 16px; flex: 0 0 16px; border-radius: 4px;
-  object-fit: contain; background: rgba(127, 127, 127, 0.12);
-}
-.asga-bicon { flex: 0 0 auto; opacity: 0.75; }
-.asga-tile-author .asga-bicon, .asga-tile-cat .asga-bicon { width: 14px; height: 14px; }
-
-/* The stat column, ruled off from the text. The rule is the only line inside a
-   card, which is what makes it read as a division of the card rather than as
-   another border. */
-.asga-tile-stats {
-  display: flex; flex-direction: column; gap: 10px;
-  padding-left: 14px; border-left: 1px solid rgba(127, 127, 127, 0.22);
-  align-self: stretch;
-}
-.asga-tile-stat {
-  display: grid; grid-template-columns: auto auto; column-gap: 9px;
-  align-items: center; cursor: inherit;
-}
-.asga-tile-statbox {
-  grid-row: 1 / span 2; display: inline-flex; align-items: center; justify-content: center;
-  width: 30px; height: 30px; border-radius: 8px;
-  background: rgba(127, 127, 127, 0.10); border: 1px solid rgba(127, 127, 127, 0.20);
-}
-.asga-tile-statnum { font-size: 1.25rem; font-weight: 700; line-height: 1.1; }
-.asga-tile-statlabel {
-  /* the track above is fixed, so a word longer than it clips rather than
-     forcing the column wider and undoing the alignment it exists for */
-  font-size: 0.85rem; line-height: 1.2;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
-  color: color-mix(in srgb, var(--text-color, #f2f2f2) 66%, var(--background-color, #1d1b1b));
-}
-.asga-tile-stat-stars .asga-smark { color: #f0a500; }
-.asga-tile-stat-dl .asga-smark { color: #4ab8c9; }
-.asga-tile-stat.asga-stat-none .asga-smark,
-.asga-tile-stat.asga-stat-none .asga-tile-statnum {
-  color: color-mix(in srgb, var(--text-color, #f2f2f2) 42%, var(--background-color, #1d1b1b));
-}
 .asga-tile-htext { min-width: 0; flex: 1; }
 /* Name+icon and author+category are each one row, a left text column that
    shrinks and a right-hand column that never does, replacing the old
@@ -557,10 +494,9 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    buys the line back for the description below. */
 .asga-tile-namerow { display: flex; min-width: 0; align-items: flex-start; gap: 8px; }
 /* Two lines are always reserved whether the title needs them or not, so the
-   author sits on its own row and the category under that on every card. A
-   title that would run past two lines truncates now, with no floating badge
-   left to pad around: the header is a grid, so the name's own column already
-   stops short of the stat column beside it. */
+   author sits on line three and the category on line four on every card. A
+   title that would run past the badges truncates rather than wrapping under
+   them, which is what the padding on the badged variant is for. */
 .asga-tile-name {
   min-height: calc(2 * 1.25rem * 1.2);
   font-size: 1.25rem; font-weight: 700; line-height: 1.2;
@@ -612,12 +548,6 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
   font-size: 1.15rem; line-height: 1.4; color: color-mix(in srgb, var(--text-color, #f2f2f2) 92%, var(--background-color, #1d1b1b)); margin: 0;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
-/* Indented to the header's own text column, so the name, the author, the
-   category and the description all start from one line down the card. */
-/* The child combinator is load bearing: the band inset above is written as
-   .asga-tile > *, and a bare class here would lose the cascade to it and leave
-   the description back on the card's own left edge. */
-.asga-tile > .asga-tile-desc { padding-left: calc(14px + var(--asga-desc-indent, 100px)); }
 
 /* Added and Updated share one line at the foot of the card, Added pinned to
    the left edge and the last-updated date to the right. Pushing them to
@@ -641,8 +571,6 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
      the text they were never meant to touch. Each piece now carries its own
      strength instead: .asga-datetext dims itself, everything else stays full
      strength in its own colour. */
-  border-top: 1px solid rgba(127, 127, 127, 0.16);
-  padding-top: 10px; margin-top: 4px;
 }
 /* one rule is what guarantees all four footer items (two dates, two stats)
    share a centre line: the same icon-then-text flex box for every one of
@@ -694,37 +622,14 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    pushed down inside each card. */
 /* space-between, so the run spans the same width the description above it does
    rather than stopping 82px short of the card's right edge. */
-/* Six labelled buttons do not fit one line of a 340px column, and the card
-   clips its overflow, so the row wraps rather than losing whichever button
-   happens to fall off the right edge. Install is pushed to the end of whatever
-   line it lands on, which puts it in the card's bottom right corner at every
-   width instead of only the wide ones. The bands are subgrid tracks, so a card
-   that wraps to two lines lifts every card in its row to match and the grid
-   stays aligned. */
-.asga-tile-btns {
-  display: flex; flex-wrap: wrap; align-items: center;
-  justify-content: flex-start; gap: 6px; position: relative;
-}
-.asga-tile-btns > .asga-install,
-.asga-tile-btns > .asga-btn-installed { margin-left: auto; }
+.asga-tile-btns { display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 5px; position: relative; }
 .asga-btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer; user-select: none; white-space: nowrap;
-  font-size: 0.92rem; padding: 5px 11px; border-radius: 20px;
+  font-size: 0.92rem; padding: 4px 9px; border-radius: 20px;
   border: 1px solid rgba(127,127,127,0.4); color: var(--text-color, inherit);
   background: rgba(127,127,127,0.08);
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
-/* Install is the one thing a card is for, so it is the one button that is
-   filled rather than outlined. The fill is the accent this project already
-   uses for every interactive surface, not a second primary colour. */
-.asga-btn.asga-install {
-  border-color: #ff8c2f; background: rgba(255, 140, 47, 0.9);
-  color: #17140f; font-weight: 700;
-}
-.asga-btn.asga-install:hover { background: #ff8c2f; border-color: #ff8c2f; }
-.asga-btn:hover .asga-bicon { opacity: 1; }
-.asga-btn.asga-install .asga-bicon { opacity: 1; }
 .asga-btn:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.14); }
 /* #6ac47f is this project's one positive semantic colour. It means a state the
    server is already in, which is why both of the buttons below wear it: the app
@@ -754,6 +659,44 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 }
 .asga-suplink { display: block; padding: 7px 12px; font-size: 1rem; color: var(--text-color, inherit); text-decoration: none; }
 .asga-suplink:hover { background: rgba(255,140,47,0.16); }
+
+/* Stars and downloads now sit at the left of the footer row rather than as
+   badges floating over the title, so the title gets the full card width back
+   and each figure gets room for the word that says what it counts. */
+/* Stars and installs sit at the right end of the date band. They used to be
+   absolutely positioned in the card's corner, where they picked up the 14px
+   band padding from .asga-tile > * and ended up 29px from the card edge while
+   the icon sat 15px from the left. Inside the band the inset is simply the
+   band's own, so both sides match by construction rather than by a magic
+   number, and the figures share the dates' centre line. */
+/* The card's top right corner, at the same 14px inset every band uses, so the
+   gap to the right edge matches the icon's gap on the left. Absolutely
+   positioned, which keeps it out of the four subgrid tracks: an out-of-flow
+   child is not a grid item and cannot push a band off its shared row. */
+.asga-tile-badges {
+  position: absolute; top: 14px; right: 14px; z-index: 5;
+  /* The box is exactly one line of the app name tall, and it starts where that
+     first line starts (the head band's own 14px top inset). Centring inside a
+     box of that height is what puts the figures on the name's first-line
+     centre, without the stylesheet having to know how many lines the name
+     wraps to or where the name element happens to sit. */
+  height: calc(1.25rem * 1.2);
+  display: flex; gap: 4px; align-items: center;
+}
+/* the title stops short of the badges instead of running under them. Keyed off
+   a class on the card because the badges are appended last, and a sibling
+   combinator only ever reaches forwards. */
+.asga-has-badges .asga-tile-name { padding-right: 92px; }
+.asga-tile-badges .asga-stat {
+  font-size: 10px; line-height: 1; font-weight: 600;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  padding: 3px 7px; border-radius: 10px;
+  cursor: inherit;
+}
+/* no room for the word in a badge; the tooltip still carries it */
+.asga-tile-badges .asga-stat-noun { display: none; }
+.asga-tile-badges .asga-ficon { width: 11px; height: 11px; }
 
 /* the type icon closes the date row, so the icons along the card's bottom read
    as one line: updated, added, and what kind of app it is */
