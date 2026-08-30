@@ -46,7 +46,7 @@ header('Content-Type: application/json');
 $dataDir = '/boot/config/plugins/modern.appstore';
 $caTmp   = '/tmp/community.applications/tempFiles';
 // Same tempFiles directory as templates_new.json above, one repo per
-// maintainer rather than one row per app; see repo_icons() for what it holds
+// maintainer rather than one row per app; see repo_meta() for what it holds
 // and why it needs unserialize() instead of json_decode() despite its name.
 $repoList = "$caTmp/repositoryList.json";
 
@@ -61,18 +61,43 @@ $cfg = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
 $defaultSort = preg_replace('/[^a-z0-9_]/', '', strtolower((string)($cfg['DEFAULT_SORT'] ?? '')));
 $defaultSort = substr($defaultSort, 0, 20);
 
-// An author line is a person or org, never a URL. CA leaves Author empty for
-// most plugins and puts the .plg URL (cdn-wrapped) in Repository, so a stored or
-// feed value that is a link is dropped in favour of the repository owner's name.
-// Long values are trimmed here too, so one bad record cannot dominate a card.
-function display_author($stored, array $t) {
+// Who the card names under an app, and it has to be the same person the
+// drawer names and the same person the picture beside it shows.
+//
+// CA carries two different people here and they are not the same question.
+// Author is whoever makes the SOFTWARE (grafana, redis, browserless, uroni),
+// and RepoName is whoever publishes the TEMPLATE to Community Applications
+// (atribe, Masterwishx, FlippinTurt). They disagree on 2,722 of the 3,873
+// displayable apps, and this used to prefer Author, while the avatar beside
+// it has always been keyed off RepoName: on seventy per cent of the catalog
+// the card was showing one person's face next to another one's name, and
+// naming someone the drawer, one click away, did not mention at all.
+//
+// RepoName wins now, which is the value CA's own Maintainer card prints. Every
+// displayable app has one, so the rest is only for a feed that has gone wrong.
+// An author line is a person or org, never a URL: CA leaves Author empty for
+// most plugins and puts the .plg URL (cdn-wrapped) in Repository, so a value
+// that is a link is dropped rather than printed. Long values are trimmed here
+// too, so one bad record cannot dominate a card.
+function display_author($stored, array $t, array $repoMeta = []) {
+    $raw = (string)($t['RepoName'] ?? $t['Repo'] ?? '');
+    // A repository whose title is not a person's name carries the name to
+    // print as its own field, which is what CA reads: "Official Unraid Plugin
+    // Repository" is Unraid, "Selfhosters Unraid Discord Repository" is
+    // Selfhosters. No amount of trimming gets there from the title.
+    $short = trim((string)($repoMeta[$raw]['short'] ?? ''));
+    if ($short !== '') return clip($short, 60);
+    // s? because a maintainer whose name already ends in one writes the
+    // possessive with a bare apostrophe: 103 of the catalog's 1,112 repository
+    // names read "MediaOps' Repository" rather than "atribe's Repository", and
+    // a pattern that insisted on the s left the whole suffix sitting on the
+    // card while CA's own drawer, two inches away, had trimmed it.
+    $rn = trim(preg_replace('~[\x27\x{2019}]s? Repository$~ui', '', trim($raw)));
+    if ($rn !== '' && !preg_match('~^https?://~i', $rn)) return clip($rn, 60);
     foreach ([$stored, $t['Author'] ?? ''] as $cand) {
         $cand = trim((string)$cand);
         if ($cand !== '' && !preg_match('~^https?://~i', $cand)) return clip($cand, 60);
     }
-    $rn = trim((string)($t['RepoName'] ?? $t['Repo'] ?? ''));
-    $rn = trim(preg_replace('~[\x27\x{2019}]s Repository$~ui', '', $rn));
-    if ($rn !== '' && !preg_match('~^https?://~i', $rn)) return clip($rn, 60);
     return '';
 }
 // Hard cap on any single-line field the grid renders, so a malformed template
@@ -291,7 +316,14 @@ function read_json_ro($path) {
 // back to one elsewhere in this file. A missing or not-yet-populated file
 // (CA has not written its temp files this boot) yields an empty map rather
 // than a warning, so the grid just shows the generic glyph until it exists.
-function repo_icons($path) {
+// Two things per repository, from one pass over the file: the maintainer's
+// picture, and the short name CA prints for them when the repository's own
+// title is not a person's name. Only 6 of the 1,182 repositories carry a
+// shortName, and they are exactly the 6 the possessive strip in
+// display_author() cannot help ("Official Unraid Plugin Repository" is
+// "Unraid", "Selfhosters Unraid Discord Repository" is "Selfhosters"), which
+// is why reading it is worth the field.
+function repo_meta($path) {
     $raw = @file_get_contents($path);
     if ($raw === false) return [];
     $repos = @unserialize($raw);
@@ -300,14 +332,16 @@ function repo_icons($path) {
     foreach ($repos as $name => $r) {
         if (!is_array($r)) continue;
         $icon = trim((string)($r['icon'] ?? ''));
-        if ($icon !== '') {
-            $map[(string)$name] = $icon;
-            continue;
+        if ($icon === '') {
+            $url = (string)($r['url'] ?? '');
+            if (preg_match('~github\.com/([A-Za-z0-9._-]+)~i', $url, $m)) {
+                $icon = 'https://github.com/' . $m[1] . '.png?size=128';
+            }
         }
-        $url = (string)($r['url'] ?? '');
-        if (preg_match('~github\.com/([A-Za-z0-9._-]+)~i', $url, $m)) {
-            $map[(string)$name] = 'https://github.com/' . $m[1] . '.png?size=128';
-        }
+        $map[(string)$name] = [
+            'icon'  => $icon,
+            'short' => trim((string)($r['shortName'] ?? '')),
+        ];
     }
     return $map;
 }
@@ -359,7 +393,7 @@ if (class_exists('SQLite3') && is_file("$dataDir/stars.db")) {
 
 // Built once, not per app: repositoryList.json has one row per maintainer,
 // so 1182 repos are worth one pass regardless of how many templates they own.
-$repoIcons = repo_icons($repoList);
+$repoMeta = repo_meta($repoList);
 
 $out = [];
 foreach ($tmpl as $t) {
@@ -408,8 +442,16 @@ foreach ($tmpl as $t) {
     // above is trimmed for the card (the stored copy is shorter still), so the
     // searchable text rides along separately, capped so that one 15KB overview
     // cannot dominate the payload.
+    // CA's Author leads this, because the card no longer prints it: the line
+    // under an app names the person who publishes the template now (see
+    // display_author), and the searchable text is where the name of whoever
+    // makes the software goes instead. Without it, a search for "jokobsk" or
+    // "browserless" would stop finding the app it publishes, which the old
+    // author line answered by accident.
     $overview = trim(preg_replace('/\s+/', ' ', strip_tags((string)($t['Overview'] ?? ''))));
-    $sx = clip(trim((string)($t['ExtraSearchTerms'] ?? '') . ' ' . $overview), 2000);
+    $vendor = trim((string)($t['Author'] ?? ''));
+    if (preg_match('~^https?://~i', $vendor)) $vendor = '';
+    $sx = clip(trim($vendor . ' ' . (string)($t['ExtraSearchTerms'] ?? '') . ' ' . $overview), 2000);
 
     // CA's own floor, lifted from its skins/Narrow/skin.php:
     //     $FirstSeen = ($FirstSeen < 1433649600) ? 1433000000 : $FirstSeen;
@@ -460,7 +502,7 @@ foreach ($tmpl as $t) {
         // Deliberately not clipped: the longest real value is 152 characters,
         // and cutting it would silently drop an app's trailing categories.
         'cf'  => (string)($t['Category'] ?? ''),
-        'au'  => display_author($mine['au'] ?? '', $t),
+        'au'  => display_author($mine['au'] ?? '', $t, $repoMeta),
         // CA's own maintainer key, kept byte-for-byte: display_author() above
         // trims this same RepoName down to a person's name for the card, but
         // the All Apps button in CA's drawer hands this value back UNTRIMMED
@@ -468,10 +510,10 @@ foreach ($tmpl as $t) {
         'rn'  => (string)($t['RepoName'] ?? $t['Repo'] ?? ''),
         // The maintainer's own picture, keyed off the same RepoName as 'rn'
         // just above so a mismatch between the two is impossible. Looked up
-        // in the map built once before this loop; see repo_icons() for how a
+        // in the map built once before this loop; see repo_meta() for how a
         // maintainer with no icon of their own still ends up with a GitHub
         // avatar here.
-        'mi'  => $repoIcons[(string)($t['RepoName'] ?? $t['Repo'] ?? '')] ?? '',
+        'mi'  => $repoMeta[(string)($t['RepoName'] ?? $t['Repo'] ?? '')]['icon'] ?? '',
         'de'  => $desc,
         'sx'  => $sx,
         'pr'  => $mine['pr'] ?? ($t['Project'] ?? ''),
