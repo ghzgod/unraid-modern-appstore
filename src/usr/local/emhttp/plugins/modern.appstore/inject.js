@@ -143,6 +143,27 @@
     // interactive everywhere else on this card, and this icon states a fact
     // about the app rather than offering to do anything.
     var PLUGIN_ICON = '<svg class="asga-ficon asga-ficon-lg asga-kind-plugin" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="This is a plugin application"><title>This is a plugin application</title><path d="M9 2v6M15 2v6"/><path d="M6 8h12v3a6 6 0 0 1-6 6 6 6 0 0 1-6-6V8z"/><path d="M12 17v5"/></svg>';
+    // The button row used to be six words in six pills. A mark in front of each
+    // lets the row be read at a glance rather than word by word. They are 10px
+    // rather than the 12px a footer glyph gets, because six buttons and their
+    // labels have to fit one line of a 340px column and the marks are what that
+    // line can least afford to spend on.
+    var INFO_ICON    = '<svg class="asga-bicon" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.5v.01"/></svg>';
+    var PIN_ICON     = '<svg class="asga-bicon" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4h6l-1 6 4 3v2H6v-2l4-3z"/><path d="M12 15v5"/></svg>';
+    var PROJECT_ICON = '<svg class="asga-bicon" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
+    var SUPPORT_ICON = '<svg class="asga-bicon" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.6"/><path d="M14.6 9.4 18 6M9.4 9.4 6 6M14.6 14.6 18 18M9.4 14.6 6 18"/></svg>';
+    var REPO_ICON    = '<svg class="asga-bicon" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 8-4 4 4 4"/><path d="m15 8 4 4-4 4"/></svg>';
+    var INSTALL_ICON = '<svg class="asga-bicon" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg>';
+    // The maintainer's own picture goes beside their name; this stands in for
+    // the 511 of CA's 1182 maintainers who have published none.
+    var PERSON_ICON  = '<svg class="asga-bicon asga-bicon-line" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.4"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>';
+    // A tag rather than the folder Project wears: the two sit on the same card
+    // and a category is a label attached to the app, not a place its files live.
+    var TAG_ICON     = '<svg class="asga-bicon asga-bicon-line" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12.5V5a2 2 0 0 1 2-2h7.5L21 11.5 12.5 20z"/><circle cx="7.6" cy="7.6" r="1.4"/></svg>';
+    // The two figures in the card's stat column, at the size a boxed mark needs
+    // rather than the 12px a footer glyph gets away with.
+    var STAR_MARK = '<svg class="asga-smark" viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M12 3l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.8 6.2 20.9l1.1-6.5L2.6 9.8l6.5-.9z"/></svg>';
+    var DL_MARK   = '<svg class="asga-smark" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg>';
     // Exclamation-in-a-circle for the About panel's "Report an issue" header
     // button (see makeDrawer's headerAction and ensureAboutPanel below). No
     // asga-ficon class: that class forces its own 12px/16px sizing, and this
@@ -1307,11 +1328,6 @@
 
       var htext = document.createElement('div');
       htext.className = 'asga-tile-htext';
-      // The type icon rides the name's own line, pinned to the right edge.
-      // The category sits on its own line under the author rather than
-      // opposite it: two short strings at opposite ends of a narrow row read
-      // as a gap with words either side, where stacked they read as one block
-      // of detail about the app.
       var nameRow = document.createElement('div');
       nameRow.className = 'asga-tile-namerow';
       var name = document.createElement('div');
@@ -1319,19 +1335,66 @@
       name.textContent = a.n;
       nameRow.appendChild(name);
       htext.appendChild(nameRow);
+      // The maintainer wears their own face. CA publishes an icon for 671 of
+      // its 1182 repositories and the rest fall back to a person glyph, which
+      // is the shape this line always had; the picture is simply better at
+      // saying which of two similarly named maintainers this is.
       if (a.au) {
         var au = document.createElement('div');
         au.className = 'asga-tile-author';
-        au.textContent = a.au;
+        if (a.mi) {
+          var av = document.createElement('img');
+          av.className = 'asga-tile-avatar';
+          av.src = a.mi;
+          av.loading = 'lazy';
+          av.alt = '';
+          av.onerror = function () { this.remove(); };
+          au.appendChild(av);
+        } else {
+          au.insertAdjacentHTML('afterbegin', PERSON_ICON);
+        }
+        var aun = document.createElement('span');
+        aun.className = 'asga-tile-authorname';
+        aun.textContent = a.au;
+        au.appendChild(aun);
         htext.appendChild(au);
       }
-      // The category is plain text on the author's own left edge, so the name,
-      // the author and it all start from one line down the card.
+      // CA files a category as "Parent: Child, Child". The parent is the part
+      // worth reading first, so it carries the weight and the children trail
+      // after it muted, rather than the whole string arriving at one strength.
       var cat = document.createElement('div');
       cat.className = 'asga-tile-cat';
-      cat.textContent = a.ct || '';
+      cat.insertAdjacentHTML('afterbegin', TAG_ICON);
+      var raw = a.ct || '';
+      var colon = raw.indexOf(':');
+      if (colon > 0) {
+        var lead = document.createElement('span');
+        lead.className = 'asga-tile-catlead';
+        lead.textContent = raw.slice(0, colon + 1);
+        var rest = document.createElement('span');
+        rest.className = 'asga-tile-catrest';
+        rest.textContent = raw.slice(colon + 1);
+        cat.appendChild(lead);
+        cat.appendChild(rest);
+      } else {
+        var only = document.createElement('span');
+        only.className = 'asga-tile-catrest';
+        only.textContent = raw;
+        cat.appendChild(only);
+      }
       htext.appendChild(cat);
       head.appendChild(htext);
+
+      // The two figures move out of the corner badge they used to float in and
+      // into a column of their own, ruled off from the text. A badge had room
+      // for an abbreviated number and nothing else, so a card could show "22k"
+      // without ever saying 22 thousand what; given a column, each figure gets
+      // the word underneath it.
+      var stats = document.createElement('div');
+      stats.className = 'asga-tile-stats';
+      stats.appendChild(statTile('asga-tile-stat-stars', STAR_MARK, a.s, 'Stars', starTitle(a.s)));
+      stats.appendChild(statTile('asga-tile-stat-dl', DL_MARK, a.dl, a.ty === 'plugin' ? 'Installs' : 'Downloads', downloadTitle(a.dl, a.ty)));
+      head.appendChild(stats);
       tile.appendChild(head);
 
       // description (verbiage)
@@ -1360,10 +1423,10 @@
       // direct links, no submenu)
       var btns = document.createElement('div');
       btns.className = 'asga-tile-btns';
-      btns.appendChild(mkBtn('Info', 'asga-info'));
+      btns.appendChild(mkBtn('Info', 'asga-info', INFO_ICON));
       if (a.ri) {
         var isPinned = pinnedSet && pinnedSet.has(a.ri + '&' + (a.pn || ''));
-        var pb = mkBtn(isPinned ? 'Unpin' : 'Pin App', 'asga-pin');
+        var pb = mkBtn(isPinned ? 'Unpin' : 'Pin App', 'asga-pin', PIN_ICON);
         if (isPinned) pb.classList.add('asga-pinned');
         btns.appendChild(pb);
       }
@@ -1373,7 +1436,7 @@
       // in the feed have no Project URL at all: their template simply never
       // declared one, which CA answers by leaving the entry out of its own
       // Support menu entirely.
-      var prBtn = mkBtn('Project', 'asga-project');
+      var prBtn = mkBtn('Project', 'asga-project', PROJECT_ICON);
       if (!a.pr) {
         prBtn.classList.add('asga-btn-off');
         prBtn.title = 'This app\'s template does not list a project page';
@@ -1381,7 +1444,7 @@
       btns.appendChild(prBtn);
       // Support gets the same treatment for the same reason, on the 198 apps
       // whose template names no support thread.
-      var suBtn = mkBtn('Support', 'asga-support');
+      var suBtn = mkBtn('Support', 'asga-support', SUPPORT_ICON);
       if (!a.su) {
         suBtn.classList.add('asga-btn-off');
         suBtn.title = 'This app\'s template does not list a support thread';
@@ -1391,7 +1454,7 @@
       // Profile button opens. Labelled Repo rather than Maintainer because the
       // drawer it opens is titled "<name>'s Repository" and the word has to fit
       // a card pill beside five others.
-      var mtBtn = mkBtn('Repo', 'asga-maint');
+      var mtBtn = mkBtn('Repo', 'asga-maint', REPO_ICON);
       if (a.rn) {
         mtBtn.title = 'Open ' + a.rn;
       } else {
@@ -1404,11 +1467,11 @@
       // handler's button branches, which is what leaves a click on it falling
       // through to the Info/Install drawer like the rest of the card.
       if (a.ri && installedSet && installedSet.has(stripTag(a.ri))) {
-        var instBtn = mkBtn('Installed', 'asga-btn-installed');
+        var instBtn = mkBtn('Installed', 'asga-btn-installed', INSTALL_ICON);
         instBtn.title = 'Already installed on this server';
         btns.appendChild(instBtn);
       } else {
-        var ib = mkBtn('Install', 'asga-install');
+        var ib = mkBtn('Install', 'asga-install', INSTALL_ICON);
         // Docker down: the card still lists the app and still opens its Info
         // drawer, only Install is off, exactly as CA behaves.
         if (blocked(a)) {
@@ -1430,22 +1493,11 @@
       // the app arrived in the store is the more stable of the two facts.
       var dates = document.createElement('div');
       dates.className = 'asga-tile-dates';
-      // One run of four facts, left aligned, directly under the description and
-      // ABOVE the buttons. Two earlier attempts put them in a row of their own
-      // below the buttons: spread across the full width they never lined up
-      // card to card, and split across two rows they wrapped the moment a
-      // column got narrow. Reading left to right off one starting edge removes
-      // both problems, and it puts the numbers next to the text they describe
-      // while the buttons become the last thing on the card.
-      var stats = document.createElement('div');
-      stats.className = 'asga-tile-badges';
-      // Both figures always render, zero included, for the same reason the
-      // dates always do: a missing slot on one card and not the next is what
-      // makes a grid look ragged. 960 of the 3,889 apps in the feed carry no
-      // download count at all (their image lives only on a registry that
-      // publishes no pull figures), and an unscanned app has no star count yet.
-      stats.appendChild(statSpan('asga-stat-stars', STAR_ICON, a.s, 'star', starTitle(a.s)));
-      stats.appendChild(statSpan('asga-stat-dl', DL_ICON, a.dl, a.ty === 'plugin' ? 'install' : 'pull', downloadTitle(a.dl, a.ty)));
+      // The card's actual footer now: two dates and what kind of app this is,
+      // left aligned, directly under the buttons. Stars and downloads used to
+      // ride here too, as a run of four facts, which is why this band once had
+      // to fit that many; they moved up into the header's own stat column, so
+      // the footer only ever has to hold the two dates and the kind icon.
       dates.appendChild(dateSpan('asga-tile-updated', CLOCK_ICON, 'Updated', a.lu, a.lk !== 'r', a.lk === 'r'));
       dates.appendChild(dateSpan('asga-tile-added', CAL_ICON, 'Added', a.fs, false, true));
       // What kind of app this is, at the far end of the same row the two date
@@ -1460,13 +1512,6 @@
       // belongs to the grid rather than to either band.
       tile.appendChild(btns);
       tile.appendChild(dates);
-      // Top right corner, out of flow so it is not one of the card's four
-      // subgrid bands. It is also excluded from the band padding rule in the
-      // stylesheet: that rule reaches every direct child, and when it reached
-      // this one the pills ended up 14px inside their own container and so
-      // 29px from the card edge while the icon sat at 15px.
-      tile.appendChild(stats);
-      tile.classList.add('asga-has-badges');
       return tile;
     }
     // The absolute form. CA's FirstSeen is a unix timestamp, and it floors
@@ -1586,6 +1631,32 @@
       s.appendChild(w);
       return s;
     }
+    // One figure in the card's stat column: a boxed mark, the abbreviated
+    // number, and the word for what is being counted under it. The exact figure
+    // stays in the tooltip, as it does everywhere else in this file. A figure
+    // nothing is known about keeps its slot and dims, for the same reason the
+    // footer's do: a missing box on one card and not the next is what makes a
+    // wall of cards read as ragged.
+    function statTile(cls, mark, n, word, title) {
+      var s = document.createElement('div');
+      var known = (n != null);
+      var v = known ? n : 0;
+      s.className = 'asga-tile-stat ' + cls + (known && v > 0 ? '' : ' asga-stat-none');
+      s.title = title;
+      var box = document.createElement('span');
+      box.className = 'asga-tile-statbox';
+      box.insertAdjacentHTML('afterbegin', mark);
+      var num = document.createElement('span');
+      num.className = 'asga-tile-statnum';
+      num.textContent = fmt(v);
+      var lab = document.createElement('span');
+      lab.className = 'asga-tile-statlabel';
+      lab.textContent = word;
+      s.appendChild(box);
+      s.appendChild(num);
+      s.appendChild(lab);
+      return s;
+    }
     function starTitle(s) {
       if (s == null) return 'This app has not been matched to a GitHub repository yet';
       return s.toLocaleString() + ' GitHub star' + (s === 1 ? '' : 's') +
@@ -1603,10 +1674,18 @@
         ? dl.toLocaleString() + ' Unraid servers have installed this plugin'
         : dl.toLocaleString() + ' pulls of this app\'s Docker image';
     }
-    function mkBtn(label, cls) {
+    // The icon is optional so a caller that wants a bare pill still gets one.
+    // The label rides in its own span because the row is nowrap and the span is
+    // what ellipsises when a column gets narrow, rather than the button growing
+    // and pushing Install off the card.
+    function mkBtn(label, cls, icon) {
       var b = document.createElement('span');
       b.className = 'asga-btn ' + cls;
-      b.textContent = label;
+      if (icon) b.insertAdjacentHTML('afterbegin', icon);
+      var t = document.createElement('span');
+      t.className = 'asga-btn-label';
+      t.textContent = label;
+      b.appendChild(t);
       return b;
     }
 
@@ -1854,14 +1933,15 @@
         var p = t.getAttribute('data-apppath');
         var v = stars[p];
         if (v == null) continue;
-        // the stats live in the footer row now, so a star count arriving after
-        // the page painted goes in beside the download count rather than into
-        // a corner badge that no longer exists
-        var wrap = t.querySelector('.asga-tile-badges');
-        if (!wrap) continue;
-        var b = wrap.querySelector('.asga-stat-stars');
-        if (b) b.remove();
-        wrap.insertBefore(statSpan('asga-stat-stars', STAR_ICON, v, 'star', starTitle(v)), wrap.firstChild);
+        // The stat lives in the header's own column now, not a footer badge, so
+        // a star count arriving after the page painted just rewrites that box's
+        // number rather than rebuilding an element that no longer exists.
+        var row = t.querySelector('.asga-tile-stat-stars');
+        if (!row) continue;
+        var num = row.querySelector('.asga-tile-statnum');
+        if (num) num.textContent = fmt(v);
+        row.title = starTitle(v);
+        row.classList.toggle('asga-stat-none', !(v > 0));
       }
     }
 
