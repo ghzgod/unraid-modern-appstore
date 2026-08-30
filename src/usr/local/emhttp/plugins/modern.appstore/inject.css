@@ -685,13 +685,13 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   min-width: 0;
 }
-/* Askable: the line is the one piece of text on the card that routinely says
-   less than it knows, so it reads as something to hover rather than as a label
-   that happens to be cut off. */
-.asga-tile-cat { cursor: help; }
-.asga-tile-cat:hover .asga-tile-catrest,
-.asga-tile-cat:hover .asga-tile-catlead { color: var(--text-color, #f2f2f2); }
-.asga-tile-cat:hover .asga-bicon { opacity: 1; }
+/* The line carries the whole of itself in a tooltip, because it routinely says
+   less than it knows. It behaves exactly as the two figures in the rail do,
+   which also answer on hover: the same inherited cursor, no mark of its own,
+   and a click that falls through to the card like a click anywhere else on it.
+   A help cursor here was worse than no affordance at all, since it promised a
+   control that was not there and then opened the drawer when pressed. */
+.asga-tile-cat { cursor: inherit; }
 
 /* One sentence, so two lines. applist.php now cuts the overview at its first
    sentence rather than at a character count, and that sentence fits two lines
