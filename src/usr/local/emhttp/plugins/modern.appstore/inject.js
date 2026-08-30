@@ -1557,8 +1557,13 @@
       // ride here too, as a run of four facts, which is why this band once had
       // to fit that many; they moved up into the header's own stat column, so
       // the footer only ever has to hold the two dates and the kind icon.
-      dates.appendChild(dateSpan('asga-tile-updated', CLOCK_ICON, 'Updated', a.lu, a.lk !== 'r', a.lk === 'r'));
-      dates.appendChild(dateSpan('asga-tile-added', CAL_ICON, 'Added', a.fs, false, true));
+      // A date the catalog does not have takes no room rather than printing the
+      // word unknown beside a dimmed mark. The footer is a run that starts at
+      // one edge with the app's kind pushed to the other, so a card that knows
+      // one date and not the other still reads as the same row as its
+      // neighbours, just a shorter one.
+      if (a.lu) dates.appendChild(dateSpan('asga-tile-updated', CLOCK_ICON, 'Updated', a.lu, a.lk !== 'r', a.lk === 'r'));
+      if (a.fs) dates.appendChild(dateSpan('asga-tile-added', CAL_ICON, 'Added', a.fs, false, true));
       // What kind of app this is, at the far end of the same row the two date
       // icons sit on, so every icon along the card's bottom shares one line.
       var kind = document.createElement('span');
