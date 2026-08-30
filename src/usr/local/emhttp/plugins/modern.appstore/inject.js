@@ -781,10 +781,11 @@
       document.body.__asgaDrawerDetails = true;
       var host = document.getElementById('sidenavContent') || document.querySelector('.sidenav');
       if (!host) return;
-      new MutationObserver(function () { fixDrawerDetails(); addReadmeButton(); fixDrawerIcon(); fixMaintainerIcon(); fixRepoDrawer(); drawerReady(); })
+      new MutationObserver(function () { fixDrawerDetails(); addReadmeButton(); cardSections(); fixDrawerIcon(); fixMaintainerIcon(); fixRepoDrawer(); drawerReady(); })
         .observe(host, { childList: true, subtree: true });
       fixDrawerDetails();
       addReadmeButton();
+      cardSections();
       fixDrawerIcon();
       fixMaintainerIcon();
       fixRepoDrawer();
@@ -1480,6 +1481,61 @@
       btn.textContent = 'Readme';
       btn.title = 'Open this app\'s readme in a new tab';
       info.appendChild(btn);
+    }
+    // Five sections of this drawer arrive as a bare heading with loose text
+    // sitting under it, while every other section (Description, Maintainer,
+    // Details, Spotlight, the moderator comment) sits inside a grey card, so
+    // the drawer read as two different designs stacked on top of each other.
+    // CA emits Additional Requirements, the Trends chart, a changelog, the
+    // Template Errors block and the maintainer profile's Statistics table as
+    // flat siblings with no container of their own, so there is nothing for a
+    // stylesheet to select and the wrapper has to be built by hand instead.
+    //
+    // A section runs from its heading down to the element before the next
+    // thing that is either another heading or a block that already stands on
+    // its own, and SECTION_STOP names that whole set. The test asks whether
+    // the next element IS one of those or CONTAINS one, because CA wraps the
+    // Details table in an unclassed div and the closing "statistics gathered
+    // every 30 days" footnote in another, and a plain SECTION_STOP match
+    // against the element itself would miss both of those wrapper divs even
+    // though neither belongs inside the section sitting above it.
+    //
+    // It needs no idempotency flag of its own. Wrapping moves the heading out
+    // of the host's direct children and into the new card, so a second pass
+    // over host.children simply does not find it there again, which matters
+    // because this runs on every mutation of the drawer.
+    var SECTION_HEADS = '.additionalRequirementsHeader, .chartTitle, .changelogTitle, .templateErrors, .repoStats';
+    var SECTION_STOP = SECTION_HEADS + ', .ca_popupIconArea, .popupCloseArea, .popupDescription, .popupInfoLeft, .popupInfoSection, .spotlightPopup, .modComment, .ca_note';
+    function cardSections() {
+      if (!isOn()) return;
+      // Two hosts, not one. The app drawer hangs its sections off .popupContent,
+      // but the maintainer profile puts its Statistics heading and table inside
+      // a .repoLinks of their own, a sibling of that element rather than a child
+      // of it, so a scan of one host walked straight past the profile drawer's
+      // only section and left it the last split card in the plugin.
+      var hosts = [
+        document.querySelector('#sidenavContent .popupContent') || document.querySelector('#sidenavContent .popup'),
+        document.querySelector('#sidenavContent .repoLinks')
+      ];
+      for (var h = 0; h < hosts.length; h++) if (hosts[h]) cardSectionsIn(hosts[h]);
+    }
+    function cardSectionsIn(host) {
+      var kids = [].slice.call(host.children);
+      for (var i = 0; i < kids.length; i++) {
+        var head = kids[i];
+        if (!head.matches || !head.matches(SECTION_HEADS)) continue;
+        var card = document.createElement('div');
+        card.className = 'asga-card';
+        head.parentNode.insertBefore(card, head);
+        var el = head;
+        while (el) {
+          var next = el.nextElementSibling;
+          card.appendChild(el);
+          if (!next) break;
+          if (next.matches(SECTION_STOP) || next.querySelector(SECTION_STOP)) break;
+          el = next;
+        }
+      }
     }
     // CA's own markup for a Details row, so the drawer's stylesheet applies to
     // this one exactly as it does to the rows CA wrote. The label loses CA's

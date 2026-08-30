@@ -1744,7 +1744,13 @@ body.asga-active .popupDescription,
 body.asga-active .popupRepoDescription {
   display: block; background: var(--asga-surface); border: 1px solid var(--asga-cardline);
   border-radius: 8px; width: auto; box-sizing: border-box;
-  padding: 14px 16px !important; margin: 18px 0 0;
+  /* 16px 18px, the one padding every card in this drawer takes. Three
+     different values were in play once the loose sections were carded:
+     this block and the Details table on 14px 16px, the Maintainer, the
+     Spotlight and the newly carded sections on 16px 18px. A reader scrolling
+     one column of cards sees the text start at a different inset every third
+     block, which is the same defect as a heading sitting two pixels low. */
+  padding: 16px 18px !important; margin: 18px 0 0;
   font-size: 1.3rem; line-height: 1.5 !important;
 }
 body.asga-active .popupDescription,
@@ -1820,7 +1826,7 @@ body.asga-active .popupInfoSection {
 body.asga-active .popupInfoLeft {
   margin: 0; overflow: visible;
   background: var(--asga-surface); border: 1px solid var(--asga-cardline);
-  border-radius: 8px; padding: 14px 16px;
+  border-radius: 8px; padding: 16px 18px;   /* the drawer's one card padding */
 }
 /* CA sets display:contents on .popupTable.contents, which drops the table box */
 body.asga-active .popupTable { display: table; width: 100%; table-layout: auto; border-collapse: collapse; margin: 0; background: transparent; }
@@ -1844,7 +1850,7 @@ body.asga-active .popupTableRight {
    table, already carded through its .popupInfoLeft parent, is left untouched. */
 body.asga-active #sidenavContent .popupTable:not(.popupInfoLeft .popupTable) {
   background: var(--asga-surface); border: 1px solid var(--asga-cardline);
-  border-radius: 8px; padding: 14px 16px; margin: 18px 0 0;
+  border-radius: 8px; padding: 16px 18px; margin: 18px 0 0;   /* the drawer's one card padding */
 }
 /* Repository URL is the one link CA prints inside either table; it takes the
    same accent .popupDescription a gives the description's own links above. */
@@ -2075,6 +2081,36 @@ body.asga-active .spotlightWho { margin: 0; color: var(--asga-muted); }
 /* 22px, the top of the drawer's section rhythm, rather than the 18px between
    a heading and its own body. These three open a new section of the drawer. */
 body.asga-active .charts.chartTitle, body.asga-active .changelogTitle, body.asga-active .templateErrors { margin-top: 22px; }
+/* Five sections arrive from CA as a bare heading with loose text under it,
+   sitting as flat siblings with no container of their own (cardSections() in
+   inject.js is what builds the wrapper, since a stylesheet has nothing of
+   CA's to select). This shell is the same 16px by 18px padding, 8px radius
+   and 18px top margin the Maintainer and Spotlight cards above already take,
+   so a section that had no card is now indistinguishable from one that
+   always had one.
+   The heading rules below exist because those same headings carried the
+   22px top margin set two lines up, for when they opened a section of bare
+   drawer. Inside a card the card's own padding already sets that distance,
+   and the heading's margin would have stacked on top of it, doubling the gap
+   between the card's edge and its own title.
+   The repoTable rule exists because the maintainer profile's Statistics
+   table carried the card styling (background, border, radius) itself while
+   its .repoStats heading sat outside it, the same split as the other four
+   sections but in reverse. The wrapper owns the card now and the table gives
+   its own copy up, so the heading and the numbers finally sit in one box. */
+body.asga-active #sidenavContent .asga-card {
+  margin: 18px 0 0; padding: 16px 18px;
+  border: 1px solid var(--asga-cardline); border-radius: 8px; background: var(--asga-surface);
+}
+body.asga-active #sidenavContent .asga-card > .charts.chartTitle,
+body.asga-active #sidenavContent .asga-card > .changelogTitle,
+body.asga-active #sidenavContent .asga-card > .templateErrors,
+body.asga-active #sidenavContent .asga-card > .additionalRequirementsHeader,
+body.asga-active #sidenavContent .asga-card > .repoStats { margin-top: 0; }
+body.asga-active #sidenavContent .asga-card > :last-child { margin-bottom: 0; }
+body.asga-active #sidenavContent .asga-card > .repoTable {
+  background: none; border: 0; border-radius: 0; padding: 0; margin: 0;
+}
 body.asga-active .chartMenu { padding: 0 0 0 16px; font-size: 1.2rem; }
 body.asga-active .changelog, body.asga-active .changelogMessage { font-size: 1.3rem; line-height: 1.6; margin-top: 8px; }
 body.asga-active .additionalRequirements { margin: 0; font-size: 1.3rem; }
