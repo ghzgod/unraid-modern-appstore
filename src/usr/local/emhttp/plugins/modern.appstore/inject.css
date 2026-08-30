@@ -859,6 +859,15 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
   flex: 0 1 auto; min-width: 0;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
+/* The row fills its band rather than ending wherever six buttons happen to
+   stop. Laid out from the left with a fixed gap, the slack collected as one
+   space after Install, so the gap to the card's right edge read wider than the
+   gap to its left. Growing the buttons instead spends that slack on all six at
+   once, in proportion to the width each already had, which keeps their relative
+   sizes and the equal gaps between them while landing the run on the same inset
+   the row starts from. Install never shrinks: a truncated Install is worse than
+   a truncated Support. */
+.asga-tile-btns > .asga-btn { flex: 1 1 auto; }
 /* No auto margin. Pushing Install to the far edge handed it every pixel of the
    row's slack as one gap, so the space before it read wider than the five gaps
    between the buttons behind it. The run is evenly spaced and Install simply
@@ -873,7 +882,7 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    filled rather than outlined. The fill is the accent this project already
    uses for every interactive surface, not a second primary colour. It never
    shrinks: a truncated Install is worse than a truncated Support. */
-.asga-btn.asga-install, .asga-btn.asga-btn-installed { flex: 0 0 auto; }
+.asga-btn.asga-install, .asga-btn.asga-btn-installed { flex: 1 0 auto; }
 .asga-btn.asga-install {
   border-color: #ff8c2f; background: rgba(255, 140, 47, 0.9);
   color: #17140f; font-weight: 700;
@@ -1133,6 +1142,20 @@ html:not(.Theme--legacyOS) body.asga-active .asga-sortbtn {
   background-size: 4px 6px, 4px 6px;
   background-repeat: no-repeat;
   white-space: nowrap;
+  /* Unraid's global button rule sets min-width, text-transform, padding and
+     margin on every button element, and although :where() gives it no
+     specificity it still wins the cascade here in practice, which is what left
+     this control narrower than the value it was showing and the text hanging
+     out past its own border. Those four are forced back, the same way the
+     drawer's twin of this control already forces them. The width is its own
+     content between a floor and a ceiling, so the box is never smaller than the
+     value inside it and never wider than the longest option needs. */
+  min-width: 170px !important;
+  max-width: 260px;
+  width: auto;
+  text-transform: none !important; letter-spacing: normal !important;
+  margin: 0 !important; padding: 0 30px 0 14px !important;
+  overflow: hidden; text-overflow: ellipsis;
 }
 html:not(.Theme--legacyOS) body.asga-active .asga-sortbtn:hover { border-color: #ff8c2f; }
 html:not(.Theme--legacyOS) body.asga-active .asga-sortbtn:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 1px; }
