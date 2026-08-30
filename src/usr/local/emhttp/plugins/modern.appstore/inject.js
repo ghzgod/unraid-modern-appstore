@@ -27,7 +27,10 @@
     var PREFIX = '/plugins/modern.appstore/';
 
     var APPS = [];
-    var view = { sort: 'new', q: '', cat: '', catLabel: 'All Apps', special: '', page: 1, perPage: 96 };
+    // repo: the maintainer name a 'repo' special view is filtering to (CA's
+    // RepoName, exactly as it arrives in data-repository). Only meaningful
+    // when special === 'repo'; every other special view leaves it untouched.
+    var view = { sort: 'new', q: '', cat: '', catLabel: 'All Apps', special: '', repo: '', page: 1, perPage: 96 };
     // the configured opening sort, overwritten once applist.php answers with the
     // server's real value; 'new' is only what's used before that response lands
     // or if the config on disk can't be read
@@ -67,8 +70,13 @@
     // CA's Pinned/Installed views are broken in the 2026.07 rewrite (they render
     // the home screen), so the modern grid renders those itself (view.special).
     // The few views we can't yet rebuild from our data are handed back to CA.
+    // 'repos' used to live in this list too: CA's own repo search, which the
+    // drawer's All Apps button ran, landed here and forced the fallback. Now
+    // that wireRepoClick() renders a maintainer's apps in our own grid (rn +
+    // view.special === 'repo'), CA never needs to take that view over, so it
+    // is not one of the views left to hand back.
     var caSpecial = false;
-    var CA_SPECIAL = /^(previous_apps|prev_docker|prev_plugins|action_centre|repos)$/;
+    var CA_SPECIAL = /^(previous_apps|prev_docker|prev_plugins|action_centre)$/;
     function stripTag(ri) { return (ri || '').toLowerCase().split(':')[0]; }
     // Template path of the app whose drawer is open. The drawer is CA's and CA
     // never tells us which app it just painted, so the path we handed
@@ -106,6 +114,41 @@
     // Unraid's own mark (the nine bars from its logo), inlined the same way so
     // it too draws in currentColor and reads correctly on both themes.
     var UN_MARK = '<svg class="asga-un-mark" viewBox="0 0 133.52 76.97" aria-hidden="true"><path d="M0 19.24h6.54v38.49H0zM15.87 45.84h6.54v23.78h-6.54zM31.74 62.27h6.55v14.73h-6.55zM47.62 45.84h6.54v23.78h-6.54zM63.49 19.24h6.51v38.49h-6.51zM79.36 7.35h6.54v23.79h-6.54zM95.23 0h6.54v14.7h-6.54zM111.1 7.35h6.55v23.79h-6.55zM127 19.24h6.52v38.49H127z"/></svg>';
+    // The card date footer's two icons (Change: icon + age, full date moved to
+    // the tooltip). Same currentColor pattern as GH_MARK/UN_MARK above, so both
+    // follow the theme rather than carrying a fixed colour of their own.
+    var CAL_ICON = '<svg class="asga-ficon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>';
+    var CLOCK_ICON = '<svg class="asga-ficon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>';
+    // The footer's star and download figures used to be literal text glyphs
+    // (a ★ and a ⤓), which render at the font's own size and sit on the text
+    // baseline, so they could never match the two fixed 12px SVG date icons
+    // above. Built the same way, and carrying the same asga-ficon class, so
+    // all four footer icons are one size and one shape.
+    var STAR_ICON = '<svg class="asga-ficon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.8 6.2 20.9l1.1-6.5L2.6 9.8l6.5-.9z"/></svg>';
+    var DL_ICON = '<svg class="asga-ficon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg>';
+    // The card header used to spell "Docker" or "Plugin" out as a text pill on
+    // its own line; these two replace it with an icon that shares the name's
+    // line instead, so the header buys that line back. Carries asga-ficon like
+    // the four icons above, plus asga-ficon-lg, since it needs to read at 16px
+    // here rather than the 12px a footer glyph gets away with beside its text.
+    // Docker's own brand blue, which is why it is allowed to sit alongside this
+    // card's own palette: it names a real external mark, not a second hue.
+    var DOCKER_ICON = '<svg class="asga-ficon asga-ficon-lg asga-kind-docker" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="This is a Docker application"><title>This is a Docker application</title><path d="M4 12h17a1 1 0 0 1 1 1 7 7 0 0 1-7 7H9a7 7 0 0 1-7-7v-1z"/><path d="M6 12V9h3v3M10 12V9h3v3M14 12V9h3v3M10 8V5h3v3"/></svg>';
+    // Violet, and deliberately not the #ff8c2f accent: the accent means
+    // interactive everywhere else on this card, and this icon states a fact
+    // about the app rather than offering to do anything.
+    var PLUGIN_ICON = '<svg class="asga-ficon asga-ficon-lg asga-kind-plugin" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="This is a plugin application"><title>This is a plugin application</title><path d="M9 2v6M15 2v6"/><path d="M6 8h12v3a6 6 0 0 1-6 6 6 6 0 0 1-6-6V8z"/><path d="M12 17v5"/></svg>';
+    // Exclamation-in-a-circle for the About panel's "Report an issue" header
+    // button (see makeDrawer's headerAction and ensureAboutPanel below). No
+    // asga-ficon class: that class forces its own 12px/16px sizing, and this
+    // one needs to stay the 14px it's built at, sitting in the same 28px box
+    // the close button uses.
+    var ISSUE_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16.5v.01"/></svg>';
+    // /issues/new/choose rather than /issues/new, so GitHub offers this
+    // repo's own issue templates instead of a blank form. No query string:
+    // nothing about the server this loads on (version, hostname, IP) belongs
+    // riding along in a link a user clicks from their own box.
+    var ISSUE_URL = 'https://github.com/ghzgod/unraid-modern-appstore/issues/new/choose';
     // Three tiers, top to bottom. The two name orders are global, belonging to
     // neither data source, so they carry no group heading and sit above every
     // section. Everything else is grouped by the source its numbers actually
@@ -309,6 +352,12 @@
       var list = APPS.filter(function (a) {
         if (view.special === 'pinned') { if (!pinnedSet || !pinnedSet.has((a.ri || '') + '&' + (a.pn || ''))) return false; }
         else if (view.special === 'installed') { if (!installedSet || !installedSet.has(stripTag(a.ri))) return false; }
+        // repo: CA hands the maintainer name back from an HTML attribute
+        // (data-repository), so it is compared trimmed and case-insensitively
+        // rather than as an exact string match against rn. view.repo keeps its
+        // original casing (it doubles as the heading text), so both sides are
+        // lowercased here rather than when view.repo is set.
+        else if (view.special === 'repo') { if ((a.rn || '').trim().toLowerCase() !== view.repo.trim().toLowerCase()) return false; }
         if (opt.filter && !opt.filter(a)) return false;   // e.g. trending: only movers
         if (!catMatch(a, view.cat)) return false;
         if (words.length && !qMatch(a, words)) return false;
@@ -353,6 +402,10 @@
             openExt(tile.getAttribute('data-project'));
           } else if (btn.classList.contains('asga-support')) {
             openExt(tile.getAttribute('data-support'));
+          } else if (btn.classList.contains('asga-maint')) {
+            // CA's own repo drawer, the same one its Profile button opens
+            var repo = tile.getAttribute('data-repo');
+            if (repo) try { window.showRepoPopup(repo); } catch (err) {}
           } else if (btn.classList.contains('asga-pin')) {
             pinApp(tile, btn);
           } else { // Info
@@ -416,6 +469,32 @@
         var items = [].slice.call(document.querySelectorAll('#sidenavContent .screenshot')).filter(function (el) { return !el.classList.contains('popupIcon'); });
         var srcs = items.map(srcOf).filter(Boolean);
         openLightbox(srcs, Math.max(0, items.indexOf(scr)));
+      }, true);
+    }
+    // CA's slide-out drawer carries a Maintainer block with three buttons
+    // (ca_repoSearchPopUp/repoPopup/ca_favouriteRepo), which our drawer already
+    // renders and styles. All Apps runs CA's own repo search by default, which
+    // used to be let through to CA_SPECIAL's 'repos' entry and hand the whole
+    // page back to CA's grid: the user asked to see one maintainer's apps and
+    // got CA's cards instead of ours. This intercepts that one button and
+    // drives our own grid to a maintainer view instead, the same way the left
+    // menu's Pinned/Installed entries already do.
+    function wireRepoClick() {
+      if (document.body.__asgaRepoClick) return;
+      document.body.__asgaRepoClick = true;
+      document.addEventListener('click', function (e) {
+        if (!isOn()) return;   // modern view off: leave CA's own handler alone
+        var btn = e.target.closest ? e.target.closest('#sidenavContent .ca_repoSearchPopUp') : null;
+        if (!btn) return;
+        e.preventDefault(); e.stopImmediatePropagation();
+        var repo = (btn.getAttribute('data-repository') || '').trim();
+        if (!repo) return;
+        if (typeof window.closeSidebar === 'function') try { window.closeSidebar(); } catch (e2) {}
+        view.special = 'repo'; view.repo = repo;
+        view.page = 1; view.q = ''; view.cat = '';
+        var box = document.getElementById('searchBox'); if (box) box.value = '';
+        applyViewMode();
+        render();
       }, true);
     }
     // CA renders an app's Overview by turning newlines into <br> and leading
@@ -533,20 +612,218 @@
       document.body.__asgaDrawerDetails = true;
       var host = document.getElementById('sidenavContent') || document.querySelector('.sidenav');
       if (!host) return;
-      new MutationObserver(fixDrawerDetails).observe(host, { childList: true, subtree: true });
+      new MutationObserver(function () { fixDrawerDetails(); fixDrawerIcon(); fixRepoDrawer(); cacheDrawer(); })
+        .observe(host, { childList: true, subtree: true });
       fixDrawerDetails();
+      fixDrawerIcon();
+      fixRepoDrawer();
+      cacheDrawer();
+      wireBackButton();
+    }
+    // The drawer must show the same icon the card did. CA resolves the drawer's
+    // icon separately from the grid's, and when its own lookup comes up empty it
+    // renders a Font Awesome glyph (<i class="fa fa-star popupIcon">) instead of
+    // an image, so clicking a card with a perfectly good icon could open a
+    // drawer showing a star. The grid already holds the URL that worked, so it
+    // is copied across rather than trusting CA to resolve it twice.
+    //
+    // CA's own markup for this image is <img class="popupIcon screenshot">, and
+    // the screenshot class is what our lightbox binds to, so a replacement has
+    // to carry both classes or clicking the icon stops opening it.
+    function fixDrawerIcon() {
+      if (!isOn()) return;
+      // Only the APP drawer. The maintainer profile CA opens from the Profile
+      // button renders into this same #sidenavContent, and its icon is the
+      // maintainer's avatar, not the app's, so copying the card's icon across
+      // there replaced a correct picture with the wrong one.
+      if (document.querySelector('#sidenavContent .popupRepoDescription')) return;
+      var host = document.querySelector('#sidenavContent .popupIcon');
+      if (!host || host.__asgaIcon) return;
+      var app = drawerApp();
+      if (!app || !app.ic) return;
+      host.__asgaIcon = true;
+      var img = host.tagName === 'IMG' ? host : host.querySelector('img');
+      if (!img) {
+        // CA fell back to its glyph, so there is no image to correct
+        var glyph = host.querySelector('i');
+        if (glyph) glyph.remove();
+        img = document.createElement('img');
+        img.className = 'popupIcon screenshot';
+        img.alt = '';
+        host.appendChild(img);
+      }
+      if (img.getAttribute('src') !== app.ic) img.setAttribute('src', app.ic);
+      img.setAttribute('href', app.ic);
+    }
+    // Which app the open drawer is showing. CA restores a drawer from its own
+    // cookie on a page load, which never goes through openSidebar(), so its own
+    // record of what is open is the fallback.
+    function drawerApp() {
+      var path = openPath || (window.data && window.data.sidebarapppath) || '';
+      for (var i = 0; i < APPS.length; i++) { if (APPS[i].p === path) return APPS[i]; }
+      return null;
+    }
+    // Every app this maintainer publishes, as a scrollable list in place of the
+    // repository bio. The catalogue is already in memory, so this needs no
+    // request: the grid's own records carry the maintainer key (rn) that CA's
+    // drawer is keyed by.
+    function buildRepoApps(bio) {
+      var nameEl = document.querySelector('#sidenavContent .popupName');
+      var repo = nameEl ? nameEl.textContent.trim() : '';
+      if (!repo) return;
+      var key = repo.toLowerCase();
+      var mine = APPS.filter(function (a) { return (a.rn || '').trim().toLowerCase() === key; });
+      if (!mine.length) return;   // nothing to show, leave CA's bio alone
+
+      var list = document.createElement('div');
+      list.className = 'asga-repo-apps';
+      mine.sort(function (a, b) { return (a.sn || '').localeCompare(b.sn || ''); });
+      mine.forEach(function (a) {
+        var row = document.createElement('div');
+        row.className = 'asga-repo-app';
+
+        var ic = document.createElement('img');
+        ic.className = 'asga-repo-app-icon';
+        ic.src = a.ic || '/plugins/dynamix.docker.manager/images/question.png';
+        ic.loading = 'lazy';
+        ic.alt = '';
+        row.appendChild(ic);
+
+        var text = document.createElement('div');
+        text.className = 'asga-repo-app-text';
+        var nm = document.createElement('div');
+        nm.className = 'asga-repo-app-name';
+        nm.textContent = a.n;
+        var de = document.createElement('div');
+        de.className = 'asga-repo-app-desc';
+        de.textContent = a.de || '';
+        text.appendChild(nm);
+        text.appendChild(de);
+        row.appendChild(text);
+
+        var go = document.createElement('span');
+        go.className = 'caButton asga-repo-app-go';
+        go.textContent = 'Show App';
+        go.title = 'Find ' + a.n + ' in the app store';
+        go.addEventListener('click', function (e) {
+          e.preventDefault(); e.stopPropagation();
+          if (typeof window.closeSidebar === 'function') try { window.closeSidebar(); } catch (e2) {}
+          var box = document.getElementById('searchBox');
+          if (box) box.value = a.n;
+          applySearch(a.n);
+        });
+        row.appendChild(go);
+        list.appendChild(row);
+      });
+      bio.parentNode.insertBefore(list, bio);
+      bio.parentNode.removeChild(bio);
+    }
+
+    // BACK, without the wait.
+    //
+    // CA's BACK handler calls showSidebarApp again, and that function wraps its
+    // getPopupDescription request in a hardcoded setTimeout of 500ms before it
+    // even starts; for a plugin the request then downloads the .plg to read its
+    // changelog, so returning from a maintainer profile to the app you came
+    // from took several seconds of blank drawer.
+    //
+    // The app drawer's own markup is stashed the moment it renders, so BACK can
+    // repaint it immediately. CA's request still runs behind that, which is what
+    // restores the chart canvases and anything else drawn by script, so the
+    // instant paint is a head start rather than a replacement.
+    var drawerCache = {};
+    function cacheDrawer() {
+      var host = document.getElementById('sidenavContent');
+      if (!host || !openPath) return;
+      if (host.querySelector('.popupRepoDescription')) return;   // profile, not an app
+      if (!host.querySelector('.popupTable.contents')) return;   // not finished rendering
+      drawerCache[openPath] = host.innerHTML;
+    }
+    function wireBackButton() {
+      if (document.body.__asgaBack) return;
+      document.body.__asgaBack = true;
+      document.addEventListener('click', function (e) {
+        if (!isOn()) return;
+        var btn = e.target.closest ? e.target.closest('#sidenavContent .popUpBack') : null;
+        if (!btn) return;
+        var html = drawerCache[openPath];
+        if (!html) return;   // nothing stashed, let CA do it the slow way
+        var host = document.getElementById('sidenavContent');
+        if (host) host.innerHTML = html;
+        // CA's own handler is deliberately left to run: it re-requests the app
+        // and repaints over this, which is what puts the charts back.
+      }, true);
+    }
+    // The maintainer profile drawer, tidied the same way the app drawer is.
+    //
+    // CA files the repository link as a row of its Statistics table, where it
+    // is the only row with no value and the only thing in the table that is not
+    // a number. It moves up to sit with See All Apps and Favourite, which is
+    // where a link belongs. CA also emits CLOSE before BACK, so BACK lands to
+    // the right of the close control; the order is flipped in CSS rather than
+    // by moving nodes, since both are CA's own markup.
+    function fixRepoDrawer() {
+      if (!isOn()) return;
+      var bio = document.querySelector('#sidenavContent .popupRepoDescription');
+      if (!bio) return;
+      var host = bio.parentNode;
+      if (!host || host.__asgaRepo) return;
+      host.__asgaRepo = true;
+      // The stylesheet keys the whole profile-drawer theme off this class rather
+      // than off .popupRepoDescription, because buildRepoApps below deletes that
+      // bio element and every :has() rule that named it would die with it. CA
+      // replaces the children of #sidenavContent on each open, so this marker
+      // cannot leak into the next app drawer.
+      host.classList.add('asga-repo-drawer');
+      var link = document.querySelector('#sidenavContent .repoTable a.popUpLink');
+      if (!link) return;
+      var row = link.closest ? link.closest('tr') : null;
+      var actions = document.querySelector('#sidenavContent .ca_repoSearchPopUp');
+      actions = actions && actions.parentNode;
+      if (!actions) return;
+      var btn = document.createElement('a');
+      btn.className = 'caButton asga-repo-url';
+      btn.href = link.getAttribute('href') || '#';
+      btn.target = '_blank';
+      btn.rel = 'noopener';
+      btn.textContent = link.textContent.trim() || 'Repository';
+      btn.title = 'Open this maintainer\'s repository';
+      actions.appendChild(btn);
+      if (row && row.parentNode) row.parentNode.removeChild(row);
+
+      // See All Apps reads Show All Apps, to pair with the Show App button on
+      // each row of the list below: one shows the whole catalogue filtered to
+      // this maintainer, the other shows a single app.
+      var allBtn = document.querySelector('#sidenavContent .ca_repoSearchPopUp');
+      if (allBtn && /see all apps/i.test(allBtn.textContent)) allBtn.textContent = 'Show All Apps';
+
+      // Web Page, Forum Profile and the rest are the maintainer's own links.
+      // CA files them in a block of their own below the bio, which left the
+      // header holding three buttons and a second run floating further down.
+      // They join the header run so every action for this maintainer is in one
+      // place, and the empty wrapper goes with them.
+      var linkArea = document.querySelector('#sidenavContent .repoLinkArea');
+      if (linkArea) {
+        var links = [].slice.call(linkArea.querySelectorAll('a.appIconsPopUp'));
+        links.forEach(function (a) { actions.appendChild(a); });
+        var wrap = linkArea.closest ? linkArea.closest('.repoLinks') : null;
+        if (linkArea.parentNode) linkArea.parentNode.removeChild(linkArea);
+        if (wrap && !wrap.querySelector('a') && wrap.parentNode) wrap.parentNode.removeChild(wrap);
+      }
+
+      // The bio CA prints here is whatever the maintainer wrote about their
+      // repository, which on this drawer answers a question nobody asked: the
+      // reason to open a maintainer is to see what they make. It is replaced by
+      // the list of their apps, each with its icon, name, blurb and a way
+      // through to it.
+      buildRepoApps(bio);
     }
     function fixDrawerDetails() {
       if (!isOn()) return;
       var table = document.querySelector('#sidenavContent .popupTable.contents');
       if (!table || table.__asgaDetails) return;
       table.__asgaDetails = true;
-      // CA restores a drawer from its own cookie on a page load, which never
-      // goes through openSidebar(), so its own record of what is open is the
-      // fallback.
-      var path = openPath || (window.data && window.data.sidebarapppath) || '';
-      var app = null;
-      for (var i = 0; i < APPS.length; i++) { if (APPS[i].p === path) { app = APPS[i]; break; } }
+      var app = drawerApp();
       if (!app) return;
 
       // Added is the third row CA emits and is the only one always present, so
@@ -588,6 +865,17 @@
           else resolveLastUpdate(app, luCell);
         }
       }
+
+      // The maintainer belongs with the app's identity, not filed under the
+      // change log. CA emits it as the second card inside .popupInfoSection,
+      // after Details, which puts it below the Attention notice and the
+      // statistics. Moved up to sit directly under the description, above
+      // Attention, so who made this is answered before anything is said about
+      // it. Matched by the heading it contains rather than by position, since
+      // CA omits the whole card for an app with no repository.
+      var maint = document.querySelector('#sidenavContent .popupInfoLeft:has(.popupAuthorTitle)');
+      var desc = document.querySelector('#sidenavContent .popupDescription');
+      if (maint && desc && desc.parentNode) desc.parentNode.insertBefore(maint, desc.nextSibling);
 
       // Stars then downloads, directly under whichever of Last Update / Added
       // is the last row placed above, so the run reads as one story: when it
@@ -811,6 +1099,7 @@
       tile.className = 'asga-tile';
       tile.setAttribute('data-apppath', a.p);
       tile.setAttribute('data-appname', a.n);
+      if (a.rn) tile.setAttribute('data-repo', a.rn);
       if (a.pr) tile.setAttribute('data-project', a.pr);
       if (a.su) tile.setAttribute('data-support', a.su);
       if (a.ri) { tile.setAttribute('data-pinrepo', a.ri); tile.setAttribute('data-pinname', a.pn || a.n); }
@@ -856,76 +1145,56 @@
       iconWrap.appendChild(img);
       head.appendChild(iconWrap);
 
-      // stars + downloads sit inline in the tile's top-right corner. The badge
-      // itself only has room for a glyph and an abbreviated number ("★ 1.2k"),
-      // which says nothing about what is being counted, so each one carries the
-      // full figure and the noun as its title. Both are built here rather than
-      // inline because paintStars() rewrites the star badge later, after a page
-      // scan lands, and the two have to agree on the wording.
-      var badges = document.createElement('div');
-      badges.className = 'asga-tile-badges';
-      if (a.s != null) {
-        var badge = document.createElement('span');
-        badge.className = 'ghstars-badge';
-        badge.textContent = '★ ' + fmt(a.s);
-        badge.title = starTitle(a.s);
-        badges.appendChild(badge);
-      }
-      if (a.dl > 0) {
-        var dlb = document.createElement('span');
-        dlb.className = 'ghdl-badge';
-        dlb.textContent = '⤓ ' + fmt(a.dl);
-        dlb.title = downloadTitle(a.dl, a.ty);
-        badges.appendChild(dlb);
-      }
-      if (badges.children.length) { tile.appendChild(badges); tile.classList.add('asga-has-badges'); }
 
       var htext = document.createElement('div');
       htext.className = 'asga-tile-htext';
+      // The type icon rides the name's own line, pinned to the right edge.
+      // The category sits on its own line under the author rather than
+      // opposite it: two short strings at opposite ends of a narrow row read
+      // as a gap with words either side, where stacked they read as one block
+      // of detail about the app.
+      var nameRow = document.createElement('div');
+      nameRow.className = 'asga-tile-namerow';
       var name = document.createElement('div');
       name.className = 'asga-tile-name';
       name.textContent = a.n;
-      htext.appendChild(name);
+      nameRow.appendChild(name);
+      htext.appendChild(nameRow);
       if (a.au) {
         var au = document.createElement('div');
         au.className = 'asga-tile-author';
         au.textContent = a.au;
         htext.appendChild(au);
       }
-      var metaRow = document.createElement('div');
-      metaRow.className = 'asga-tile-metarow';
-      var typ = document.createElement('span');
-      typ.className = 'asga-type asga-type-' + (a.ty || 'docker');
-      typ.textContent = (a.ty === 'plugin') ? 'Plugin' : 'Docker';
-      metaRow.appendChild(typ);
-      if (a.ct) {
-        var cat = document.createElement('span');
-        cat.className = 'asga-tile-cat';
-        cat.textContent = a.ct;
-        metaRow.appendChild(cat);
-      }
-      htext.appendChild(metaRow);
+      // The category is plain text on the author's own left edge, so the name,
+      // the author and it all start from one line down the card.
+      var cat = document.createElement('div');
+      cat.className = 'asga-tile-cat';
+      cat.textContent = a.ct || '';
+      htext.appendChild(cat);
       head.appendChild(htext);
       tile.appendChild(head);
 
       // description (verbiage)
-      if (a.de) {
-        var desc = document.createElement('div');
-        desc.className = 'asga-tile-desc';
-        desc.textContent = a.de;
-        tile.appendChild(desc);
-      }
+      // Always appended, even empty. The card is a four-band subgrid and each
+      // band occupies one of the grid's own row tracks, so a card that skipped
+      // its description would slide every band below it up a track and stop
+      // lining up with its neighbours.
+      var desc = document.createElement('div');
+      desc.className = 'asga-tile-desc';
+      desc.textContent = a.de || '';
+      tile.appendChild(desc);
 
-      // Why Install is off, in the flowing part of the card. It has to sit
-      // ABOVE the button row: that row carries margin-top:auto and is what
-      // bottom-aligns every card, so a line placed after it would push the
-      // buttons up on blocked cards only and leave the row ragged.
+      // Why Install is off. It goes INSIDE the description band rather than
+      // becoming a fifth child, because the card spans exactly four of the
+      // grid's row tracks and an extra top-level element would push the button
+      // row out of its track on blocked cards only.
       if (blocked(a)) {
         tile.classList.add('asga-tile-blocked');
         var note = document.createElement('div');
         note.className = 'asga-tile-blocked-note';
         note.textContent = (DOCKER_MSG[docker.reason] || 'Docker not available') + ', install unavailable';
-        tile.appendChild(note);
+        desc.appendChild(note);
       }
 
       // Info / Pin / Project / Support / Install buttons (Project + Support are
@@ -939,50 +1208,106 @@
         if (isPinned) pb.classList.add('asga-pinned');
         btns.appendChild(pb);
       }
-      if (a.pr) btns.appendChild(mkBtn('Project', 'asga-project'));
-      if (a.su) btns.appendChild(mkBtn('Support', 'asga-support'));
-      var ib = mkBtn('Install', 'asga-install');
-      // Docker down: the card still lists the app and still opens its Info
-      // drawer, only Install is off, exactly as CA behaves.
-      if (blocked(a)) {
-        ib.classList.add('asga-btn-off');
-        ib.title = (DOCKER_MSG[docker.reason] || 'Docker is not available') + ', Docker apps cannot be installed';
+      // Project always renders, greyed out when the template carries no link,
+      // so every card in a row has the same buttons in the same places rather
+      // than a row of cards whose button count varies. 347 of the 3,889 apps
+      // in the feed have no Project URL at all: their template simply never
+      // declared one, which CA answers by leaving the entry out of its own
+      // Support menu entirely.
+      var prBtn = mkBtn('Project', 'asga-project');
+      if (!a.pr) {
+        prBtn.classList.add('asga-btn-off');
+        prBtn.title = 'This app\'s template does not list a project page';
       }
-      btns.appendChild(ib);
-      tile.appendChild(btns);
+      btns.appendChild(prBtn);
+      // Support gets the same treatment for the same reason, on the 198 apps
+      // whose template names no support thread.
+      var suBtn = mkBtn('Support', 'asga-support');
+      if (!a.su) {
+        suBtn.classList.add('asga-btn-off');
+        suBtn.title = 'This app\'s template does not list a support thread';
+      }
+      btns.appendChild(suBtn);
+      // Straight to the maintainer's own drawer, the one the app drawer's
+      // Profile button opens. Labelled Repo rather than Maintainer because the
+      // drawer it opens is titled "<name>'s Repository" and the word has to fit
+      // a card pill beside five others.
+      var mtBtn = mkBtn('Repo', 'asga-maint');
+      if (a.rn) {
+        mtBtn.title = 'Open ' + a.rn;
+      } else {
+        mtBtn.classList.add('asga-btn-off');
+        mtBtn.title = 'This app\'s template names no maintainer repository';
+      }
+      btns.appendChild(mtBtn);
+      // An app already on this server has nothing for Install to do, so it gets
+      // a plain marker instead. asga-btn-installed matches none of the click
+      // handler's button branches, which is what leaves a click on it falling
+      // through to the Info/Install drawer like the rest of the card.
+      if (a.ri && installedSet && installedSet.has(stripTag(a.ri))) {
+        var instBtn = mkBtn('Installed', 'asga-btn-installed');
+        instBtn.title = 'Already installed on this server';
+        btns.appendChild(instBtn);
+      } else {
+        var ib = mkBtn('Install', 'asga-install');
+        // Docker down: the card still lists the app and still opens its Info
+        // drawer, only Install is off, exactly as CA behaves.
+        if (blocked(a)) {
+          ib.classList.add('asga-btn-off');
+          ib.title = (DOCKER_MSG[docker.reason] || 'Docker is not available') + ', Docker apps cannot be installed';
+        }
+        btns.appendChild(ib);
+      }
 
       // when CA's feed first saw this app, and when the app itself last shipped.
-      // These sat side by side on one line until each grew its age in brackets,
-      // which no longer fits across a 340px card, so they stack: Added, then
-      // Updated under it. Both halves are appended even when their date is
-      // unknown, so a card that knows only one of the two reserves the same two
-      // lines as its neighbours and every button row in a grid row still
-      // bottom-aligns.
+      // These used to print as full sentences ("Added Jun 21, 2025 (14 months
+      // ago)"), which no longer fits across a 340px card; now it's an icon plus
+      // the age, and the exact date (with time of day) moves to the tooltip.
+      // Both halves are appended even when their date is unknown, so a card
+      // that knows only one of the two reserves the same footer line as its
+      // neighbours and every button row in a grid row still bottom-aligns.
+      // Updated first, then Added, because both sit at the right edge and the
+      // last thing before the card boundary is the one the eye lands on: when
+      // the app arrived in the store is the more stable of the two facts.
       var dates = document.createElement('div');
       dates.className = 'asga-tile-dates';
-      var added = addedLabel(a.fs);
-      var ad = document.createElement('div');
-      ad.className = 'asga-tile-added';
-      // The label is an interval for anything recent, so the exact date leads the
-      // tooltip: hovering is the only way back to it.
-      if (added) {
-        ad.textContent = added;
-        ad.title = absDate(a.fs, a.fs > 1433649600) + '\n'
-                 + 'When the Community Applications feed first saw this app. Your server '
-                 + 'only picks it up on its next feed refresh, so an app can appear here days later.';
-      }
-      dates.appendChild(ad);
-      var updated = updatedLabel(a.lu, a.lk);
-      var up = document.createElement('div');
-      up.className = 'asga-tile-updated';
-      if (updated) {
-        up.textContent = updated;
-        up.title = absDate(a.lu, a.lk === 'r') + '\n' + (a.lk === 'v'
-          ? 'Release date of this plugin\'s current version, read from the version number itself.'
-          : 'When this app\'s image was last published to its container registry.');
-      }
-      dates.appendChild(up);
+      // One run of four facts, left aligned, directly under the description and
+      // ABOVE the buttons. Two earlier attempts put them in a row of their own
+      // below the buttons: spread across the full width they never lined up
+      // card to card, and split across two rows they wrapped the moment a
+      // column got narrow. Reading left to right off one starting edge removes
+      // both problems, and it puts the numbers next to the text they describe
+      // while the buttons become the last thing on the card.
+      var stats = document.createElement('div');
+      stats.className = 'asga-tile-badges';
+      // Both figures always render, zero included, for the same reason the
+      // dates always do: a missing slot on one card and not the next is what
+      // makes a grid look ragged. 960 of the 3,889 apps in the feed carry no
+      // download count at all (their image lives only on a registry that
+      // publishes no pull figures), and an unscanned app has no star count yet.
+      stats.appendChild(statSpan('asga-stat-stars', STAR_ICON, a.s, 'star', starTitle(a.s)));
+      stats.appendChild(statSpan('asga-stat-dl', DL_ICON, a.dl, a.ty === 'plugin' ? 'install' : 'pull', downloadTitle(a.dl, a.ty)));
+      dates.appendChild(dateSpan('asga-tile-updated', CLOCK_ICON, 'Updated', a.lu, a.lk !== 'r', a.lk === 'r'));
+      dates.appendChild(dateSpan('asga-tile-added', CAL_ICON, 'Added', a.fs, false, true));
+      // What kind of app this is, at the far end of the same row the two date
+      // icons sit on, so every icon along the card's bottom shares one line.
+      var kind = document.createElement('span');
+      kind.className = 'asga-tile-kind';
+      kind.insertAdjacentHTML('beforeend', (a.ty === 'plugin') ? PLUGIN_ICON : DOCKER_ICON);
+      dates.appendChild(kind);
+      // Buttons directly under the description, dates last along the bottom
+      // left. The 10px row-gap that used to separate the dates from the buttons
+      // now separates the description from them, unchanged, because the gap
+      // belongs to the grid rather than to either band.
+      tile.appendChild(btns);
       tile.appendChild(dates);
+      // Top right corner, out of flow so it is not one of the card's four
+      // subgrid bands. It is also excluded from the band padding rule in the
+      // stylesheet: that rule reaches every direct child, and when it reached
+      // this one the pills ended up 14px inside their own container and so
+      // 29px from the card edge while the icon sat at 15px.
+      tile.appendChild(stats);
+      tile.classList.add('asga-has-badges');
       return tile;
     }
     // The absolute form. CA's FirstSeen is a unix timestamp, and it floors
@@ -999,7 +1324,7 @@
     // How long ago, expressed in one unit, at any distance. This used to stop
     // at 30 days and return nothing, because a bare "94 days ago" reads worse
     // than a date and the caller printed the date instead. Now that both are
-    // always shown together (see dateWithAge), the interval is the gloss rather
+    // always shown together (see setLuCell), the interval is the gloss rather
     // than the whole answer, and a coarse "3 months ago" is exactly what it
     // should say at that distance.
     // dayOnly is for a value that was only ever a day, such as a plugin's
@@ -1044,35 +1369,77 @@
       if (b.getDate() < a.getDate()) m--;
       return m;
     }
-    // The date is the fact and the age is what makes it mean something at a
-    // glance, so both are shown: "Nov 13, 2024 (9 months ago)". The time of day
-    // is deliberately not in here even when the timestamp carries one, since it
-    // would double the length of a card footer for a detail nobody reads at
-    // this distance; the tooltip on the same element still has it in full.
-    // The bracket is dropped rather than left empty when no age can be worked
-    // out, which today means only a feed clock running ahead of ours.
-    function dateWithAge(label, ts, dayOnly) {
-      var abs = absDate(ts, false);
-      if (!abs) return '';
-      var rel = relDate(ts, dayOnly);
-      return label + abs + (rel ? ' (' + rel + ')' : '');
+    // One half of the card's date footer (Added or Updated): an icon plus the
+    // age only, so the two halves can't drift apart the way separately-written
+    // label functions would. word/dayOnly/withTime are what actually differ
+    // between Added and Updated; everything else about the two is identical.
+    // ts falsy (date unknown) returns the wrapper empty, no icon, no text, no
+    // title, so the footer still reserves its line.
+    // An unknown date still renders its icon and the word "unknown" rather
+    // than vanishing. A card that quietly drops a field it has no value for
+    // reads as a different card from the one beside it, and a grid of those is
+    // what makes a wall of cards look untidy. The slot is always there; only
+    // what fills it changes, and an unknown one is dimmed so a real value still
+    // wins the eye.
+    function dateSpan(cls, icon, word, ts, dayOnly, withTime) {
+      var wrap = document.createElement('span');
+      wrap.className = cls;
+      wrap.insertAdjacentHTML('afterbegin', icon);
+      var txt = document.createElement('span');
+      txt.className = 'asga-datetext';
+      if (!ts) {
+        wrap.classList.add('asga-stat-none');
+        wrap.title = word + ' date is not in the app catalog';
+        txt.textContent = 'unknown';
+      } else {
+        if (dayGap(ts, Math.floor(Date.now() / 1000)) <= 0) wrap.classList.add('asga-date-today');
+        wrap.title = word + ' ' + absDate(ts, withTime);
+        // relDate returns '' only for a feed clock running ahead of ours; fall
+        // back to the absolute date so a date that IS known is never blank.
+        txt.textContent = relDate(ts, dayOnly) || absDate(ts, false);
+      }
+      wrap.appendChild(txt);
+      return wrap;
     }
-    function addedLabel(fs) {
-      return fs ? dateWithAge('Added ', fs, false) : '';
-    }
-    // A registry push has a real time of day. A plugin's date-formed version
-    // carries none, so that variant never reports hours or minutes rather than
-    // inventing midnight.
-    function updatedLabel(lu, lk) {
-      return lu ? dateWithAge('Updated ', lu, lk !== 'r') : '';
+    // One footer stat: its icon, the abbreviated figure, and the word for what
+    // is being counted. The word is what the old corner badge had no room for,
+    // which is why a number in the corner never said whether it meant stars,
+    // pulls or anything else. The exact figure stays in the tooltip. Built the
+    // same shape dateSpan() builds above (icon then text, one flex box), so a
+    // star and a download count line up with the two dates beside them.
+    // The noun is pluralised off the RAW count rather than the abbreviated
+    // figure beside it, because "1.2k" is many and "1" is one, and the two do
+    // not agree once fmt() has shortened the number.
+    function statSpan(cls, icon, n, noun, title) {
+      var s = document.createElement('span');
+      var known = (n != null);
+      var v = known ? n : 0;
+      s.className = 'asga-stat ' + cls + (known && v > 0 ? '' : ' asga-stat-none');
+      s.title = title;
+      s.insertAdjacentHTML('afterbegin', icon);
+      s.appendChild(document.createTextNode(fmt(v)));
+      // the noun rides in its own element so the button row, which has no room
+      // for it, can drop the word and keep the figure. The tooltip still spells
+      // the whole thing out either way.
+      var w = document.createElement('span');
+      w.className = 'asga-stat-noun';
+      w.textContent = ' ' + noun + (v === 1 ? '' : 's');
+      s.appendChild(w);
+      return s;
     }
     function starTitle(s) {
+      if (s == null) return 'This app has not been matched to a GitHub repository yet';
       return s.toLocaleString() + ' GitHub star' + (s === 1 ? '' : 's') +
              ' on this app\'s source repository';
     }
     // Plugins carry a real install count of their own, and "Docker image pulls"
     // is the wrong noun for something that was never pulled from a registry.
     function downloadTitle(dl, ty) {
+      if (!dl) {
+        return ty === 'plugin'
+          ? 'The app catalog carries no install count for this plugin'
+          : 'The app catalog carries no pull count for this image, which is usual for one published outside Docker Hub';
+      }
       return ty === 'plugin'
         ? dl.toLocaleString() + ' Unraid servers have installed this plugin'
         : dl.toLocaleString() + ' pulls of this app\'s Docker image';
@@ -1163,6 +1530,7 @@
           !feedReady ? feedWaitNote()
           : view.special === 'pinned' ? 'No pinned apps yet. Use the Pin App button on any app to add it here.'
           : view.special === 'installed' ? 'No installed apps matched the App Store catalog.'
+          : view.special === 'repo' ? 'No apps by ' + view.repo + ' matched the App Store catalog.'
           : view.q ? 'No apps match "' + view.q + '".'
           : emptySortNote() || 'No apps to show.'));
         grid.appendChild(empty);
@@ -1172,8 +1540,8 @@
         grid.appendChild(frag);
       }
 
-      var noun = view.special === 'pinned' ? 'pinned apps' : view.special === 'installed' ? 'installed apps' : 'apps';
-      var title = view.special === 'pinned' ? 'Pinned Apps' : view.special === 'installed' ? 'Installed Apps' : (view.cat ? view.catLabel : 'All Apps');
+      var noun = view.special === 'pinned' ? 'pinned apps' : view.special === 'installed' ? 'installed apps' : view.special === 'repo' ? 'apps by this maintainer' : 'apps';
+      var title = view.special === 'pinned' ? 'Pinned Apps' : view.special === 'installed' ? 'Installed Apps' : view.special === 'repo' ? view.repo : (view.cat ? view.catLabel : 'All Apps');
       var from = total ? start + 1 : 0, to = Math.min(start + view.perPage, total);
       var cnt = document.getElementById('asga-count');
       cnt.textContent = '';
@@ -1245,8 +1613,10 @@
         if (!tile) return;
         var up = tile.querySelector('.asga-tile-updated');
         if (!up) return;
-        up.textContent = updatedLabel(a.lu, a.lk);
-        up.title = absDate(a.lu, true) + '\n' + 'When this app\'s image was last published to its container registry.';
+        // rebuilt through the same helper the initial paint uses, so a date
+        // filled in after the fact gets its icon and today highlight too,
+        // rather than the old textContent write that would have wiped the icon
+        up.replaceWith(dateSpan('asga-tile-updated', CLOCK_ICON, 'Updated', a.lu, a.lk !== 'r', a.lk === 'r'));
       } catch (e) {}
     }
 
@@ -1325,21 +1695,14 @@
         var p = t.getAttribute('data-apppath');
         var v = stars[p];
         if (v == null) continue;
-        var wrap = t.querySelector('.asga-tile-badges');
-        if (!wrap) {
-          wrap = document.createElement('div');
-          wrap.className = 'asga-tile-badges';
-          t.appendChild(wrap);
-        }
-        t.classList.add('asga-has-badges');   // reserves title space for the badges
-        var b = wrap.querySelector('.ghstars-badge');
-        if (!b) {
-          b = document.createElement('span');
-          b.className = 'ghstars-badge';
-          wrap.insertBefore(b, wrap.firstChild);
-        }
-        b.textContent = '\u2605 ' + fmt(v);
-        b.title = starTitle(v);
+        // the stats live in the footer row now, so a star count arriving after
+        // the page painted goes in beside the download count rather than into
+        // a corner badge that no longer exists
+        var wrap = t.querySelector('.asga-tile-stats');
+        if (!wrap) continue;
+        var b = wrap.querySelector('.asga-stat-stars');
+        if (b) b.remove();
+        wrap.insertBefore(statSpan('asga-stat-stars', STAR_ICON, v, 'star', starTitle(v)), wrap.firstChild);
       }
     }
 
@@ -1729,7 +2092,12 @@
       closeDrawer(openDrawerNow);
     }
 
-    function makeDrawer(id, titleText) {
+    // headerAction is optional and only the About panel passes one (see
+    // ensureAboutPanel): { icon, title, onClick } for a button that sits left
+    // of Close. An argument rather than a second method keeps every drawer
+    // built through this one call; Settings passes nothing, so its header
+    // keeps the single close button it always had.
+    function makeDrawer(id, titleText, headerAction) {
       var d = {};
       var backdrop = document.createElement('div');
       backdrop.className = 'asga-drawer-backdrop';
@@ -1749,6 +2117,25 @@
       title.id = titleId;
       title.className = 'asga-drawer-title';
       title.textContent = titleText;
+
+      // Close (and the optional action beside it) sit in their own cluster
+      // rather than as direct children of the header, so the header always
+      // has exactly two flex children (title, cluster). That keeps the
+      // header's own justify-content:space-between doing the same job it
+      // always did, title flush left and the cluster flush right, instead of
+      // centering a third top-level child in the gap between title and Close.
+      var actions = document.createElement('div');
+      actions.className = 'asga-drawer-actions';
+      if (headerAction) {
+        var actionBtn = document.createElement('button');
+        actionBtn.type = 'button';
+        actionBtn.className = 'asga-drawer-action';
+        actionBtn.title = headerAction.title;
+        actionBtn.setAttribute('aria-label', headerAction.title);
+        actionBtn.innerHTML = headerAction.icon;
+        actionBtn.addEventListener('click', headerAction.onClick);
+        actions.appendChild(actionBtn);
+      }
       var closeBtn = document.createElement('button');
       closeBtn.type = 'button';
       closeBtn.className = 'asga-drawer-close';
@@ -1756,8 +2143,9 @@
       closeBtn.setAttribute('aria-label', 'Close');
       closeBtn.textContent = '✕';
       closeBtn.addEventListener('click', function () { closeDrawer(d); });
+      actions.appendChild(closeBtn);
       header.appendChild(title);
-      header.appendChild(closeBtn);
+      header.appendChild(actions);
 
       var body = document.createElement('div');
       body.className = 'asga-drawer-body';
@@ -1807,9 +2195,25 @@
     var aboutData = null;    // about.php's answer, or the string 'error' after a failed fetch; null means "not fetched yet"
     var aboutPanel = null;   // the drawer object, built lazily by ensureAboutPanel()
 
+    // Confirms before leaving the page: reuses attentionModal, this plugin's
+    // own confirm dialog, rather than a second one. Confirming opens the
+    // issue chooser in a new tab (openExt); cancelling closes the confirm and
+    // does nothing else.
+    function reportIssue() {
+      attentionModal(
+        'Reporting an issue opens this plugin\'s GitHub page in a new tab.\n\n' +
+        'You will need a GitHub account, and the issue form opens with the repository\'s own template already selected.',
+        function () { openExt(ISSUE_URL); }
+      );
+    }
+
     function ensureAboutPanel() {
       if (aboutPanel) return aboutPanel;
-      aboutPanel = makeDrawer('asga-about-panel', 'Unraid Modern App Store');
+      aboutPanel = makeDrawer('asga-about-panel', 'Unraid Modern App Store', {
+        icon: ISSUE_ICON,
+        title: 'Report an issue',
+        onClick: reportIssue
+      });
       return aboutPanel;
     }
 
@@ -2249,7 +2653,7 @@
       // CA disables its category menu for the duration of a search, so a search
       // there always spans the whole store. This does the same rather than
       // quietly searching inside whichever category was last opened.
-      view.special = ''; view.cat = ''; view.catLabel = 'All Apps';
+      view.special = ''; view.repo = ''; view.cat = ''; view.catLabel = 'All Apps';
       view.q = q; view.page = 1; render();
     }
     function wireSearch() {
@@ -2280,7 +2684,12 @@
       for (var i = 0; i < items.length; i++) {
         var it = items[i], cat = it.getAttribute('data-category') || '';
         var on;
-        if (view.special) on = (cat === (view.special === 'pinned' ? 'pinned_apps' : 'installed_apps'));
+        // A maintainer view has no menu item to light up, and the ternary
+        // below treats anything that is not 'pinned' as 'installed', so
+        // without this the Installed Apps entry lit up whenever someone
+        // opened a maintainer's apps.
+        if (view.special === 'repo') on = false;
+        else if (view.special) on = (cat === (view.special === 'pinned' ? 'pinned_apps' : 'installed_apps'));
         else if (view.cat) on = (cat === view.cat);
         else on = it.classList.contains('allApps') || cat === 'All';
         it.classList.toggle('asga-menu-cur', !!on);
@@ -2300,7 +2709,7 @@
         // Pinned + Installed: CA's own views are broken, so render them ourselves.
         if (cat === 'pinned_apps' || cat === 'installed_apps') {
           caSpecial = false; view.special = (cat === 'installed_apps') ? 'installed' : 'pinned';
-          view.cat = ''; view.q = ''; if (box) box.value = ''; view.page = 1;
+          view.repo = ''; view.cat = ''; view.q = ''; if (box) box.value = ''; view.page = 1;
           loadViews(function () { applyViewMode(); render(); });
           return;
         }
@@ -2309,7 +2718,7 @@
           caSpecial = true; applyViewMode(); return;
         }
         // Home (startup screens) and All Apps both mean the full catalog for us.
-        caSpecial = false; view.special = '';
+        caSpecial = false; view.special = ''; view.repo = '';
         var homeLike = item.classList.contains('startupButton') || /^(onlynew|spotlight|top_trending|home)$/.test(cat);
         if (homeLike || cat === 'All' || cat === 'New' || cat === '' || item.classList.contains('allApps')) { view.cat = ''; view.catLabel = 'All Apps'; }
         else { view.cat = cat; view.catLabel = label || cat; }
@@ -2471,6 +2880,7 @@
       wireLightbox();
       wireDescriptionTidy();
       wireDrawerDetails();
+      wireRepoClick();
       showWarningIfNeeded();
       applyViewMode();
       dismissCaLoading();

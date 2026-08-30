@@ -15,7 +15,7 @@
  *
  * Output: { "generated": <ts>, "feedReady": <bool>, "docker": {...}, "defaultSort": <string>,
  *           "historyDays": <int>,
- *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,lu,lk,ca,sx,t1,t7,t30,t365,rd,dt,td,tc } ] }
+ *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,lu,lk,ca,sx,rn,t1,t7,t30,t365,rd,dt,td,tc } ] }
  *   p  = template path (passed to CA's showSidebarApp for Info/Install)
  *   n  = display name          sn = lowercase sort-name
  *   ic = icon URL              ct = category
@@ -24,6 +24,7 @@
  *   lu = last-update unix ts (0 if unknown)   lk = its source: 'r' registry push, 'v' plugin version
  *   sa = last star-fetch attempt for this app's repo (0 = never tried)
  *   sx = text the grid searches but never shows (full description + hidden keywords)
+ *   rn = CA's RepoName (or Repo), verbatim and unclipped: the maintainer key CA's own All Apps button filters by
  *   ca = repo creation unix ts (or null), for the lifetime growth-rate sort
  *   t1/t7/t30/t365 = star trend deltas (day/week/month/year)
  *   rq = install-time Attention notice text (requires/moderator comment), '' if none
@@ -69,6 +70,107 @@ function clip($s, $max) {
     $s = trim((string)$s);
     if (function_exists('mb_strlen')) return mb_strlen($s) > $max ? mb_substr($s, 0, $max - 1) . '…' : $s;
     return strlen($s) > $max ? substr($s, 0, $max - 1) . '…' : $s;
+}
+
+// CA's feed carries no short-summary field: of the 3,889 currently
+// displayable apps, only 25 have a Description at all, and 4 of those just
+// repeat the Overview. So the card blurb has to be carved out of the
+// Overview paragraph itself, whose median length is 289 characters, and the
+// sentence that says what the app actually IS is almost always the first
+// one. A fixed character cut chopped that sentence off mid-word or
+// mid-thought as often as not ("...and everyone plays from their own
+// browser on your LAN, spymaster view and g..."), so this finds the real
+// sentence boundary instead: the first `.`, `!` or `?` that is followed by
+// whitespace and then an uppercase letter, a digit, or the end of the
+// string. Requiring what comes AFTER the punctuation, not just the
+// punctuation itself, is what stops it cutting inside an abbreviation.
+function first_sentence($s) {
+    $s = trim((string)$s);
+    if ($s === '') return $s;
+
+    $mb = function_exists('mb_strlen');
+    $charlen = function($x) use ($mb) { return $mb ? mb_strlen($x) : strlen($x); };
+
+    // A period that is really an abbreviation still satisfies the
+    // punctuation-then-capital test below ("Dr. Smith", "vs. the field"), so
+    // every candidate is checked against this list before it is accepted.
+    // Version and decimal numbers (v1.2, 2.5) and domains or paths
+    // (example.com, ca.mover.tuning) never become candidates in the first
+    // place: nothing but whitespace is allowed between the punctuation and
+    // what follows it, and those never have a space in the middle.
+    $abbrev = '/\b(?:e\.g|i\.e|etc|vs|dr|mr|mrs|st|approx|min|max)\.$/i';
+
+    preg_match_all('/[.!?](?=\s+[A-Z0-9]|\s+$|$)/', $s, $m, PREG_OFFSET_CAPTURE);
+    $candidates = $m[0] ?? [];
+
+    $skip = function($pos) use ($s, $abbrev) {
+        // an ellipsis the author typed ("...") trails a thought off; it is
+        // never the sentence-ending punctuation itself
+        if ($pos >= 2 && $s[$pos] === '.' && $s[$pos - 1] === '.' && $s[$pos - 2] === '.') return true;
+        $start = max(0, $pos - 24);
+        return (bool)preg_match($abbrev, substr($s, $start, $pos - $start + 1));
+    };
+
+    $end = null;
+    foreach ($candidates as $cand) {
+        if ($skip($cand[1])) continue;
+        $end = $cand[1];
+        break;
+    }
+
+    $sentence = null;
+    if ($end !== null) {
+        $sentence = substr($s, 0, $end + 1);
+        // a one-word opener like "Warning." is not a useful blurb on its
+        // own, so fold in the next sentence when this one is too short
+        if ($charlen($sentence) < 40) {
+            foreach ($candidates as $cand) {
+                if ($cand[1] <= $end || $skip($cand[1])) continue;
+                $sentence = substr($s, 0, $cand[1] + 1);
+                break;
+            }
+        }
+    }
+
+    // No sentence boundary found, or the one settled on runs too long for a
+    // card: fall back to a hard cap, same as clip(), but trimmed back to the
+    // last space first so it never lands mid-word the way clip() can.
+    if ($sentence === null || $charlen($sentence) > 300) {
+        $max = 300;
+        if ($charlen($s) <= $max) return $s;
+        $cut = $mb ? mb_substr($s, 0, $max - 1) : substr($s, 0, $max - 1);
+        $sp  = $mb ? mb_strrpos($cut, ' ') : strrpos($cut, ' ');
+        if ($sp !== false && $sp > 0) $cut = $mb ? mb_substr($cut, 0, $sp) : substr($cut, 0, $sp);
+        return rtrim($cut) . '…';
+    }
+
+    return $sentence;
+}
+
+// The categories a card shows, formatted exactly the way Community
+// Applications formats them on its own cards.
+//
+// CA writes them as a space separated list of Parent:Child pairs, and every one
+// of the 3,867 categorised apps uses that colon form while 2,421 carry more
+// than one pair. CA's own categoryList() in include/helpers.php turns the
+// separators into commas, trims a trailing colon (which is why "Backup:" must
+// render as "Backup"), keeps the internal colon exactly as written, shows the
+// first two and appends "and N more" for the rest. This mirrors that, so a card
+// here and a card in the stock view never disagree about what an app is filed
+// under.
+function card_category($feed, $stored) {
+    $raw = trim((string)$feed);
+    if ($raw === '') $raw = trim((string)$stored);
+    if ($raw === '') return '';
+    $raw = str_replace([':,', ': ', ' '], ',', $raw);
+    $raw = rtrim($raw, ': ');
+    $all = array_values(array_filter(array_map(function ($c) { return rtrim(trim($c), ':'); }, explode(',', $raw)), 'strlen'));
+    if (!$all) return '';
+    $shown = array_slice($all, 0, 2);
+    $excess = count($all) - count($shown);
+    $out = implode(', ', $shown);
+    if ($excess > 0) $out .= ' and ' . $excess . ' more';
+    return clip($out, 48);
 }
 
 // When the app itself last shipped, and where that date came from.
@@ -230,11 +332,12 @@ foreach ($tmpl as $t) {
         if ($imgName === '' || strpos($imgName, '/') === false) $dl = 0;
     }
 
-    // description: prefer our stored copy, fall back to CA's Overview; trim to a
-    // card-sized blurb (tiles clamp it anyway) to keep the payload lean.
+    // description: prefer our stored copy, fall back to CA's Overview; cut to
+    // its opening sentence (tiles clamp it anyway) to keep the payload lean.
+    // See first_sentence() above for why a sentence cut beats a character cut.
     $desc = $mine['de'] ?? ($t['Overview'] ?? '');
     $desc = trim(preg_replace('/\s+/', ' ', strip_tags($desc)));
-    if (strlen($desc) > 400) $desc = substr($desc, 0, 400) . '…';
+    $desc = first_sentence($desc);
 
     // Text the grid searches but never shows. Community Applications matches a
     // query against the app's FULL description and against ExtraSearchTerms, a
@@ -259,8 +362,12 @@ foreach ($tmpl as $t) {
         'p'   => $path,
         'n'   => $name,
         'sn'  => strtolower($t['SortName'] ?? $name),
-        'ic'  => $mine['ic'] ?? ($t['Icon'] ?? ''),
-        'ct'  => clip($mine['ct'] ?? ($t['Category'] ?? ''), 48),
+        // The card and CA's own drawer are the same app and must never show two
+        // different icons for it. CA's drawer always renders $template['Icon']
+        // from the feed, so that is the value that settles a disagreement; our
+        // stored copy is only the fallback for when the feed has none.
+        'ic'  => $t['Icon'] ?? ($mine['ic'] ?? ''),
+        'ct'  => card_category($t['Category'] ?? '', $mine['ct'] ?? ''),
         // ct is the card LABEL only. fetch_stars.php keeps just the app's first
         // category and strips the colons out of it, which reads well on a tile
         // ("Network Management") but matches nothing the left menu ever asks
@@ -274,6 +381,11 @@ foreach ($tmpl as $t) {
         // and cutting it would silently drop an app's trailing categories.
         'cf'  => (string)($t['Category'] ?? ''),
         'au'  => display_author($mine['au'] ?? '', $t),
+        // CA's own maintainer key, kept byte-for-byte: display_author() above
+        // trims this same RepoName down to a person's name for the card, but
+        // the All Apps button in CA's drawer hands this value back UNTRIMMED
+        // in data-repository, so the grid needs the raw form to match against.
+        'rn'  => (string)($t['RepoName'] ?? $t['Repo'] ?? ''),
         'de'  => $desc,
         'sx'  => $sx,
         'pr'  => $mine['pr'] ?? ($t['Project'] ?? ''),

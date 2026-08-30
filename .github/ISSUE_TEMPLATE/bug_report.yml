@@ -1,0 +1,54 @@
+name: Bug report
+description: Something in the Apps page does not work the way it should
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. The more precisely you can
+        describe what you saw, the faster it gets fixed.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What did you see, and what did you expect instead?
+      placeholder: I clicked an app card and the drawer opened with no icon.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: The shortest sequence that shows the problem.
+      placeholder: |
+        1. Open the Apps page
+        2. Sort by Most Stars
+        3. Scroll to the third row
+    validations:
+      required: true
+  - type: input
+    id: unraid-version
+    attributes:
+      label: Unraid version
+      placeholder: "7.0.1"
+    validations:
+      required: true
+  - type: input
+    id: plugin-version
+    attributes:
+      label: Plugin version
+      description: Shown at the top of the About panel, the same panel this form was opened from.
+      placeholder: "2026.08.30"
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser
+      placeholder: "Firefox 142, Chrome 140, Safari 18"
+  - type: textarea
+    id: console
+    attributes:
+      label: Browser console output
+      description: Open the developer tools console, reload the Apps page, and paste anything red. Optional but it usually settles the question.
+      render: text

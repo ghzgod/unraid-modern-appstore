@@ -1,0 +1,17 @@
+name: Feature request
+description: Suggest something the Apps page should do
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: Describe the thing that is awkward today, rather than the solution you have in mind. It usually leads somewhere better.
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you would like instead
+    validations:
+      required: true

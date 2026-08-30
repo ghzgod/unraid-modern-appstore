@@ -160,6 +160,17 @@ html.Theme--legacyOS .asga-help:hover { opacity: 1; }
    lock and one z-index stack serve both. */
 /* the grid behind the panel does not need its own scrollbar fighting the
    panel's, since the panel already owns the one scroll the user can reach */
+/* Opening any drawer locks the page behind it, and a lock means overflow
+   hidden, which takes the scrollbar away and hands its width back to the
+   layout: every card jumps a few pixels sideways at the moment of the click.
+   CA does the same thing to the body (overflow: hidden !important on
+   .body_sidebarScroll) when its own app drawer opens, so the jump happened
+   whichever drawer was involved. Reserving the gutter permanently means
+   removing the scrollbar changes nothing, because the space was never the
+   scrollbar's to give back. Scoped to modern view so CA's own page is
+   untouched, and set on both the root and the body since a body-level
+   overflow propagates to the viewport. */
+html:has(body.asga-active), body.asga-active { scrollbar-gutter: stable; }
 body.asga-drawer-open { overflow: hidden; }
 .asga-drawer-backdrop {
   position: fixed; inset: 0; z-index: 10060;
@@ -192,11 +203,18 @@ body.asga-drawer-open { overflow: hidden; }
   background: inherit;
 }
 .asga-drawer-title { margin: 0; font-size: 1.6rem; font-weight: 700; }
+/* Close, and the optional header action beside it (see makeDrawer's
+   headerAction in inject.js), sit in this cluster rather than as direct
+   children of the header, so the header keeps exactly two flex children and
+   justify-content:space-between still puts title flush left and this
+   cluster flush right. */
+.asga-drawer-actions { display: flex; align-items: center; gap: 4px; }
 /* Unraid styles every <button> as a form button: 86px min-width, uppercase,
    8px padding and a 10px/12px margin. On a panel header that renders the close
-   control as a wide labelled box instead of an icon, so every one of those is
-   reset here rather than fought with later. */
-.asga-drawer-close {
+   (and the report-an-issue action beside it) as a wide labelled box instead of
+   an icon, so every one of those is reset here rather than fought with later. */
+.asga-drawer-close,
+.asga-drawer-action {
   display: inline-flex; align-items: center; justify-content: center;
   /* !important on exactly the properties Unraid's global button rule sets.
      That rule is button:where(:not(.unapi *)), and :where() contributes no
@@ -208,10 +226,10 @@ body.asga-drawer-open { overflow: hidden; }
   font-size: 1.5rem; line-height: 1; text-transform: none !important; letter-spacing: normal;
   font-weight: normal; cursor: pointer;
 }
-.asga-drawer-close:hover { opacity: 1; border-color: #ff8c2f; background: rgba(255, 140, 47, 0.14); }
-.asga-drawer-close:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 1px; }
-.asga-drawer-close:hover { border-color: #ff8c2f; background: rgba(255, 140, 47, 0.14); }
-.asga-drawer-close:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 1px; }
+.asga-drawer-close:hover,
+.asga-drawer-action:hover { opacity: 1; border-color: #ff8c2f; background: rgba(255, 140, 47, 0.14); }
+.asga-drawer-close:focus-visible,
+.asga-drawer-action:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 1px; }
 .asga-drawer-body { flex: 1 1 auto; overflow-y: auto; padding: 4px 20px 24px; }
 
 /* ---- About panel content: everything below is specific to what the About
@@ -382,18 +400,32 @@ body.dark .asga-settings-select { color-scheme: dark; }
 @keyframes asga-rotate { to { transform: rotate(360deg); } }
 .asga-refreshlink.asga-spinning { display: inline-block; animation: asga-rotate 0.8s linear infinite; opacity: 1; }
 
+/* The grid declares the four bands every card is made of (header, description,
+   metadata, buttons) as its own row tracks, and each card spans them with
+   grid-template-rows: subgrid. That is what makes every band line up across a
+   row without a single min-height: each track is sized by the tallest card's
+   version of THAT band, so a one-line description no longer has to reserve two
+   lines just in case a neighbour needs them. Three earlier attempts moved the
+   slack around the card (under the text, under the buttons, spread across the
+   width) and it was visible every time, because with equal-height cards the
+   slack has to land somewhere. Subgrid is the only thing that removes it
+   rather than relocating it.
+   row-gap doubles as the spacing between bands, since a card's four rows are
+   the parent's rows. */
 .asga-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-  gap: 14px;
+  column-gap: 14px; row-gap: 10px;
 }
 .asga-tile {
   position: relative;
   background: var(--background-color, rgba(127,127,127,0.06));
   border: 1px solid rgba(127, 127, 127, 0.22);
   border-radius: 8px;
-  padding: 14px;
-  display: flex; flex-direction: column;
+  /* No padding here: a subgrid item's own padding offsets its tracks from the
+     parent's, which is exactly the alignment this is meant to guarantee. Each
+     band carries the inset instead (see .asga-tile > * below). */
+  display: grid; grid-template-rows: subgrid; grid-row: span 4;
   transition: border-color 0.15s ease;
   cursor: pointer;
   /* Templates come from a public feed: names, authors and categories can be
@@ -405,64 +437,202 @@ body.dark .asga-settings-select { color-scheme: dark; }
 }
 .asga-tile > *, .asga-tile-head > *, .asga-tile-htext > * { min-width: 0; max-width: 100%; }
 .asga-tile:hover { border-color: #ff8c2f; }
+/* The card's inset lives on its bands, not on the card. A subgrid item's own
+   padding would shift its tracks off the parent's and undo the alignment the
+   subgrid exists for, so the four bands each carry the side inset and the
+   first and last carry the top and bottom. */
+.asga-tile > *:not(.asga-tile-badges) { padding-left: 14px; padding-right: 14px; }
+.asga-tile > .asga-tile-head { padding-top: 14px; }
+.asga-tile > .asga-tile-dates { padding-bottom: 14px; }
 
-.asga-tile-head { display: flex; gap: 12px; align-items: flex-start; }
-.asga-tile-icon { position: relative; width: 64px; height: 64px; flex: 0 0 64px; }
-.asga-tile-icon img { width: 64px; height: 64px; object-fit: contain; border-radius: 10px; }
+/* The icon's side, computed from the very type tokens the three text lines are
+   built from: two reserved title lines, the author line, its 2px gap, and the
+   category line. Both axes are pinned to it rather than one being derived with
+   aspect-ratio, because an aspect-ratio box can resolve from EITHER axis: given
+   a wide enough column the width won, the height followed, and the icon grew to
+   fill the whole card. */
+.asga-tile-head {
+  display: flex; gap: 12px; align-items: flex-start;
+  --asga-icon-side: calc(2 * 1.25rem * 1.2 + 1rem * 1.35 + 2px + 0.95rem * 1.35);
+}
+.asga-tile-icon {
+  position: relative; align-self: flex-start;
+  width: var(--asga-icon-side); height: var(--asga-icon-side);
+  flex: 0 0 var(--asga-icon-side);
+}
+/* the card and the drawer show the same app and must not disagree about how
+   its icon looks, so this matches body.asga-active .popupIcon img further
+   down this file: tinted plate, border, radius, at the card's own 64px. The
+   literal rgba values stand in for --asga-control and --asga-cardline, which
+   are declared on .sidenav and do not reach the grid. */
+.asga-tile-icon img {
+  width: 100%; height: 100%; object-fit: contain; border-radius: 10px; box-sizing: border-box;
+  background: rgba(127, 127, 127, 0.08); border: 1px solid rgba(127, 127, 127, 0.22); padding: 4px;
+}
 .asga-tile-htext { min-width: 0; flex: 1; }
-/* the badges float over the top-right corner, so a long title has to stop
-   short of them instead of running underneath */
-.asga-has-badges .asga-tile-name { padding-right: 104px; }
+/* Name+icon and author+category are each one row, a left text column that
+   shrinks and a right-hand column that never does, replacing the old
+   three-line stack. The old text pill spelling out "Docker" or "Plugin" cost
+   that stack a whole line on its own; sharing the name's and author's lines
+   buys the line back for the description below. */
+.asga-tile-namerow { display: flex; min-width: 0; align-items: flex-start; gap: 8px; }
+/* Two lines are always reserved whether the title needs them or not, so the
+   author sits on line three and the category on line four on every card. A
+   title that would run past the badges truncates rather than wrapping under
+   them, which is what the padding on the badged variant is for. */
 .asga-tile-name {
+  min-height: calc(2 * 1.25rem * 1.2);
   font-size: 1.25rem; font-weight: 700; line-height: 1.2;
   color: var(--text-color, inherit);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  flex: 1 1 auto; min-width: 0;
 }
 .asga-tile-author {
-  font-size: 1rem; opacity: 0.7; margin-top: 2px;
+  font-size: 1rem; line-height: 1.35;
+  color: color-mix(in srgb, var(--text-color, #f2f2f2) 76%, var(--background-color, #1d1b1b));
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  flex: 1 1 auto; min-width: 0;
 }
-.asga-tile-metarow { display: flex; align-items: center; gap: 8px; margin-top: 3px; }
-.asga-tile-cat { font-size: 0.95rem; opacity: 0.55; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.asga-type {
-  font-size: 0.8rem; font-weight: 600; letter-spacing: 0.02em;
-  padding: 1px 7px; border-radius: 8px; white-space: nowrap;
+/* two classes, not source order, is what keeps this beating the 12px
+   .asga-ficon rule further down: the icon reads larger here because it is the
+   only signal of the app's type left on the card, not a footer glyph sitting
+   beside its own label. */
+.asga-ficon.asga-ficon-lg { width: 16px; height: 16px; }
+/* Docker's own brand blue, which is why it is allowed to sit alongside this
+   card's own palette: it names a real external mark, not a second in-house
+   hue. */
+.asga-kind-docker { color: #2496ED; }
+/* Deliberately not the #ff8c2f accent: the accent means interactive
+   everywhere else on this card, and this icon states a fact about the app,
+   not a control. */
+/* Unraid's own orange. It is the accent, which elsewhere in this plugin means
+   "interactive", and it is used here anyway because Unraid's brand colour is
+   what a plugin IS on this platform. The icon is not clickable, so nothing is
+   lost by the overlap. */
+.asga-kind-plugin { color: #ff8c2f; }
+/* the category shrinks too, but only down to this floor, so a long category
+   never crowds the author to nothing and never disappears outright either */
+/* its own line under the author, sharing that column's left edge, rather than
+   opposite it on one row */
+.asga-tile-cat {
+  margin-top: 2px; font-size: 0.95rem; line-height: 1.35;
+  color: color-mix(in srgb, var(--text-color, #f2f2f2) 66%, var(--background-color, #1d1b1b));
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0;
 }
-.asga-type-docker { color: #6ab7ff; background: rgba(106,183,255,0.14); }
-.asga-type-plugin { color: #ff9d5c; background: rgba(255,140,47,0.16); }
 
+/* One sentence, so two lines. applist.php now cuts the overview at its first
+   sentence rather than at a character count, and that sentence fits two lines
+   at nearly every column width, so the block that used to reserve six lines
+   reserves two. The floor and the clamp are the same number on purpose: every
+   card's description occupies exactly two lines, which is what keeps the
+   button rows aligned without leaving a hole under a short one. */
 .asga-tile-desc {
-  font-size: 1rem; line-height: 1.35; opacity: 0.85; margin: 10px 0 12px;
-  display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden;
+  font-size: 1.15rem; line-height: 1.4; color: color-mix(in srgb, var(--text-color, #f2f2f2) 92%, var(--background-color, #1d1b1b)); margin: 0;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 
 /* Added and Updated share one line at the foot of the card, Added pinned to
    the left edge and the last-updated date to the right. Pushing them to
    opposite edges is what keeps them from colliding on a narrow card, and it
    lines the right-hand dates of every card in a grid row up with each other. */
+/* Both dates sit together at the right edge rather than at opposite ends of
+   the row, updated on the left of the pair and added at the far right. Pinned
+   to opposite edges they read as two unrelated facts with a card's worth of
+   space between them; together they read as one line about the app's age, and
+   the left of the footer is left free for anything that needs it later. */
 .asga-tile-dates {
-  display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
-  margin-top: 10px; font-size: 0.92rem; opacity: 0.55; line-height: 1.5;
-  /* One line is reserved whether or not either date is known, because a
-     shorter footer would pull that card's button row out of line with its
-     neighbours', and the button row is what bottom-aligns a whole grid row. */
-  min-height: 1.5em;
+  /* One left-aligned run, not two clumps at opposite edges. Everything starts
+     from the same edge on every card, so there is no middle void whose width
+     depends on how long an app's numbers happen to be. */
+  display: flex; justify-content: flex-start; align-items: center; gap: 14px;
+  flex-wrap: wrap; row-gap: 4px;
+  margin: 0; font-size: 0.92rem; line-height: 1.5;
+  /* Opacity used to sit here at 0.55, dimming the whole row. Opacity on a
+     container multiplies every colour painted inside it, so it was quietly
+     desaturating the gold, teal and blue icon/stat colours below along with
+     the text they were never meant to touch. Each piece now carries its own
+     strength instead: .asga-datetext dims itself, everything else stays full
+     strength in its own colour. */
 }
-/* min-width:0 is what lets a flex child ellipsise instead of forcing the row
-   wider than the card. */
-.asga-tile-added, .asga-tile-updated {
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+/* one rule is what guarantees all four footer items (two dates, two stats)
+   share a centre line: the same icon-then-text flex box for every one of
+   them, whichever kind of figure follows the icon */
+.asga-tile-added, .asga-tile-updated, .asga-stat {
+  display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
 }
-.asga-tile-updated { text-align: right; }
-.asga-tile-btns { margin-top: auto; display: flex; flex-wrap: nowrap; gap: 5px; position: relative; }
+/* min-width:0 is what lets a flex child shrink and ellipsise instead of
+   forcing the row wider than the card; it is needed at both levels now, since
+   each date is an icon-plus-text pair rather than a single flex item. */
+.asga-tile-added, .asga-tile-updated { min-width: 0; }
+.asga-stat { font-weight: 600; }
+/* A field with nothing behind it keeps its slot and its icon and says so,
+   rather than disappearing. Every card then has the same four items in the
+   same four places, which is what stops a wall of cards reading as ragged.
+   Dimmed, so a card that does know its numbers still wins the eye. */
+.asga-stat-none { color: color-mix(in srgb, var(--text-color, #f2f2f2) 48%, var(--background-color, #1d1b1b)); }
+.asga-stat-none .asga-ficon { color: inherit; }
+/* shared by all four footer icons (two dates, two stats), so they can never
+   drift apart in size again; each takes its colour from the rules below
+   rather than carrying one of its own, since every SVG draws with
+   stroke="currentColor" */
+.asga-ficon { width: 12px; height: 12px; flex: 0 0 auto; }
+/* the text is the part that actually ellipsises; the icon never should */
+.asga-datetext {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
+  /* secondary text per the design system's text scale: the relative age reads
+     as a supporting fact rather than the near-invisible line the old container
+     opacity left it as. Colour, not opacity: opacity fades an element against
+     whatever sits behind it and drags every child colour down with it, so the
+     icon beside this text lost its hue too. A mixed colour states the exact
+     shade and touches nothing else. */
+  color: color-mix(in srgb, var(--text-color, #f2f2f2) 86%, var(--background-color, #1d1b1b));
+}
+/* #6ab7ff and #f0a500 are already this card's hues, for the docker tag and the
+   star badge; reused here rather than adding new ones, so added and updated
+   can be told apart at a glance without reading either. */
+.asga-tile-added .asga-ficon { color: #6ab7ff; }
+.asga-tile-updated .asga-ficon { color: #f0a500; }
+/* an app added or updated today is the one thing on a card worth interrupting
+   a scan for, which is what the accent is for. It is set outright rather than
+   layered over the muted colour above, so a today-flagged date is never the
+   one date that reads as dimmed. */
+.asga-date-today .asga-ficon,
+.asga-date-today .asga-datetext { color: #ff8c2f; }
+.asga-date-today .asga-datetext { font-weight: 600; }
+/* No margin-top:auto any more: the buttons sit in their own subgrid track, so
+   they are bottom-aligned across the row by the grid rather than by being
+   pushed down inside each card. */
+/* space-between, so the run spans the same width the description above it does
+   rather than stopping 82px short of the card's right edge. */
+.asga-tile-btns { display: flex; flex-wrap: nowrap; align-items: center; justify-content: space-between; gap: 5px; position: relative; }
 .asga-btn {
+  display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer; user-select: none; white-space: nowrap;
   font-size: 0.92rem; padding: 4px 9px; border-radius: 20px;
   border: 1px solid rgba(127,127,127,0.4); color: var(--text-color, inherit);
   background: rgba(127,127,127,0.08);
 }
 .asga-btn:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.14); }
-.asga-btn.asga-pinned { border-color: #ff8c2f; background: rgba(255,140,47,0.2); color: #ff8c2f; }
+/* #6ac47f is this project's one positive semantic colour. It means a state the
+   server is already in, which is why both of the buttons below wear it: the app
+   is installed, or the app is pinned. It is the only hue besides the accent
+   that carries meaning, and it never competes with the accent because the
+   accent means "this does something" and this means "this is already true".
+   The pinned button used to be accent, which made the one already-pinned card
+   in a row look like the one card asking to be clicked. */
+.asga-btn.asga-pinned,
+.asga-btn.asga-btn-installed {
+  color: #6ac47f; background: rgba(106, 196, 127, 0.15); border-color: rgba(106, 196, 127, 0.4);
+  font-weight: 600; cursor: pointer;
+}
+/* two classes beats the generic hover above at one, so these win the cascade
+   without relying on source order. They only lift the same fill: a button that
+   reports state must never turn accent the way the plain pills do. */
+.asga-btn.asga-pinned:hover,
+.asga-btn.asga-btn-installed:hover {
+  background: rgba(106, 196, 127, 0.22); border-color: rgba(106, 196, 127, 0.55);
+}
 
 /* support dropdown */
 .asga-supmenu {
@@ -473,26 +643,52 @@ body.dark .asga-settings-select { color-scheme: dark; }
 .asga-suplink { display: block; padding: 7px 12px; font-size: 1rem; color: var(--text-color, inherit); text-decoration: none; }
 .asga-suplink:hover { background: rgba(255,140,47,0.16); }
 
-/* stars + downloads inline in the tile's top-right corner */
+/* Stars and downloads now sit at the left of the footer row rather than as
+   badges floating over the title, so the title gets the full card width back
+   and each figure gets room for the word that says what it counts. */
+/* Stars and installs sit at the right end of the date band. They used to be
+   absolutely positioned in the card's corner, where they picked up the 14px
+   band padding from .asga-tile > * and ended up 29px from the card edge while
+   the icon sat 15px from the left. Inside the band the inset is simply the
+   band's own, so both sides match by construction rather than by a magic
+   number, and the figures share the dates' centre line. */
+/* The card's top right corner, at the same 14px inset every band uses, so the
+   gap to the right edge matches the icon's gap on the left. Absolutely
+   positioned, which keeps it out of the four subgrid tracks: an out-of-flow
+   child is not a grid item and cannot push a band off its shared row. */
 .asga-tile-badges {
-  position: absolute; top: 10px; right: 10px; z-index: 5;
-  display: flex; gap: 6px; align-items: center;
+  position: absolute; top: 14px; right: 14px; z-index: 5;
+  /* The box is exactly one line of the app name tall, and it starts where that
+     first line starts (the head band's own 14px top inset). Centring inside a
+     box of that height is what puts the figures on the name's first-line
+     centre, without the stylesheet having to know how many lines the name
+     wraps to or where the name element happens to sit. */
+  height: calc(1.25rem * 1.2);
+  display: flex; gap: 4px; align-items: center;
 }
-.ghstars-badge, .ghdl-badge {
-  font-size: 11px; line-height: 1; font-weight: 600;
-  background: rgba(0, 0, 0, 0.55);
+/* the title stops short of the badges instead of running under them. Keyed off
+   a class on the card because the badges are appended last, and a sibling
+   combinator only ever reaches forwards. */
+.asga-has-badges .asga-tile-name { padding-right: 92px; }
+.asga-tile-badges .asga-stat {
+  font-size: 10px; line-height: 1; font-weight: 600;
+  background: rgba(0, 0, 0, 0.35);
   border: 1px solid rgba(127, 127, 127, 0.3);
   padding: 3px 7px; border-radius: 10px;
-  white-space: nowrap;
-  /* These carry a title explaining what the number counts, and a title never
-     fires on an element that cannot be hovered, so pointer-events stays on.
-     Clicking one still opens the app: the grid's click handler resolves the
-     target with closest('.asga-tile'), and a badge is not a .asga-btn, so it
-     falls through to the same branch as a click on the card itself. */
   cursor: inherit;
 }
-.ghstars-badge { color: #f0a500; }
-.ghdl-badge   { color: #4ab8c9; }
+/* no room for the word in a badge; the tooltip still carries it */
+.asga-tile-badges .asga-stat-noun { display: none; }
+.asga-tile-badges .asga-ficon { width: 11px; height: 11px; }
+
+/* the type icon closes the date row, so the icons along the card's bottom read
+   as one line: updated, added, and what kind of app it is */
+.asga-tile-kind { display: inline-flex; align-items: center; margin-left: auto; flex: 0 0 auto; }
+/* .asga-stat's own box (display/align-items/gap/white-space) is declared with
+   the date spans above, so all four footer items share one shape; font-weight
+   is the one property that sets stats apart from dates. */
+.asga-stat-stars { color: #f0a500; }
+.asga-stat-dl { color: #4ab8c9; }
 
 /* pager */
 .asga-pager { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; align-items: center; margin: 22px 0 8px; }
@@ -953,7 +1149,10 @@ body.asga-active .popupIcon { flex: 0 0 auto; }
 body.asga-active .popupIcon img {
   /* border-box because the border below is otherwise added outside the 72px
      and the tile measures 74, which is the one thing in this header that does
-     not line up with the 4px grid everything else sits on */
+     not line up with the 4px grid everything else sits on. display:block
+     because an inline image reserves a 4px descender under it, which made the
+     icon column 76px tall and sat the avatar high inside it. */
+  display: block;
   width: 72px; height: 72px; box-sizing: border-box; margin: 0; padding: 0; object-fit: contain;
   border-radius: 10px; background: var(--asga-control); border: 1px solid var(--asga-cardline);
 }
@@ -970,15 +1169,20 @@ body.asga-active #sidenavContent { overflow-wrap: break-word; word-break: break-
 
 /* action pills (Install / Support / Pin) and every other CA button in the
    drawer, including the Maintainer row, share one look */
-body.asga-active #sidenavContent .caButton {
+body.asga-active #sidenavContent .caButton,
+body.asga-active .asga-repo-drawer .popupInfo .appIconsPopUp {
   display: inline-flex; align-items: center; gap: 6px; cursor: pointer; box-sizing: border-box;
-  font-size: 1.15rem; line-height: 1.2; padding: 6px 14px; margin: 0 6px 6px 0;
+  /* !important because CA hangs a .ca_normal class carrying font-size: 1.4rem
+     !important on several of these, which is why the maintainer card's buttons
+     rendered a size larger than the header's while claiming 1.1rem. */
+  font-size: 1.15rem !important; line-height: 1.2; padding: 6px 14px; margin: 0 6px 6px 0;
   border-radius: 20px; border: 1px solid rgba(127, 127, 127, 0.4);
   background: var(--asga-control); color: var(--asga-fg) !important;
   transition: background 0.15s ease, border-color 0.15s ease;
 }
 body.asga-active #sidenavContent .caButton * { color: inherit !important; text-decoration: none; }
-body.asga-active #sidenavContent .caButton:hover {
+body.asga-active #sidenavContent .caButton:hover,
+body.asga-active .asga-repo-drawer .popupInfo .appIconsPopUp:hover {
   border-color: var(--asga-accent); background: rgba(255, 140, 47, 0.14);
   color: var(--asga-accent) !important;
 }
@@ -991,10 +1195,19 @@ body.asga-active #sidenavContent .caButton.actionsPopup {
 }
 body.asga-active #sidenavContent .caButton.actionsPopup:hover { background: rgba(255, 140, 47, 0.28); color: var(--asga-accent) !important; }
 /* toggled-on states: pinned app, favourited repo */
+/* Pinned and favourited are the same kind of fact the grid's own pinned button
+   reports, so they wear the same positive colour rather than the accent. A
+   drawer that painted them accent would disagree with the card the user just
+   clicked to get here. */
 body.asga-active #sidenavContent .caButton.pinPopup.pinned,
 body.asga-active #sidenavContent .caButton.ca_favouriteRepo.fav {
-  border-color: var(--asga-accent); color: var(--asga-accent) !important;
-  background: color-mix(in srgb, var(--asga-accent) 18%, transparent);
+  border-color: rgba(106, 196, 127, 0.4); color: #6ac47f !important;
+  background: rgba(106, 196, 127, 0.15); font-weight: 600;
+}
+body.asga-active #sidenavContent .caButton.pinPopup.pinned:hover,
+body.asga-active #sidenavContent .caButton.ca_favouriteRepo.fav:hover {
+  border-color: rgba(106, 196, 127, 0.55); color: #6ac47f !important;
+  background: rgba(106, 196, 127, 0.22);
 }
 
 /* the close control itself: the same icon button as the About and Settings
@@ -1018,19 +1231,52 @@ body.asga-active #sidenavContent .popUpClose.caButton:hover {
   color: var(--asga-accent) !important;
 }
 
+/* ---- Maintainer profile drawer: CA's second popup (getRepoDescriptionSkin()),
+   reached from the Maintainer card below via its Profile button and rendered
+   into this same #sidenavContent, so .popup, .ca_popupIconArea, .popupIcon,
+   .popupName, .caButton and .popupCloseArea above already theme it. Only the
+   pieces this second popup adds that the app drawer never had get their own
+   rules, kept beside whichever existing rule they answer rather than as a
+   second copy of the block above. ---- */
+/* BACK: CA's second close-bar button, sitting left of CLOSE in a row that runs
+   justify-content: flex-end, present only in this profile drawer. It already
+   carries .caButton, so it inherits the shared pill above (padding, radius,
+   border, background, hover); margin: 0 matches .popUpClose's own override so
+   the two buttons sit on one centre line instead of BACK carrying the shared
+   rule's 6px bottom margin. .popUpBack and .popUpClose are different class
+   names, so .popUpClose.caButton's round 28px treatment above can never match
+   this element, and this rule, needing both .popUpBack and .caButton, can
+   never match CLOSE either. */
+body.asga-active #sidenavContent .popUpBack.caButton {
+  margin: 0;
+  padding: 6px 14px; border-radius: 20px;
+  border: 1px solid rgba(127, 127, 127, 0.4);
+  background: var(--asga-control);
+  font-size: 1.15rem;
+}
+
 /* description block. CA sets this text near-black via a more specific rule
    (.popupDescription.popup_readmore), so force the theme colour back. */
 /* CA sizes this block at width:90% and forces padding:2rem, which leaves it
    visibly narrower than the Details card directly below it and on a different
    inner rhythm. Both are undone here so the two blocks read as one column. */
-body.asga-active .popupDescription {
+/* .popupRepoDescription is the same card in the maintainer profile drawer:
+   the repo's bio, or "No description present" when CA has none. It shares
+   every property below with the app drawer's own description card rather
+   than a second copy, so the two drawers read as one surface. */
+body.asga-active .popupDescription,
+body.asga-active .popupRepoDescription {
   display: block; background: var(--asga-surface); border: 1px solid var(--asga-cardline);
   border-radius: 8px; width: auto; box-sizing: border-box;
   padding: 14px 16px !important; margin: 18px 0 0;
   font-size: 1.3rem; line-height: 1.5 !important;
 }
 body.asga-active .popupDescription,
-body.asga-active .popupDescription * { color: var(--asga-fg) !important; }
+body.asga-active .popupDescription *,
+body.asga-active .popupRepoDescription,
+body.asga-active .popupRepoDescription *,
+body.asga-active .donateArea,
+body.asga-active .donateArea * { color: var(--asga-fg) !important; }
 body.asga-active .popupDescription a { color: var(--asga-accent) !important; text-decoration: underline; }
 /* CA runs readmore.js over this block: it clamps the text to a fixed height and
    hangs a SHOW MORE toggle underneath. The drawer already scrolls, so that is a
@@ -1038,7 +1284,16 @@ body.asga-active .popupDescription a { color: var(--asga-accent) !important; tex
    and the toggle is dropped. readmore.js writes height, max-height and overflow
    as inline styles, so every one of them needs !important to answer it.
    overscroll-behavior keeps a scroll that reaches the bottom of the description
-   from carrying on into the drawer behind it. */
+   from carrying on into the drawer behind it.
+
+   .popupRepoDescription, added above, is left out of this clamp on purpose:
+   CA never runs readmore.js over the maintainer bio, only over this app
+   drawer's own overview and its changelog, so the bio never grows a SHOW MORE
+   toggle or picks up readmore.js's inline height either, and needs no release
+   to match. The same reasoning is why the near-black override two rules up
+   was not extended to it either: that override answers CA's more specific
+   .popupDescription.popup_readmore selector, which only exists once
+   readmore.js has added that class, and it never does here. */
 body.asga-active .popupDescription {
   height: auto !important;
   max-height: 26rem !important;
@@ -1104,27 +1359,83 @@ body.asga-active .popupTableRight {
   text-align: right; font-weight: 600; overflow: visible;
   white-space: normal !important; overflow-wrap: anywhere;
 }
+/* The Details table above sits inside .popupInfoLeft, which is what actually
+   gives it a surface, border, radius and padding. The Statistics table CA
+   builds for the maintainer profile drawer has no such wrapper, so left alone
+   it paints straight onto the bare drawer canvas while everything else in
+   that drawer is a card. :not() singles out that bare case by ancestry rather
+   than by guessing the profile drawer's own wrapper markup, so the Details
+   table, already carded through its .popupInfoLeft parent, is left untouched. */
+body.asga-active #sidenavContent .popupTable:not(.popupInfoLeft .popupTable) {
+  background: var(--asga-surface); border: 1px solid var(--asga-cardline);
+  border-radius: 8px; padding: 14px 16px; margin: 18px 0 0;
+}
+/* Repository URL is the one link CA prints inside either table; it takes the
+   same accent .popupDescription a gives the description's own links above. */
+body.asga-active .popupTable a { color: var(--asga-accent) !important; text-decoration: underline; }
 
 /* Maintainer is always the second column CA emits, and it holds little: keep it
    to two rows (heading, then avatar + name on the left with the repo buttons
    trailing on the right) so it doesn't tower next to the Details card. */
-body.asga-active .popupInfoSection > .popupInfoLeft:nth-child(2) {
+/* Matched by what it contains rather than by its position, because the
+   Maintainer card no longer sits second inside .popupInfoSection: it is moved
+   up under the description (see fixDrawerDetails), and a positional selector
+   would stop matching the moment it left. */
+body.asga-active .popupInfoLeft:has(.popupAuthorTitle) {
   display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  margin: 18px 0 0;
 }
 body.asga-active .popupAuthorTitle { flex: 0 0 100%; margin-bottom: 0; }
-body.asga-active .popupAuthorTitle + div { display: flex; align-items: center; gap: 12px; flex: 1 1 auto; margin: 0; }
+/* The avatar-and-name cluster and the three buttons are siblings on one flex
+   line. margin-right:auto on the cluster is what pushes the buttons to the far
+   edge, and align-items:center on the row above puts every one of them on the
+   same centre line, which a floated icon and a separate button run could never
+   guarantee. The cluster's own align-items centres the name against the avatar,
+   so the name's centre IS the row's centre. */
+body.asga-active .popupAuthorTitle + div {
+  display: flex; align-items: center; gap: 12px;
+  flex: 0 1 auto; min-width: 0; margin: 0 auto 0 0;
+}
 body.asga-active .popupAuthor { font-size: 1.4rem; font-weight: 600; margin: 0; line-height: 1.3; overflow-wrap: anywhere; }
 body.asga-active .popupAuthorIcon { order: -1; float: none; flex: 0 0 auto; display: block; }
 body.asga-active img.popupAuthorIcon {
   width: 40px; height: 40px; border-radius: 8px; object-fit: contain;
   background: var(--asga-surface); border: 1px solid var(--asga-line);
 }
-body.asga-active .popupInfoLeft .caButton {
-  width: auto; font-size: 1.1rem; padding: 5px 12px; margin: 0;
-}
+/* The #sidenavContent in the shared .caButton rule above is an id, so that
+   rule outranks a plain class one and its 6px bottom margin survived here.
+   With align-items:center the row centres each child's MARGIN box, so that
+   stray margin sat the buttons 3px above the avatar and the name. Matching the
+   same id puts the margin back to zero and the whole row onto one centre. */
+/* Size and shape come from the shared rule above so every button in every
+   drawer is one control; only the margin differs, since this card lays its own
+   run out. */
+body.asga-active #sidenavContent .popupInfoLeft .caButton { width: auto; margin: 0; }
 /* donate copy gets its own row rather than sitting in the button run */
-body.asga-active .donateText { flex: 0 0 100%; margin: 4px 0 0; color: var(--asga-muted); font-size: 1.15rem; }
-body.asga-active .donateDiv { flex: 0 0 100%; margin: 0; }
+/* The donate line keeps its own row above the buttons, but the Donate button
+   itself joins the run and sits last, after Favourite, when the maintainer has
+   one at all. */
+/* order 5, after every button. At order 0 it sat between the name and the
+   buttons, and being a full width row it pushed them onto a line of their own,
+   so a maintainer with a sponsor line got a two row card and one without got a
+   single row. Same card either way now: name on the left, buttons on the right,
+   sponsor line underneath when there is one. */
+body.asga-active .donateText { flex: 0 0 100%; order: 5; margin: 8px 0 0; color: var(--asga-muted); font-size: 1.15rem; }
+body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .donateDiv { flex: 0 0 auto; order: 4; margin: 0; }
+
+/* .donateArea/.repoDonateText belong to the maintainer profile drawer, not
+   this Maintainer card: CA only wraps a donate blurb in .donateArea there,
+   present when the repo carries a donate link. It gets .modComment's own
+   notice-card treatment minus the accent left-stripe: that stripe is what
+   flags the one block in the drawer that is a warning, and a donate prompt is
+   a fact about the repo rather than a warning, so the stripe is the one
+   property deliberately not carried over. */
+body.asga-active .donateArea {
+  margin: 18px 0 0; padding: 12px 14px;
+  border: 1px solid var(--asga-cardline); border-radius: 8px;
+  background: var(--asga-surface);
+}
+body.asga-active .repoDonateText { font-size: 1.3rem; line-height: 1.5; }
 
 /* Screenshots strip. CA lays these out as inline-block thumbnails at a fixed
    height with a trailing right margin, so the row ends wherever the last image
@@ -1165,18 +1476,28 @@ body.asga-active .modComment {
   border-radius: 8px; background: var(--asga-surface);
 }
 body.asga-active .moderatorComment { font-size: 1.3rem; line-height: 1.5; }
+/* One column, so WHY WE PICKED IT starts on the card's own left edge like
+   every other heading in the drawer. CA lays this out as an icon column beside
+   a text column, which indented the whole block by the width of the badge and
+   left the heading alone in the middle of the card. */
 body.asga-active .spotlightPopup {
-  display: flex; gap: 16px; align-items: flex-start; margin: 18px 0 0;
+  display: flex; flex-direction: column; align-items: stretch; gap: 10px;
+  margin: 18px 0 0;
   padding: 12px 14px; border: 1px solid var(--asga-cardline); border-radius: 8px; background: var(--asga-surface);
 }
 /* CA hangs the spotlight icon on negative margins and pads the text block by
    10rem, both of which collide inside a flex row */
+/* The badge and its month read as one small row at the TOP LEFT of the card.
+   CA hangs a ca_center class on this element, and with the card stretching its
+   children the centring left the badge and the date floating in the middle of
+   an otherwise left aligned block. */
 body.asga-active .spotlightIconArea {
-  display: flex; flex-direction: column; align-items: center; gap: 6px;
-  float: none; width: auto; flex: 0 0 auto;
+  display: flex; flex-direction: row; align-items: center; gap: 10px;
+  justify-content: flex-start; text-align: left;
+  float: none; width: auto; flex: 0 0 auto; align-self: flex-start;
 }
 body.asga-active .spotlightIconArea img.spotlightIcon {
-  width: 56px; height: auto; margin: 0 !important; object-fit: contain;
+  width: 40px; height: auto; margin: 0 !important; object-fit: contain;
 }
 body.asga-active .spotlightDate { font-size: 1.1rem; margin: 0 !important; color: var(--asga-muted); }
 body.asga-active .spotlightInfoArea { margin: 0; padding: 0; min-width: 0; }
@@ -1193,6 +1514,197 @@ body.asga-active .templateErrorsList { font-size: 1.2rem; line-height: 1.5; marg
 /* CA's "statistics gathered every 30 days" footnote: a footnote, not a headline */
 body.asga-active .ca_note { font-size: 1.1rem; color: var(--asga-muted); }
 body.asga-active .ca_note.ca_bold { font-weight: 400; }
+
+/* The profile drawer's header has no author line under the name, so its icon
+   column is shorter than the app drawer's and top alignment left the avatar
+   floating above the buttons. Centring is what makes the two read as one row.
+   The buttons under the name each carry a bottom margin for when they wrap, so
+   the info column's box is that much taller than its ink and pure box centring
+   lands the avatar high. Pulling the margin back off the column is what makes
+   the avatar centre on what is actually drawn. */
+body.asga-active .asga-repo-drawer .ca_popupIconArea { align-items: center; }
+body.asga-active .asga-repo-drawer .popupInfo { margin-bottom: -6px; }
+
+/* ---- maintainer profile drawer ----
+   CA renders this into the same #sidenavContent as the app drawer, so it
+   already inherits the panel, the close bar, the pill buttons and the card
+   surfaces. What follows is only what CA emits for this drawer alone. */
+
+/* CA writes CLOSE first and BACK second, which puts BACK to the right of the
+   close control. Back belongs on the outside of a close, not past it, and
+   flipping the order here beats moving CA's own nodes around. */
+body.asga-active #sidenavContent .popUpBack { order: -1; }
+
+/* Favourite and the pinned state, wearing this project's own active pill.
+   CA paints .fav with a linear-gradient carrying !important, and its
+   --ca-dark-orange-color is literally #009900, which is where the solid green
+   slab came from. Only an !important background can answer that, so this one
+   is deliberate rather than lazy. */
+body.asga-active #sidenavContent .caButton.ca_favouriteRepo.fav {
+  background: rgba(106, 196, 127, 0.15) !important;
+  border-color: rgba(106, 196, 127, 0.4);
+  color: #6ac47f !important; font-weight: 600;
+}
+body.asga-active #sidenavContent .caButton.ca_favouriteRepo.fav:hover {
+  background: rgba(106, 196, 127, 0.22) !important;
+  border-color: rgba(106, 196, 127, 0.55);
+}
+
+/* Profile before All Apps. Every child of the maintainer card gets an explicit
+   order rather than just the one being moved: the card is a wrapping flex row
+   whose first child is the MAINTAINER heading at flex-basis 100%, and a lone
+   order:-1 on Profile sent it in front of that heading instead of merely in
+   front of All Apps. Scoped to this card so the profile drawer's own header
+   buttons, which share these class names, are untouched. */
+body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .popupAuthorTitle { order: -2; }
+body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .popupAuthorTitle + div { order: -1; }
+body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .caButton.repoPopup { order: 1; }
+body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .caButton.ca_repoSearchPopUp { order: 2; }
+body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .caButton.ca_favouriteRepo { order: 3; }
+
+/* The profile header mirrors the app drawer's: icon, name, then one run of
+   actions under it at the same distance the app drawer puts its buttons below
+   the author line. Favourite leads, since it is the one thing here that changes
+   state rather than navigating away. */
+body.asga-active .asga-repo-drawer .popupName { margin: 0 0 14px; }
+/* Margins only. This used to carry font-size: 1.4rem !important as well, meant
+   for the profile header, but it was scoped to #sidenavContent rather than to
+   that drawer, so it also caught the APP drawer's maintainer card and made its
+   three buttons a size larger than the header's. Size now comes from the shared
+   .caButton rule for every button in every drawer, and nothing here overrides
+   it. The margins used to live here too, at 8px against the shared rule's 6px.
+   Because the shared rule carries an id and this one does not, the override
+   only ever won on the anchors, so the maintainer's links sat a pixel above the
+   buttons beside them. Spacing is the shared rule's job now; this sets only the
+   one thing an anchor needs that a div does not. */
+body.asga-active .asga-repo-drawer .ca_repoSearchPopUp,
+body.asga-active .asga-repo-drawer .ca_favouriteRepo,
+body.asga-active .asga-repo-drawer .asga-repo-url,
+body.asga-active .asga-repo-drawer .popupInfo .appIconsPopUp {
+  text-decoration: none;
+}
+/* Every one of these is scoped to the PROFILE drawer. .popupInfo is the same
+   element in the app drawer, where it holds the app name, the author line and
+   the action buttons as ordinary blocks; turning it into a flex row there put
+   the author and the buttons on one line, on top of each other. */
+body.asga-active .asga-repo-drawer .popupInfo { display: flex; flex-wrap: wrap; align-items: center; }
+body.asga-active .asga-repo-drawer .popupInfo > .popupName { flex: 0 0 100%; }
+body.asga-active .asga-repo-drawer .popupInfo > .ca_favouriteRepo { order: 1; }
+body.asga-active .asga-repo-drawer .popupInfo > .ca_repoSearchPopUp { order: 2; }
+body.asga-active .asga-repo-drawer .popupInfo > .asga-repo-url { order: 3; }
+body.asga-active .asga-repo-drawer .popupInfo > .appIconsPopUp { order: 4; }
+
+/* it is an anchor, so the drawer's link underline has to be turned off for it
+   to read as the pill it sits beside */
+body.asga-active #sidenavContent .asga-repo-url,
+body.asga-active #sidenavContent .asga-repo-url:hover { text-decoration: none; }
+
+/* the maintainer's own links, as a row of pills rather than bare icon links */
+body.asga-active .repoLinks { margin: 18px 0 0; }
+body.asga-active .repoLinkArea { display: flex; flex-wrap: wrap; gap: 8px; }
+body.asga-active .appIconsPopUp {
+  display: inline-flex; align-items: center; gap: 6px;
+  /* CA sets font-size: 2rem !important on these and margin-right: 5rem, which
+     is why Forum Profile rendered at nearly twice the drawer's body size and
+     took a whole row to itself. The size is answered in kind and matches every
+     other pill in the drawer. */
+  font-size: 1.15rem !important; padding: 6px 14px; border-radius: 20px;
+  line-height: 1.2;
+  border: 1px solid rgba(127, 127, 127, 0.4); background: var(--asga-control);
+  color: var(--asga-fg) !important; text-decoration: none;
+}
+body.asga-active .appIconsPopUp:hover {
+  border-color: var(--asga-accent); background: rgba(255, 140, 47, 0.14);
+  color: var(--asga-accent) !important;
+}
+
+/* Statistics: the same eyebrow every other section title in the drawer wears,
+   and the same card the app drawer's Details table sits in. */
+body.asga-active .repoStats {
+  font-size: 1.1rem; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 0.06em; color: var(--asga-accent); margin: 22px 0 10px;
+}
+body.asga-active .repoTable {
+  display: table; width: 100%; border-collapse: collapse; margin: 0;
+  background: var(--asga-surface); border: 1px solid var(--asga-cardline);
+  border-radius: 8px;
+}
+body.asga-active .repoTable td {
+  padding: 9px 16px; border-bottom: 1px solid var(--asga-line);
+  font-size: 1.2rem; line-height: 1.45;
+}
+body.asga-active .repoTable tr:last-child td { border-bottom: none; }
+body.asga-active .repoLeft { color: var(--asga-muted); white-space: nowrap; }
+body.asga-active .repoRight { text-align: right; font-weight: 600; }
+
+/* The maintainer's apps, in place of the repository bio. Scrollable rather
+   than unbounded: a prolific maintainer would otherwise push the statistics
+   off the end of a drawer that has no other way to be skimmed. */
+body.asga-active .asga-repo-apps {
+  margin: 18px 0 0; max-height: 46vh; overflow-y: auto; overscroll-behavior: contain;
+  display: flex; flex-direction: column; gap: 8px;
+}
+body.asga-active .asga-repo-app {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 12px; border: 1px solid var(--asga-cardline);
+  border-radius: 8px; background: var(--asga-surface);
+}
+body.asga-active .asga-repo-app-icon {
+  width: 40px; height: 40px; flex: 0 0 40px; box-sizing: border-box;
+  object-fit: contain; border-radius: 8px; padding: 3px;
+  background: var(--asga-control); border: 1px solid var(--asga-cardline);
+}
+body.asga-active .asga-repo-app-text { flex: 1 1 auto; min-width: 0; }
+body.asga-active .asga-repo-app-name { font-size: 1.4rem; font-weight: 600; line-height: 1.3; }
+/* two lines at most, so one wordy app cannot make its row twice the height of
+   its neighbours' */
+body.asga-active .asga-repo-app-desc {
+  font-size: 1.2rem; line-height: 1.4; color: var(--asga-muted);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+body.asga-active #sidenavContent .asga-repo-app-go { flex: 0 0 auto; margin: 0; }
+
+/* ---- the Support dropdown ----
+   CA builds it with ContextJS, whose stylesheet is written for a light theme:
+   white surface, near black text and a blue gradient hover. It is appended to
+   <body> rather than into the drawer, which is why nothing in the drawer block
+   above ever reached it. Scoped to body.asga-active so CA's own page keeps the
+   stock menu. */
+body.asga-active .dropdown-menu.dropdown-context {
+  background-color: var(--background-color, #1c1c1c) !important;
+  border: 1px solid rgba(127, 127, 127, 0.4) !important;
+  border-radius: 8px !important;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5) !important;
+  padding: 4px !important;
+  font-size: 1.3rem !important;
+}
+body.asga-active .dropdown-menu.dropdown-context li > a {
+  color: var(--text-color, #f2f2f2) !important;
+  padding: 8px 14px !important;
+  border-radius: 6px !important;
+  line-height: 1.4 !important;
+}
+/* the stock hover is a blue gradient; ours is the accent tint every other
+   control in this plugin uses */
+body.asga-active .dropdown-menu.dropdown-context li > a:hover,
+body.asga-active .dropdown-menu.dropdown-context li > a:focus {
+  background-image: none !important;
+  background-color: rgba(255, 140, 47, 0.14) !important;
+  color: #ff8c2f !important;
+}
+body.asga-active .dropdown-menu.dropdown-context .divider {
+  background-color: rgba(127, 127, 127, 0.25) !important; border: 0 !important;
+}
+body.asga-active .dropdown-menu.dropdown-context .nav-header {
+  color: var(--text-color, #f2f2f2) !important; background: none !important;
+  text-shadow: none !important;
+}
+/* the little pointer is drawn with borders in the stylesheet's own colours, so
+   both halves have to be repainted or it stays a white triangle */
+body.asga-active .dropdown-context:before { border-bottom-color: rgba(127, 127, 127, 0.4) !important; }
+body.asga-active .dropdown-context:after { border-bottom-color: var(--background-color, #1c1c1c) !important; }
+body.asga-active .dropdown-context-up:before { border-top-color: rgba(127, 127, 127, 0.4) !important; }
+body.asga-active .dropdown-context-up:after { border-top-color: var(--background-color, #1c1c1c) !important; }
 
 /* our screenshot lightbox (replaces CA's drawer-closing gallery) */
 .asga-lightbox {
