@@ -141,10 +141,19 @@ html.Theme--legacyOS .asga-help:hover { opacity: 1; }
    edge, so the old 4px right pad ran the text straight into it. 2rem clears
    the glyph, the 6px inset gives it the same air the text gets on the left,
    and the underline keeps running beneath both, matching the left side. */
+/* Neither of this control's two rules ever declared a width, so the box's
+   size came entirely from the browser's own auto-fit against its widest
+   option, and past 100% zoom that auto-fit can land a hair short of the
+   glyphs it is supposed to hold, clipping the tail of the longest entry
+   ("Most Stars Gained (this month)") past the border. auto keeps the
+   browser's own fit as the normal case; the floor and the ceiling either
+   side of it are what stop that fit landing short or ballooning past a
+   sensible width once auto is forced to make a decision either way. */
 .asga-sortsel {
   vertical-align: middle; font-size: 1.2rem; height: 1.7rem; line-height: 1.7rem;
   padding: 0 2rem 0 0.6rem;
   background-position: calc(100% - 6px), calc(100% - 2px);
+  width: auto; min-width: 170px; max-width: 260px;
 }
 /* same muted treatment as the count line under the heading */
 .asga-updated { font-size: 1.05rem; opacity: 0.55; white-space: nowrap; }
@@ -515,7 +524,7 @@ body.dark .asga-settings-select { color-scheme: dark; }
    first and last carry the top and bottom. */
 .asga-tile > * { padding-left: 14px; padding-right: 14px; }
 .asga-tile > .asga-tile-head { padding-top: 14px; }
-.asga-tile > .asga-tile-dates { padding-bottom: 18px; }
+.asga-tile > .asga-tile-dates { padding-bottom: 12px; }
 /* The rail is a column of the CARD, not of the header, so the rule dividing it
    from the text runs past the description the way the reference draws it. The
    button row and the footer span both columns underneath it. */
@@ -827,7 +836,7 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 .asga-tile-btns {
   display: flex; flex-wrap: nowrap; align-items: center;
   justify-content: flex-start; gap: calc(var(--cw) * 0.007); position: relative;
-  margin-top: 2px;
+  margin-top: 8px;
 }
 /* Taller, and the label larger with it. The row had been sized down to whatever
    would guarantee six labelled pills on one line, which left the buttons
@@ -1074,6 +1083,8 @@ html:not(.Theme--legacyOS) body.asga-active .searchSubmit {
   padding: 0; cursor: pointer;
 }
 html:not(.Theme--legacyOS) body.asga-active .searchSubmit:hover { border-color: #ff8c2f; background: rgba(255, 140, 47, 0.14); }
+/* same floor and ceiling as the base rule above, on the themed box this one
+   draws for the non-legacy toolbar */
 html:not(.Theme--legacyOS) body.asga-active .asga-sortsel {
   height: 36px; box-sizing: border-box; line-height: 34px; font-size: 1.2rem;
   background-color: rgba(127, 127, 127, 0.08);
@@ -1081,6 +1092,7 @@ html:not(.Theme--legacyOS) body.asga-active .asga-sortsel {
   border-radius: 8px;
   padding: 0 30px 0 12px;
   background-position: calc(100% - 12px), calc(100% - 8px);
+  width: auto; min-width: 170px; max-width: 260px;
 }
 html:not(.Theme--legacyOS) body.asga-active .asga-sortsel:hover { border-color: #ff8c2f; }
 /* The open list is native browser chrome: on the dark themes it painted as a
@@ -2113,28 +2125,50 @@ body.asga-active .dropdown-context-up:after { border-top-color: var(--background
 }
 .asga-modal {
   box-sizing: border-box; margin: auto;
-  max-width: 560px; width: 100%; padding: 24px 24px 20px;
-  border-radius: 8px; background: var(--background-color, #1c1c1c); border: 1px solid var(--asga-line, rgba(255,255,255,0.16));
-  box-shadow: 0 18px 60px rgba(0,0,0,0.6); text-align: center; color: var(--asga-fg, #f2f2f2);
+  max-width: 460px; width: 100%; padding: 20px 22px 18px;
+  border-radius: 10px; background: var(--background-color, #1c1c1c);
+  border: 1px solid var(--asga-line, rgba(255,255,255,0.16));
+  box-shadow: 0 18px 60px rgba(0,0,0,0.6);
+  text-align: left; color: var(--asga-fg, #f2f2f2);
 }
+/* attentionModal() in inject.js appends the icon and the title as SIBLINGS of
+   .asga-modal (icon div, then the <h2>), not icon-inside-title, so there is no
+   existing node that gathers just the two of them onto the title's own line
+   without this file inventing a wrapper it is not allowed to add. The icon
+   stays a block sitting above the title instead: shrunk from the old 64px
+   circled badge down to a small mark, and moved off centre onto the same
+   left edge the title and everything below it already sit on, which is what
+   .asga-modal's own text-align: left is doing for the rest of the dialog. */
 .asga-modal-icon {
-  width: 64px; height: 64px; border-radius: 50%; border: 3px solid var(--asga-accent);
-  color: var(--asga-accent); font-size: 3.4rem; font-weight: 300;
-  display: flex; align-items: center; justify-content: center; margin: 0 auto 18px;
+  width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--asga-accent);
+  color: var(--asga-accent); font-size: 1.6rem; font-weight: 600; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  margin: 0 0 12px;
 }
-.asga-modal-title { font-size: 1.8rem; font-weight: 700; margin: 0 0 14px; }
-.asga-modal-body p { font-size: 1.3rem; line-height: 1.5; margin: 0 0 10px; color: var(--asga-muted); }
+.asga-modal-title { font-size: 1.5rem; font-weight: 700; margin: 0 0 12px; }
+.asga-modal-body p {
+  font-size: 1.25rem; line-height: 1.55; margin: 0 0 8px;
+  color: color-mix(in srgb, var(--asga-fg) 78%, transparent);
+}
 .asga-modal-body p:last-child { margin: 0; }
-.asga-modal-body p.asga-modal-break { margin-top: 20px; }
-.asga-modal-actions { display: flex; gap: 14px; justify-content: center; margin-top: 26px; }
-.asga-modal-actions .asga-btn { min-width: 128px; padding: 8px 18px; font-size: 1.3rem; cursor: pointer; }
+.asga-modal-body p.asga-modal-break { margin-top: 14px; }
+/* The actions close the dialog at its own right edge, the way every other run
+   of controls in this plugin ends, rather than sitting centred under it. */
+.asga-modal-actions {
+  display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px;
+}
+.asga-modal-actions .asga-btn {
+  min-width: 0; padding: 7px 16px; font-size: 1.2rem; cursor: pointer;
+  text-transform: none; letter-spacing: normal;
+}
 /* the confirm action wears the same active fill as the drawer's own lead
    action, never a solid slab, for the same reason. */
 .asga-modal-ok {
-  border-color: #ff8c2f; background: rgba(255, 140, 47, 0.2); color: #ff8c2f; font-weight: 600;
+  border-color: #ff8c2f; background: rgba(255, 140, 47, 0.9);
+  color: #17140f; font-weight: 700;
 }
-.asga-modal-ok:hover { background: rgba(255, 140, 47, 0.28); }
-.asga-modal-cancel { background: transparent; color: var(--asga-muted); }
+.asga-modal-ok:hover { background: #ff8c2f; border-color: #ff8c2f; }
+.asga-modal-cancel { background: rgba(127,127,127,0.08); color: var(--asga-fg); }
 .asga-modal-cancel:hover { border-color: var(--asga-accent); color: var(--asga-accent); }
 
 .asga-lb-img { max-width: 92vw; max-height: 88vh; object-fit: contain; border-radius: 6px; box-shadow: 0 10px 50px rgba(0,0,0,0.6); }

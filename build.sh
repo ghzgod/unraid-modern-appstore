@@ -557,6 +557,43 @@ cat <<XMLHEAD
 - Per-user GitHub token (set in Settings); no secrets shipped.
 </CHANGES>
 
+<!-- The plg format has no dependency attribute of its own. The only
+     declarative gate the installer honours is min=/max= on the PLUGIN
+     element above, and that compares against the Unraid OS version, never
+     against another plugin, so a dependency on Community Applications has
+     to be enforced imperatively, in a Run script, the same way
+     unassigned.devices-plus.plg gates on Unassigned Devices. The installer
+     runs every FILE block through popen(), streams its output straight to
+     the user as it runs, and stops the whole install the instant a block
+     exits non-zero, printing nothing more than "run failed" and the exit
+     code. This block runs first, before a single file is written or
+     removed, and only stops the install when Community Applications is not
+     already on the box. -->
+<FILE Run="/bin/bash">
+<INLINE>
+<![CDATA[
+if [ ! -f /boot/config/plugins/community.applications.plg ]; then
+  echo ""
+  echo "-----------------------------------------------------------------"
+  echo " Unraid Modern App Store needs Community Applications."
+  echo ""
+  echo " This plugin is a new front end for the Apps page. It reads"
+  echo " Community Applications' own catalog and draws over its page, so"
+  echo " there is nothing for it to do until that plugin is installed."
+  echo ""
+  echo " Install Community Applications first:"
+  echo "   https://forums.unraid.net/topic/38582-plug-in-community-applications/"
+  echo ""
+  echo " Then install this plugin again. Nothing has been changed on your"
+  echo " server and no files were written."
+  echo "-----------------------------------------------------------------"
+  echo ""
+  exit 1
+fi
+]]>
+</INLINE>
+</FILE>
+
 <FILE Run="/bin/bash">
 <INLINE>
 <![CDATA[

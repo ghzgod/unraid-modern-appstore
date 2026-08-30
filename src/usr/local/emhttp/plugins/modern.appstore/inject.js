@@ -534,6 +534,57 @@
 
     function openExt(url) { if (url) try { window.open(url, '_blank', 'noopener'); } catch (e) {} }
 
+    // What the drawer can say before CA has answered. Everything here is
+    // already in the record the card was built from, so it costs no request:
+    // the same icon, the same name, the same author and the same description
+    // the user just clicked. It is deliberately not the whole drawer. CA
+    // replaces the panel's contents wholesale when its own render lands, so
+    // anything built here is temporary by design, and building more of it would
+    // only be a second implementation of a drawer to keep in step with the
+    // first.
+    function primeDrawer(p) {
+      var host = document.getElementById('sidenavContent');
+      if (!host) return;
+      var a = null;
+      for (var i = 0; i < APPS.length; i++) { if (APPS[i].p === p) { a = APPS[i]; break; } }
+      if (!a) return;
+      var wrap = document.createElement('div');
+      wrap.className = 'popup asga-drawer-prime';
+      var head = document.createElement('div');
+      head.className = 'ca_popupIconArea';
+      var iconBox = document.createElement('div');
+      iconBox.className = 'popupIcon';
+      if (a.ic) {
+        var img = document.createElement('img');
+        img.className = 'popupIcon';
+        img.src = a.ic;
+        img.alt = '';
+        iconBox.appendChild(img);
+      }
+      head.appendChild(iconBox);
+      var info = document.createElement('div');
+      info.className = 'popupInfo';
+      var nm = document.createElement('div');
+      nm.className = 'popupName';
+      nm.textContent = a.n;
+      info.appendChild(nm);
+      if (a.au) {
+        var au = document.createElement('div');
+        au.className = 'popupAuthorMain';
+        au.textContent = a.au;
+        info.appendChild(au);
+      }
+      head.appendChild(info);
+      wrap.appendChild(head);
+      if (a.de) {
+        var de = document.createElement('div');
+        de.className = 'popupDescription';
+        de.textContent = a.de;
+        wrap.appendChild(de);
+      }
+      host.textContent = '';
+      host.appendChild(wrap);
+    }
     // The one way the grid opens CA's drawer, so the app it is showing is
     // always recorded. Everything the drawer does on our side (see
     // fixDrawerDetails) needs to know which app that is, and CA offers no way
@@ -541,6 +592,23 @@
     function openSidebar(p, n) {
       openPath = p || '';
       try { window.showSidebarApp(p, n); } catch (e) {}
+      // CA wraps its own request for this drawer's contents in a hardcoded half
+      // second of nothing, and for a plugin the request then downloads the .plg
+      // to read its changelog, so the drawer sat blank for a second or more on
+      // every open. When this app has been opened before, the copy stashed on
+      // its last render goes back in immediately; otherwise the grid's own
+      // record of the app primes a holding view. Either way CA's request still
+      // runs behind it and repaints over the top, which is what restores the
+      // charts, so this is a head start rather than a replacement. The paint
+      // waits a tick so it lands after CA has had the chance to blank the panel
+      // first, or it would just get wiped by CA's own empty render.
+      var stashed = drawerCache[openPath];
+      setTimeout(function () {
+        var host = document.getElementById('sidenavContent');
+        if (!host || host.querySelector('.popupTable.contents')) return;   // CA already painted
+        if (stashed) host.innerHTML = stashed;
+        else primeDrawer(openPath);
+      }, 0);
     }
 
     // Screenshot lightbox. CA's own gallery (magnificPopup) closes the whole
