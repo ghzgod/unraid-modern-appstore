@@ -15,7 +15,7 @@
  *
  * Output: { "generated": <ts>, "feedReady": <bool>, "docker": {...}, "defaultSort": <string>,
  *           "historyDays": <int>,
- *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,lu,lk,ca,sx,rn,t1,t7,t30,t365,rd,dt,td,tc } ] }
+ *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,lu,lk,ca,sx,rn,mi,t1,t7,t30,t365,rd,dt,td,tc } ] }
  *   p  = template path (passed to CA's showSidebarApp for Info/Install)
  *   n  = display name          sn = lowercase sort-name
  *   ic = icon URL              ct = category
@@ -25,6 +25,7 @@
  *   sa = last star-fetch attempt for this app's repo (0 = never tried)
  *   sx = text the grid searches but never shows (full description + hidden keywords)
  *   rn = CA's RepoName (or Repo), verbatim and unclipped: the maintainer key CA's own All Apps button filters by
+ *   mi = maintainer's own icon URL (or their GitHub avatar, or '' if neither is known)
  *   ca = repo creation unix ts (or null), for the lifetime growth-rate sort
  *   t1/t7/t30/t365 = star trend deltas (day/week/month/year)
  *   rq = install-time Attention notice text (requires/moderator comment), '' if none
@@ -38,6 +39,10 @@ header('Content-Type: application/json');
 
 $dataDir = '/boot/config/plugins/modern.appstore';
 $caTmp   = '/tmp/community.applications/tempFiles';
+// Same tempFiles directory as templates_new.json above, one repo per
+// maintainer rather than one row per app; see repo_icons() for what it holds
+// and why it needs unserialize() instead of json_decode() despite its name.
+$repoList = "$caTmp/repositoryList.json";
 
 // the grid has no other channel to the plugin's config, so the chosen
 // opening sort rides along on this same response. sanitised loosely
@@ -270,6 +275,37 @@ function read_json_ro($path) {
     return is_array($d) ? $d : null;
 }
 
+// The maintainer's own picture lives in a different CA file than the app
+// catalog: repositoryList.json, one row per repository rather than one per
+// template, keyed by RepoName exactly as templates carry it. Despite the
+// .json name it is PHP-serialized, not JSON, so it is read with unserialize()
+// rather than json_decode(). A repository with no icon of its own still gets
+// a face on the card when its url is a github.com address: that owner's
+// GitHub avatar stands in, the same way an app with no icon of its own falls
+// back to one elsewhere in this file. A missing or not-yet-populated file
+// (CA has not written its temp files this boot) yields an empty map rather
+// than a warning, so the grid just shows the generic glyph until it exists.
+function repo_icons($path) {
+    $raw = @file_get_contents($path);
+    if ($raw === false) return [];
+    $repos = @unserialize($raw);
+    if (!is_array($repos)) return [];
+    $map = [];
+    foreach ($repos as $name => $r) {
+        if (!is_array($r)) continue;
+        $icon = trim((string)($r['icon'] ?? ''));
+        if ($icon !== '') {
+            $map[(string)$name] = $icon;
+            continue;
+        }
+        $url = (string)($r['url'] ?? '');
+        if (preg_match('~github\.com/([A-Za-z0-9._-]+)~i', $url, $m)) {
+            $map[(string)$name] = 'https://github.com/' . $m[1] . '.png?size=128';
+        }
+    }
+    return $map;
+}
+
 // our own catalog (already has name/path/icon/category/stars/trends for every app)
 $ours = read_json_ro("$dataDir/apps.json");
 $byPath = [];
@@ -298,6 +334,10 @@ if (class_exists('SQLite3') && is_file("$dataDir/stars.db")) {
         $sdb->close();
     } catch (Throwable $e) { $fetchedAt = []; }
 }
+
+// Built once, not per app: repositoryList.json has one row per maintainer,
+// so 1182 repos are worth one pass regardless of how many templates they own.
+$repoIcons = repo_icons($repoList);
 
 $out = [];
 foreach ($tmpl as $t) {
@@ -386,6 +426,12 @@ foreach ($tmpl as $t) {
         // the All Apps button in CA's drawer hands this value back UNTRIMMED
         // in data-repository, so the grid needs the raw form to match against.
         'rn'  => (string)($t['RepoName'] ?? $t['Repo'] ?? ''),
+        // The maintainer's own picture, keyed off the same RepoName as 'rn'
+        // just above so a mismatch between the two is impossible. Looked up
+        // in the map built once before this loop; see repo_icons() for how a
+        // maintainer with no icon of their own still ends up with a GitHub
+        // avatar here.
+        'mi'  => $repoIcons[(string)($t['RepoName'] ?? $t['Repo'] ?? '')] ?? '',
         'de'  => $desc,
         'sx'  => $sx,
         'pr'  => $mine['pr'] ?? ($t['Project'] ?? ''),
