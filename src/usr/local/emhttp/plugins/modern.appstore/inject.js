@@ -872,7 +872,15 @@
       watchTone(img);
     }
     function fixMaintainerIcon() {
-      if (!isOn() || isRepoDrawer()) return;
+      if (!isOn()) return;
+      // Identified by what the app drawer HAS rather than by what the profile
+      // drawer is not. Only the app drawer carries a Maintainer card, so its
+      // heading is proof enough on its own, and asking that question cannot
+      // misfire the way excluding the other drawer could: isRepoDrawer() reads
+      // a class this file writes and a button CA writes, and either being left
+      // behind by a previous drawer was enough to skip a card that was sitting
+      // right there.
+      if (!document.querySelector('#sidenavContent .popupInfoLeft .popupAuthorTitle')) return;
       var app = drawerApp();
       if (!app) return;
       paintMaintainerIcon(document.querySelector('#sidenavContent img.popupAuthorIcon'), app.mi);

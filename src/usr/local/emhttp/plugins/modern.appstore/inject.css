@@ -587,13 +587,16 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 }
 .asga-tile-catlead { font-weight: 600; flex: 0 0 auto; }
 .asga-tile-catrest { color: color-mix(in srgb, var(--text-color, #f2f2f2) 62%, var(--background-color, #1d1b1b)); }
+/* The maintainer's picture and the category's mark are the same size as the two
+   marks in the stat rail. They sit on the same card at the same rank, so a
+   smaller figure for one of them read as an accident rather than a hierarchy. */
 .asga-tile-avatar {
-  width: clamp(11px, calc(var(--cw) * 0.026), 18px); height: clamp(11px, calc(var(--cw) * 0.026), 18px);
-  flex: 0 0 clamp(11px, calc(var(--cw) * 0.026), 18px); border-radius: 4px;
+  width: clamp(11px, calc(var(--cw) * 0.032), 22px); height: clamp(11px, calc(var(--cw) * 0.032), 22px);
+  flex: 0 0 clamp(11px, calc(var(--cw) * 0.032), 22px); border-radius: 5px;
   object-fit: contain; background: rgba(127, 127, 127, 0.12);
 }
 .asga-bicon { flex: 0 0 auto; }
-.asga-bicon-line { width: clamp(11px, calc(var(--cw) * 0.026), 18px); height: clamp(11px, calc(var(--cw) * 0.026), 18px); opacity: 0.7; }
+.asga-bicon-line { width: clamp(11px, calc(var(--cw) * 0.032), 22px); height: clamp(11px, calc(var(--cw) * 0.032), 22px); opacity: 0.7; }
 
 /* The stat column, ruled off from the text. The rule is the only line inside a
    card, which is what makes it read as a division of the card rather than as
