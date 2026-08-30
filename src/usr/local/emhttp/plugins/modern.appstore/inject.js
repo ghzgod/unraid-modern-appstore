@@ -770,15 +770,14 @@
       document.body.__asgaDrawerDetails = true;
       var host = document.getElementById('sidenavContent') || document.querySelector('.sidenav');
       if (!host) return;
-      new MutationObserver(function () { fixDrawerDetails(); fixDrawerIcon(); fixMaintainerIcon(); sizeDrawerIcon(); fixRepoDrawer(); cacheDrawer(); drawerReady(); })
+      new MutationObserver(function () { fixDrawerDetails(); fixDrawerIcon(); fixMaintainerIcon(); fixRepoDrawer(); cacheDrawer(); drawerReady(); })
         .observe(host, { childList: true, subtree: true });
       fixDrawerDetails();
       fixDrawerIcon();
       fixMaintainerIcon();
-      sizeDrawerIcon();
       fixRepoDrawer();
       cacheDrawer();
-      wireBackButton();
+      wireDrawerNav();
       drawerReady();
     }
     // The drawer must show the same icon the card did. CA resolves the drawer's
@@ -829,39 +828,113 @@
         img.alt = '';
         host.appendChild(img);
       }
-      if (img.getAttribute('src') !== app.ic) img.setAttribute('src', app.ic);
       img.setAttribute('href', app.ic);
-      watchTone(img);
+      // Through holdImage rather than a bare src assignment, so a single
+      // dropped request cannot leave a question mark standing on an icon that
+      // loads perfectly well. See holdImage below for what does that.
+      holdImage(img, app.ic);
     }
+
+    // Keeps an image on the URL it is meant to be showing.
+    //
+    // CA's own showSidebarApp binds ONE error handler across every img on the
+    // page after each drawer render, and it rewrites any image that fails to
+    // load to the Docker question mark. github.com drops avatar requests when
+    // a run of them is asked for at once, so one dropped request was enough to
+    // leave a permanent placeholder on a picture that loads on the next open,
+    // and nothing ever put it back: the rewrite is an attribute change, and
+    // the drawer's own observer only watches for new nodes.
+    //
+    // The picture is loaded off-DOM and only swapped in once it has decoded,
+    // so the element never stands empty (empty is a bordered box of alt text
+    // sitting where a face should be). A dropped request is retried once, and
+    // gone() decides what stands there when the URL really will not load.
+    var IMG_RETRY_MS = 1200;
+    function holdImage(img, url, gone) {
+      if (!img || !url) return;
+      img.__asgaWant = url;
+      img.__asgaGone = gone || null;
+      img.__asgaTries = 0;
+      loadHeldImage(img);
+      if (img.__asgaWatch) return;
+      img.__asgaWatch = new MutationObserver(function () {
+        var cur = img.getAttribute('src') || '';
+        if (cur === img.__asgaWant || cur.indexOf('question.png') < 0) return;
+        img.__asgaTries = 0;
+        loadHeldImage(img);
+      });
+      img.__asgaWatch.observe(img, { attributes: true, attributeFilter: ['src'] });
+    }
+    function loadHeldImage(img) {
+      var url = img.__asgaWant;
+      var probe = new Image();
+      probe.onload = function () {
+        if (img.getAttribute('src') !== url) {
+          img.setAttribute('src', url);
+          // Whatever stood here before may already have been measured for its
+          // brightness, and that verdict describes a different picture.
+          img.__asgaTone = false;
+        }
+        watchTone(img);
+      };
+      probe.onerror = function () {
+        if (++img.__asgaTries < 2) { setTimeout(function () { loadHeldImage(img); }, IMG_RETRY_MS); return; }
+        if (img.__asgaWatch) { img.__asgaWatch.disconnect(); img.__asgaWatch = null; }
+        if (img.__asgaGone) img.__asgaGone(img);
+      };
+      probe.src = url;
+    }
+
+    // The GitHub account behind an app, for anything that needs a face and has
+    // not been handed one: the starred repository when the scanner matched it,
+    // else whichever of the app's own links points at github.com. Plugins
+    // carry no docker repository to read an owner off, which is why the
+    // Project and plugin URLs are asked as well.
+    var GH_OWNER_RE = /(?:github\.com|raw\.githubusercontent\.com)\/([^\/?#]+)\//i;
+    function ghOwner(a) {
+      if (!a) return '';
+      if (a.rp && a.rp.indexOf('/') > 0) return a.rp.split('/')[0];
+      var m = GH_OWNER_RE.exec(a.pr || '') || GH_OWNER_RE.exec(a.pu || '');
+      return m ? m[1] : '';
+    }
+    function ghAvatarFor(a) {
+      var owner = ghOwner(a);
+      return owner ? ('https://github.com/' + owner + '.png?size=128') : '';
+    }
+
     // CA publishes no icon for 511 of its 1182 repositories and serves the
     // Docker question mark for those, which is how the same maintainer ends up
     // with a face on the card and a placeholder in the drawer beside it.
     // applist.php already answers this for the grid by deriving their GitHub
     // avatar from the repository's own URL, so the drawer is handed the same
-    // picture. Only the placeholder is replaced: a maintainer who has published
-    // an icon keeps the one they chose.
-    function paintMaintainerIcon(img, url) {
-      if (!img || img.__asgaMaint || !url) return;
-      if ((img.getAttribute('src') || '').indexOf('question.png') < 0) return;
+    // picture, and an app the catalog knows no repository for falls back to
+    // the owner of its own GitHub links. Only the placeholder is replaced: a
+    // maintainer who has published an icon keeps the one they chose, and it is
+    // held there against CA's error handler like every other picture is.
+    function paintMaintainerIcon(img, app) {
+      if (!img || img.__asgaMaint) return;
       img.__asgaMaint = true;
-      // Loaded first, swapped second. Assigning the src directly took the
-      // placeholder away the instant it was set and left the element with
-      // nothing to draw until the avatar arrived, which is a bordered box of
-      // alt text sitting where a face should be. Waiting for the decode means
-      // the two frames are the placeholder and the avatar, with nothing in
-      // between, and a URL that never loads simply leaves CA's own placeholder
-      // where it was.
-      var probe = new Image();
-      probe.onload = function () {
-        img.setAttribute('src', url);
-        // The placeholder may already have been measured for its brightness,
-        // and the flag recording that would otherwise leave the avatar wearing
-        // the question mark's verdict. It is a different picture, so it gets
-        // its own reading.
-        img.__asgaTone = false;
-        watchTone(img);
-      };
-      probe.src = url;
+      var cur = img.getAttribute('src') || '';
+      var url = (cur && cur.indexOf('question.png') < 0) ? cur : ((app && app.mi) || ghAvatarFor(app));
+      if (!url || url.indexOf('question.png') >= 0) { avatarGlyph(img); return; }
+      holdImage(img, url, avatarGlyph);
+    }
+    // Nothing anywhere holds a picture of this maintainer. The card answers
+    // that with a person glyph rather than a question mark, and so does the
+    // drawer: the image is swapped for the same drawn mark, keeping whichever
+    // of CA's classes sized the box it stood in. In the profile drawer the
+    // image is wrapped in a lightbox link, and that goes with it rather than
+    // being left behind to open a full-screen question mark.
+    function avatarGlyph(img) {
+      var host = img;
+      var link = img.parentNode;
+      if (link && link.tagName === 'A' && link.classList.contains('screenshot')) host = link;
+      if (!host.parentNode) return;
+      var span = document.createElement('span');
+      span.className = img.className + ' asga-avatar-glyph';
+      span.title = 'This maintainer has published no picture';
+      span.insertAdjacentHTML('afterbegin', PERSON_ICON);
+      host.parentNode.replaceChild(span, host);
     }
     function fixMaintainerIcon() {
       if (!isOn()) return;
@@ -873,43 +946,11 @@
       // behind by a previous drawer was enough to skip a card that was sitting
       // right there.
       if (!document.querySelector('#sidenavContent .popupInfoLeft .popupAuthorTitle')) return;
-      var app = drawerApp();
-      if (!app) return;
-      paintMaintainerIcon(document.querySelector('#sidenavContent img.popupAuthorIcon'), app.mi);
-    }
-    // The app drawer's icon is as tall as the column beside it, and square.
-    // The measurement is taken to the BOTTOM OF THE LAST BUTTON rather than to
-    // the bottom of the column, because every button in that column carries a
-    // bottom margin for when the run wraps, and measuring the column would hand
-    // the icon that margin as extra height and drop it below the buttons it is
-    // supposed to line up with.
-    function sizeDrawerIcon() {
-      if (!isOn() || isRepoDrawer()) return;
-      var area = document.querySelector('#sidenavContent .ca_popupIconArea');
-      if (!area) return;
-      var wrap = null, info = null;
-      for (var i = 0; i < area.children.length; i++) {
-        var c = area.children[i];
-        if (c.classList.contains('popupIcon')) wrap = c;
-        else if (c.classList.contains('popupInfo')) info = c;
-      }
-      if (!wrap || !info) return;
-      var top = info.getBoundingClientRect().top;
-      var bottom = 0;
-      var btns = info.querySelectorAll('.caButton');
-      for (var k = 0; k < btns.length; k++) {
-        var b = btns[k].getBoundingClientRect().bottom;
-        if (b > bottom) bottom = b;
-      }
-      // A drawer with no buttons at all still gets a square, sized to whatever
-      // text it does carry.
-      if (!bottom) bottom = info.getBoundingClientRect().bottom;
-      var side = Math.round(bottom - top);
-      if (side < 48) return;                 // not laid out yet, or nothing to measure
-      if (wrap.__asgaSide === side) return;  // already this size, do not thrash the layout
-      wrap.__asgaSide = side;
-      wrap.style.width = side + 'px';
-      wrap.style.height = side + 'px';
+      // The app record is what carries the derived avatar, but a drawer opened
+      // for an app the grid does not hold (CA restoring one from its cookie,
+      // say) still gets the placeholder taken off it, since the icon CA
+      // rendered is usually right and only ever needs holding in place.
+      paintMaintainerIcon(document.querySelector('#sidenavContent img.popupAuthorIcon'), drawerApp());
     }
     // Which app the open drawer is showing. CA restores a drawer from its own
     // cookie on a page load, which never goes through openSidebar(), so its own
@@ -1133,15 +1174,22 @@
       if (!host.querySelector('.popupTable.contents')) return;   // not finished rendering
       drawerCache[openPath] = host.innerHTML;
     }
-    function wireBackButton() {
-      if (document.body.__asgaBack) return;
-      document.body.__asgaBack = true;
+    // The two buttons inside CA's own drawer that swap it for another one:
+    // Profile, and BACK. Neither went through the blank-until-finished hold
+    // every opener on the grid's side already uses, so both of them dropped
+    // the reader into CA's half-built markup and then moved it around under
+    // them. Profile can only wait; BACK usually does not have to, since the
+    // drawer it is returning to was stashed the moment it rendered.
+    function wireDrawerNav() {
+      if (document.body.__asgaDrawerNav) return;
+      document.body.__asgaDrawerNav = true;
       document.addEventListener('click', function (e) {
-        if (!isOn()) return;
-        var btn = e.target.closest ? e.target.closest('#sidenavContent .popUpBack') : null;
+        if (!isOn() || !e.target.closest) return;
+        if (e.target.closest('#sidenavContent .repoPopup')) { holdDrawer(); return; }
+        var btn = e.target.closest('#sidenavContent .popUpBack');
         if (!btn) return;
         var html = drawerCache[openPath];
-        if (!html) return;   // nothing stashed, let CA do it the slow way
+        if (!html) { holdDrawer(); return; }   // nothing stashed, let CA do it the slow way
         var host = document.getElementById('sidenavContent');
         // A stashed copy is complete by definition, so BACK can drop the wait
         // the same instant it repaints rather than waiting on drawerReady() to
@@ -1228,7 +1276,10 @@
       // The profile drawer's own header icon is the same repository picture, so
       // it takes the same fallback. Any one of this maintainer's apps carries
       // it, since mi is a property of the repository rather than of the app.
-      if (mine.length) paintMaintainerIcon(document.querySelector('#sidenavContent .popupIcon img'), mine[0].mi);
+      // Called even when the grid holds none of their apps: with no record to
+      // read a face off, the placeholder still becomes this plugin's own person
+      // glyph rather than a Docker question mark.
+      paintMaintainerIcon(document.querySelector('#sidenavContent .popupIcon img'), mine[0] || null);
       fixRepoStats(mine);
       buildRepoApps(bio);
     }
@@ -1730,15 +1781,15 @@
       // else the app's own GitHub links. Plugins carry no docker repository to
       // derive an owner from, so their Project or plugin URL is read instead;
       // before this they always fell through to the question mark.
-      var ghOwner = (a.rp && a.rp.indexOf('/') > 0) ? a.rp.split('/')[0] : '';
-      if (!ghOwner) {
-        var gm = /(?:github\.com|raw\.githubusercontent\.com)\/([^\/?#]+)\//i.exec(a.pr || '') ||
-                 /(?:github\.com|raw\.githubusercontent\.com)\/([^\/?#]+)\//i.exec(a.pu || '');
-        if (gm) ghOwner = gm[1];
-      }
-      var ghAvatar = ghOwner ? ('https://github.com/' + ghOwner + '.png?size=128') : '';
+      var ghAvatar = ghAvatarFor(a);
       img.src = a.ic || ghAvatar || fallback; img.loading = 'lazy'; img.alt = '';
-      img.onerror = function () {
+      img.onerror = function (e) {
+        // CA binds one error handler across every img on the page each time a
+        // drawer renders, and it paints the Docker question mark on whatever
+        // failed. This handler was assigned first, so stopping the event here
+        // is what leaves the chain below in charge of its own fallbacks
+        // instead of CA overwriting each one the moment it is chosen.
+        if (e && e.stopImmediatePropagation) e.stopImmediatePropagation();
         if (ghAvatar && this.src !== ghAvatar && this.src.indexOf('github.com') < 0) { this.src = ghAvatar; return; }
         // github.com drops some of the avatar requests a full screen of cards
         // fires at once. Without a retry that transient miss became a permanent
@@ -1778,7 +1829,17 @@
           av.src = a.mi;
           av.loading = 'lazy';
           av.alt = '';
-          av.onerror = function () { this.remove(); };
+          av.onerror = function (e) {
+            // Same hijack the tile icon above guards against, and the same
+            // guard. What is left behind is the person glyph the branch below
+            // draws for a maintainer with no picture at all, so a face that
+            // fails to load reads as one that was never published rather than
+            // as a hole in the line.
+            if (e && e.stopImmediatePropagation) e.stopImmediatePropagation();
+            var line = this.parentNode;
+            this.remove();
+            if (line && !line.querySelector('.asga-bicon')) line.insertAdjacentHTML('afterbegin', PERSON_ICON);
+          };
           au.appendChild(av);
         } else {
           au.insertAdjacentHTML('afterbegin', PERSON_ICON);

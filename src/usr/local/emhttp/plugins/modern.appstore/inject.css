@@ -1411,6 +1411,39 @@ body.asga-active #sidenavContent { padding: 0 0 48px; position: relative; }
    panel itself still slides in at its own size, and everything inside it
    appears in one frame once it is all there. */
 body.asga-active #sidenavContent.asga-drawer-wait > * { visibility: hidden; }
+/* And it says so while it waits. CA wraps its own request for a drawer in a
+   hardcoded half second before it even starts, and for a plugin it then
+   downloads the .plg to read the changelog, so an app can leave this panel
+   standing empty for three seconds. Empty for three seconds reads as a drawer
+   that failed rather than one still working. The wheel and the word are drawn
+   on the container itself, which is the one thing in here the rule above does
+   not hide, and they go with it the instant the contents are ready. The
+   rotation is the same asga-rotate the catalog's own wheel and the toolbar's
+   refresh icon use. */
+/* Held to the panel's own height for as long as it waits. visibility:hidden
+   keeps the outgoing drawer's layout, so a panel still holding a long app when
+   the next one is asked for is several screens tall, and a wheel placed at a
+   fraction of THAT lands somewhere below the fold. CA blanks this element on
+   most opens and the question never comes up; on the ones where it does not,
+   this is what keeps the wheel where the reader is looking. */
+body.asga-active #sidenavContent.asga-drawer-wait { height: 100%; overflow: hidden; }
+body.asga-active #sidenavContent.asga-drawer-wait::before {
+  content: ''; position: absolute; left: 50%; top: 38%;
+  width: 30px; height: 30px; margin-left: -15px;
+  border: 3px solid rgba(255, 140, 47, 0.25); border-top-color: #ff8c2f;
+  border-radius: 50%; animation: asga-rotate 0.8s linear infinite;
+}
+body.asga-active #sidenavContent.asga-drawer-wait::after {
+  content: 'Loading'; position: absolute; left: 0; right: 0; top: 38%;
+  margin-top: 44px; text-align: center;
+  font-size: 1.15rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+  color: color-mix(in srgb, var(--text-color, #f2f2f2) 60%, transparent);
+}
+/* the word alone for anyone who asked their OS for less motion; a wheel that
+   does not turn says nothing a static ring can */
+@media (prefers-reduced-motion: reduce) {
+  body.asga-active #sidenavContent.asga-drawer-wait::before { animation: none; }
+}
 body.asga-active .popup { margin: 0; padding: 0 24px; }
 
 /* Close: a slim bar that sticks to the top of the scroll area, holding a round
@@ -1450,23 +1483,19 @@ body.asga-active .popupIcon img {
   border-radius: 10px; background: var(--asga-control); border: 1px solid var(--asga-cardline);
 }
 body.asga-active .popupIcon i { padding: 0; font-size: 6.4rem; }
-/* The icon is as tall as what sits beside it. CA gives it a fixed square while
-   the column to its right runs to a name, an author line and a row of buttons,
-   so the header always ended with the icon stopping well short of the buttons'
-   own baseline and a band of nothing under it. Stretching the row makes the
-   icon's height the column's height, and the ratio keeps it square as it grows,
-   so its bottom edge lands on the buttons' bottom edge exactly. */
-body.asga-active .popupContent:not(.asga-repo-drawer) .ca_popupIconArea { align-items: stretch; }
-/* The square itself is set by sizeDrawerIcon() in inject.js, not here. CSS
-   cannot express it: stretching the row gives the wrapper a height, but its
-   width still comes from the image's own, and an aspect-ratio cannot turn that
-   height back into a width while the row's height is itself derived from the
-   content standing in it. Written as a ratio the wrapper came out 3px wide
-   holding an 88px image, which painted straight over the text beside it. The
-   height of the column IS a number by the time the drawer has rendered, so it
-   is read and applied there. What stays here is only the shape of the box. */
+/* One square, the same square on every app.
+   This used to be measured: the row stretched, and inject.js read the height
+   of the column beside the icon and made the icon that tall so its bottom edge
+   landed on the buttons' baseline. It lined up, and it also meant the icon was
+   a different size on every app. An app whose name wraps to two lines has a
+   taller column, so it got a 156px icon where its neighbour got 88, and the
+   same drawer opened at two different scales depending on how long a name was.
+   A fixed 88px is the size nearly every app already resolved to, and it is the
+   same on all of them. */
+body.asga-active .popupContent:not(.asga-repo-drawer) .ca_popupIconArea { align-items: flex-start; }
 body.asga-active .popupContent:not(.asga-repo-drawer) .ca_popupIconArea > .popupIcon {
   display: block; flex: 0 0 auto; overflow: hidden;
+  width: 88px; height: 88px;
 }
 body.asga-active .popupContent:not(.asga-repo-drawer) .ca_popupIconArea > .popupIcon > img.popupIcon,
 body.asga-active .popupContent:not(.asga-repo-drawer) .ca_popupIconArea > .popupIcon > a,
@@ -1743,6 +1772,28 @@ body.asga-active img.popupAuthorIcon {
   width: 52px; height: 52px; border-radius: 10px; object-fit: contain;
   background: var(--asga-surface); border: 1px solid var(--asga-line);
 }
+/* Nobody anywhere holds a picture of this maintainer, so the drawer draws the
+   same person glyph the card does (see avatarGlyph in inject.js) instead of
+   CA's Docker question mark, which says a file is missing rather than that a
+   person never published one. It stands in for an image, so it takes the box
+   that image had: the plate below is the same plate img.popupAuthorIcon wears
+   above, and the two size rules under it answer the two places this can turn
+   up, the Maintainer card and the profile drawer's own header tile. */
+body.asga-active #sidenavContent .asga-avatar-glyph {
+  display: flex; align-items: center; justify-content: center;
+  box-sizing: border-box; border-radius: 10px;
+  background: var(--asga-surface); border: 1px solid var(--asga-line);
+  color: var(--asga-muted);
+}
+body.asga-active #sidenavContent .popupAuthorIcon.asga-avatar-glyph { width: 52px; height: 52px; }
+body.asga-active #sidenavContent .ca_popupIconArea > .popupIcon > .asga-avatar-glyph { width: 100%; height: 100%; }
+/* PERSON_ICON carries the card's own .asga-bicon-line, whose size is a clamp
+   against a --cw the grid sets on a tile and nothing sets in here, so the size
+   is restated rather than inherited from a variable that does not exist on
+   this side of the page. */
+body.asga-active #sidenavContent .asga-avatar-glyph svg.asga-bicon-line {
+  width: 46%; height: 46%; opacity: 0.75;
+}
 /* Row three is a track of its own that the three buttons share, each taking a
    column sized to itself, so they read as a run on the name's left edge rather
    than as three cells of a card. */
@@ -1857,8 +1908,13 @@ body.asga-active .spotlightWho { grid-column: 2; grid-row: 4; }
    in the same cell as the heading, so an app that does carry one still has it
    drawn instead of silently dropped. */
 body.asga-active .spotlightHeader { grid-column: 1 / -1; grid-row: 1; }
+/* 96px, not 52. This is not a decorative mark: CA's badge has the words
+   MONTHLY SPOTLIGHT set inside the ring, and at 52px they are a grey smudge,
+   so the one block in the drawer that says why the Unraid team picked this app
+   opened with an illegible label above the reason. 96 is the size those two
+   words become readable at. */
 body.asga-active .spotlightIconArea img.spotlightIcon {
-  width: 52px; height: auto; margin: 0 !important; object-fit: contain;
+  width: 96px; height: auto; margin: 0 !important; object-fit: contain;
 }
 /* A caption under the heading, not a second heading. It carried the accent and
    uppercase when it was the block's own top line; with the heading above it,
@@ -1901,7 +1957,22 @@ body.asga-active .asga-repo-drawer .ca_popupIconArea { align-items: center; padd
    the image inside it, and a descendant selector here carries three classes
    against the two of the base img rule, so it would win on the image too and
    give the tile a second 24px of margin within its own. */
-body.asga-active .asga-repo-drawer .ca_popupIconArea > .popupIcon { margin: 24px 0; }
+/* 56px, not the 72 the app drawer's base rule gives this element. This header
+   holds a name and one run of buttons, no author line and no description, so
+   an app-sized tile beside it read as the largest thing in the drawer while
+   being the least of what it says. 56 also puts it within four pixels of the
+   52px face the app drawer's own Maintainer card wears, so a maintainer's
+   picture is one size wherever it turns up. Square is stated on the wrapper
+   and the image fills it, the same way the app drawer's does, rather than
+   being left to whatever proportions the picture arrived with. */
+body.asga-active .asga-repo-drawer .ca_popupIconArea > .popupIcon {
+  margin: 22px 0; width: 56px; height: 56px; overflow: hidden;
+}
+body.asga-active .asga-repo-drawer .ca_popupIconArea > .popupIcon > img.popupIcon,
+body.asga-active .asga-repo-drawer .ca_popupIconArea > .popupIcon > a,
+body.asga-active .asga-repo-drawer .ca_popupIconArea > .popupIcon > a > img.popupIcon {
+  width: 100%; height: 100%; display: block;
+}
 body.asga-active .asga-repo-drawer .popupInfo { margin: 8px 0 6px; }
 
 /* ---- maintainer profile drawer ----
