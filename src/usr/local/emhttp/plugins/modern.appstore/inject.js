@@ -1394,8 +1394,12 @@
       stats.className = 'asga-tile-stats';
       stats.appendChild(statTile('asga-tile-stat-stars', STAR_MARK, a.s, 'Stars', starTitle(a.s)));
       stats.appendChild(statTile('asga-tile-stat-dl', DL_MARK, a.dl, a.ty === 'plugin' ? 'Installs' : 'Downloads', downloadTitle(a.dl, a.ty)));
-      head.appendChild(stats);
       tile.appendChild(head);
+      // Appended to the card rather than to the header: the stylesheet places
+      // it in a column of the card that spans both the header and the
+      // description, which is what lets the rule beside it run the full height
+      // of the two rather than stopping at the header's own bottom edge.
+      tile.appendChild(stats);
 
       // description (verbiage)
       // Always appended, even empty. The card is a four-band subgrid and each

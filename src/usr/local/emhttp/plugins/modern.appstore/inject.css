@@ -412,31 +412,45 @@ body.dark .asga-settings-select { color-scheme: dark; }
    rather than relocating it.
    row-gap doubles as the spacing between bands, since a card's four rows are
    the parent's rows. */
+/* Four cards to a row, and the grid is the container every card measures
+   itself against. The card cannot be its own container: container-type cancels
+   the subgrid below, which is the only thing keeping the four bands of every
+   card in a row on one line. Measuring off the grid instead means one column
+   is a quarter of the grid less three gaps, and --cw below turns that back
+   into the width of a single card, which every size on the card is then a
+   fraction of. Fixed pixels were the bug this replaces: they were correct at
+   one column width and 20% too small at the width the column actually grew to. */
 .asga-grid {
+  container-type: inline-size;
   display: grid;
-  /* 380 rather than 340, because the card's button row is six labelled pills
-     and the widest of them ("Installed" rather than "Install") needs 331px of
-     the band's own inner width. At 340 that run landed exactly on the limit and
-     the labels ellipsised on precisely the cards reporting an installed app. It
-     does not cost a column at any common window width: the count only changes
-     inside a 40px band that a maximised browser rarely sits in. */
-  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   column-gap: 14px; row-gap: 10px;
 }
+/* Four across stops being four across long before a phone: at nine hundred
+   pixels of grid a quarter column cannot hold six buttons and a name. These
+   are the widths where a column stops being able to, not device sizes. */
+@container (max-width: 1180px) { .asga-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@container (max-width: 860px)  { .asga-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: 560px)  { .asga-grid { grid-template-columns: minmax(0, 1fr); } }
 .asga-tile {
   position: relative;
+  /* One column of the grid, which is a quarter of it less its three gaps.
+     Every size on this card is a fraction of this figure, taken from the
+     reference design as a percentage of its card's width. */
+  --cw: calc(25cqw - 10.5px);
   /* A card is lit from the top. The gradient runs from a grey a shade above the
      page down to the page's own colour, so a card reads as a raised surface
      rather than a rectangle drawn on the background, and the run is built from
      the same rgba(127,127,127,a) scale every other surface here uses rather
      than a second palette. */
-  background: linear-gradient(180deg, rgba(127, 127, 127, 0.13) 0%, rgba(127, 127, 127, 0.04) 55%, rgba(127, 127, 127, 0) 100%), var(--background-color, #1d1b1b);
+  background: linear-gradient(180deg, rgba(127, 127, 127, 0.16) 0%, rgba(127, 127, 127, 0.05) 55%, rgba(127, 127, 127, 0) 100%), var(--background-color, #1d1b1b);
   border: 1px solid rgba(127, 127, 127, 0.22);
   border-radius: 8px;
   /* No padding here: a subgrid item's own padding offsets its tracks from the
      parent's, which is exactly the alignment this is meant to guarantee. Each
      band carries the inset instead (see .asga-tile > * below). */
   display: grid; grid-template-rows: subgrid; grid-row: span 4;
+  grid-template-columns: minmax(0, 1fr) auto;
   transition: border-color 0.15s ease;
   cursor: pointer;
   /* Templates come from a public feed: names, authors and categories can be
@@ -455,17 +469,21 @@ body.dark .asga-settings-select { color-scheme: dark; }
 .asga-tile > * { padding-left: 14px; padding-right: 14px; }
 .asga-tile > .asga-tile-head { padding-top: 14px; }
 .asga-tile > .asga-tile-dates { padding-bottom: 14px; }
+/* The rail is a column of the CARD, not of the header, so the rule dividing it
+   from the text runs past the description the way the reference draws it. The
+   button row and the footer span both columns underneath it. */
+.asga-tile > .asga-tile-head  { grid-column: 1; grid-row: 1; }
+.asga-tile > .asga-tile-desc  { grid-column: 1; grid-row: 2; }
+.asga-tile > .asga-tile-stats { grid-column: 2; grid-row: 1 / span 2; }
+.asga-tile > .asga-tile-btns  { grid-column: 1 / -1; grid-row: 3; }
+.asga-tile > .asga-tile-dates { grid-column: 1 / -1; grid-row: 4; }
 
-/* Three columns: the icon, everything written about the app, and the two
-   figures. The middle column is the only one that gives, so a long name wraps
-   instead of squeezing the figures out of the card, and the stat column is a
-   fixed track so the rule dividing it from the text lands on one line across
-   the whole grid rather than wherever each card's longest number happens to
-   end. */
+/* Two columns now that the figures have moved out to the card: the icon, and
+   everything written about the app. */
 .asga-tile-head {
-  display: grid; grid-template-columns: auto minmax(0, 1fr) 92px;
-  gap: 12px; align-items: start;
-  --asga-icon-side: 66px;
+  display: grid; grid-template-columns: auto minmax(0, 1fr);
+  gap: calc(var(--cw) * 0.032); align-items: start;
+  --asga-icon-side: clamp(44px, calc(var(--cw) * 0.171), 104px);
 }
 .asga-tile-icon {
   position: relative; align-self: flex-start;
@@ -509,36 +527,45 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 .asga-tile-catlead { font-weight: 600; flex: 0 0 auto; }
 .asga-tile-catrest { color: color-mix(in srgb, var(--text-color, #f2f2f2) 62%, var(--background-color, #1d1b1b)); }
 .asga-tile-avatar {
-  width: 14px; height: 14px; flex: 0 0 14px; border-radius: 4px;
+  width: clamp(11px, calc(var(--cw) * 0.026), 18px); height: clamp(11px, calc(var(--cw) * 0.026), 18px);
+  flex: 0 0 clamp(11px, calc(var(--cw) * 0.026), 18px); border-radius: 4px;
   object-fit: contain; background: rgba(127, 127, 127, 0.12);
 }
 .asga-bicon { flex: 0 0 auto; }
-.asga-bicon-line { width: 12px; height: 12px; opacity: 0.7; }
+.asga-bicon-line { width: clamp(11px, calc(var(--cw) * 0.026), 18px); height: clamp(11px, calc(var(--cw) * 0.026), 18px); opacity: 0.7; }
 
 /* The stat column, ruled off from the text. The rule is the only line inside a
    card, which is what makes it read as a division of the card rather than as
    another border. */
 .asga-tile-stats {
-  display: flex; flex-direction: column; gap: 8px;
-  padding-left: 11px; border-left: 1px solid rgba(127, 127, 127, 0.22);
-  align-self: stretch;
+  display: flex; flex-direction: column; justify-content: flex-start;
+  gap: calc(var(--cw) * 0.028);
+  width: clamp(64px, calc(var(--cw) * 0.20), 132px);
+  padding-left: calc(var(--cw) * 0.030);
+  border-left: 1px solid rgba(127, 127, 127, 0.22);
+  padding-top: 14px;
 }
 .asga-tile-stat {
-  display: grid; grid-template-columns: auto minmax(0, auto); column-gap: 7px;
+  display: grid; grid-template-columns: auto minmax(0, auto); column-gap: calc(var(--cw) * 0.022);
   align-items: center; cursor: inherit;
 }
 .asga-tile-statbox {
   grid-row: 1 / span 2; display: inline-flex; align-items: center; justify-content: center;
-  width: 24px; height: 24px; border-radius: 6px;
+  width: clamp(19px, calc(var(--cw) * 0.054), 37px); height: clamp(19px, calc(var(--cw) * 0.054), 37px);
+  border-radius: calc(var(--cw) * 0.015); flex: 0 0 auto;
   background: rgba(127, 127, 127, 0.10); border: 1px solid rgba(127, 127, 127, 0.20);
 }
-.asga-tile-statnum { font-size: 1.2rem; font-weight: 700; line-height: 1.1; }
+.asga-tile-statnum { font-size: clamp(11px, calc(var(--cw) * 0.031), 20px); font-weight: 700; line-height: 1.1; }
 .asga-tile-statlabel {
   /* the track above is fixed, so a word longer than it clips rather than
      forcing the column wider and undoing the alignment it exists for */
-  font-size: 0.78rem; line-height: 1.2;
+  font-size: clamp(7.5px, calc(var(--cw) * 0.019), 12px); line-height: 1.2;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
   color: color-mix(in srgb, var(--text-color, #f2f2f2) 62%, var(--background-color, #1d1b1b));
+}
+.asga-tile-statbox .asga-smark {
+  width: clamp(11px, calc(var(--cw) * 0.032), 22px);
+  height: clamp(11px, calc(var(--cw) * 0.032), 22px);
 }
 .asga-tile-stat-stars .asga-smark { color: #f0a500; }
 .asga-tile-stat-dl .asga-smark { color: #4ab8c9; }
@@ -558,14 +585,15 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    title that would run past the badges truncates rather than wrapping under
    them, which is what the padding on the badged variant is for. */
 .asga-tile-name {
-  min-height: calc(2 * 1.5rem * 1.2);
-  font-size: 1.5rem; font-weight: 700; line-height: 1.2;
+  min-height: calc(2 * clamp(12px, calc(var(--cw) * 0.04), 24px) * 1.2);
+  font-size: clamp(12px, calc(var(--cw) * 0.04), 24px);
+  font-weight: 700; line-height: 1.2;
   color: var(--text-color, inherit);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   flex: 1 1 auto; min-width: 0;
 }
 .asga-tile-author {
-  font-size: 1rem; line-height: 1.35;
+  font-size: clamp(9px, calc(var(--cw) * 0.0255), 15px); line-height: 1.35;
   color: color-mix(in srgb, var(--text-color, #f2f2f2) 76%, var(--background-color, #1d1b1b));
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   flex: 1 1 auto; min-width: 0;
@@ -592,7 +620,7 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 /* its own line under the author, sharing that column's left edge, rather than
    opposite it on one row */
 .asga-tile-cat {
-  margin-top: 2px; font-size: 0.95rem; line-height: 1.35;
+  margin-top: 2px; font-size: clamp(9px, calc(var(--cw) * 0.0255), 15px); line-height: 1.35;
   color: color-mix(in srgb, var(--text-color, #f2f2f2) 66%, var(--background-color, #1d1b1b));
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   min-width: 0;
@@ -605,7 +633,7 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    card's description occupies exactly two lines, which is what keeps the
    button rows aligned without leaving a hole under a short one. */
 .asga-tile-desc {
-  font-size: 1.15rem; line-height: 1.4; color: color-mix(in srgb, var(--text-color, #f2f2f2) 92%, var(--background-color, #1d1b1b)); margin: 0;
+  font-size: clamp(10px, calc(var(--cw) * 0.028), 17px); line-height: 1.4; color: color-mix(in srgb, var(--text-color, #f2f2f2) 92%, var(--background-color, #1d1b1b)); margin: 0;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 
@@ -624,7 +652,7 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
      depends on how long an app's numbers happen to be. */
   display: flex; justify-content: flex-start; align-items: center; gap: 14px;
   flex-wrap: wrap; row-gap: 4px;
-  margin: 0; font-size: 0.92rem; line-height: 1.5;
+  margin: 0; font-size: clamp(9px, calc(var(--cw) * 0.024), 15px); line-height: 1.5;
   border-top: 1px solid rgba(127, 127, 127, 0.16);
   padding-top: 9px; margin-top: 4px;
   /* Opacity used to sit here at 0.55, dimming the whole row. Opacity on a
@@ -656,6 +684,10 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    rather than carrying one of its own, since every SVG draws with
    stroke="currentColor" */
 .asga-ficon { width: 12px; height: 12px; flex: 0 0 auto; }
+.asga-tile-dates .asga-ficon {
+  width: clamp(10px, calc(var(--cw) * 0.026), 17px);
+  height: clamp(10px, calc(var(--cw) * 0.026), 17px);
+}
 /* the text is the part that actually ellipsises; the icon never should */
 .asga-datetext {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
@@ -685,12 +717,13 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    rather than stopping 82px short of the card's right edge. */
 .asga-tile-btns {
   display: flex; flex-wrap: nowrap; align-items: center;
-  justify-content: space-between; gap: 3px; position: relative;
+  justify-content: space-between; gap: calc(var(--cw) * 0.009); position: relative;
 }
 .asga-btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: 4px;
+  display: inline-flex; align-items: center; justify-content: center; gap: calc(var(--cw) * 0.010);
   cursor: pointer; user-select: none; white-space: nowrap;
-  font-size: 0.8rem; padding: 5px 6px; border-radius: 20px;
+  font-size: clamp(8px, calc(var(--cw) * 0.022), 14px);
+  padding: calc(var(--cw) * 0.009) calc(var(--cw) * 0.020); border-radius: 20px;
   border: 1px solid rgba(127,127,127,0.4); color: var(--text-color, inherit);
   background: rgba(127,127,127,0.08);
   /* nowrap and shrinkable: at the narrowest column the labels ellipsise rather
@@ -701,6 +734,10 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 }
 .asga-btn:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.14); }
 .asga-btn-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.asga-btn .asga-bicon {
+  width: clamp(8px, calc(var(--cw) * 0.022), 14px);
+  height: clamp(8px, calc(var(--cw) * 0.022), 14px);
+}
 /* Install is the one thing a card is for, so it is the one button that is
    filled rather than outlined. The fill is the accent this project already
    uses for every interactive surface, not a second primary colour. It never
