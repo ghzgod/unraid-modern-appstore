@@ -504,7 +504,7 @@
           } else if (btn.classList.contains('asga-maint')) {
             // CA's own repo drawer, the same one its Profile button opens
             var repo = tile.getAttribute('data-repo');
-            if (repo) try { window.showRepoPopup(repo); } catch (err) {}
+            if (repo) { holdDrawer(); try { window.showRepoPopup(repo); } catch (err) {} }
           } else if (btn.classList.contains('asga-pin')) {
             pinApp(tile, btn);
           } else { // Info
@@ -539,56 +539,30 @@
 
     function openExt(url) { if (url) try { window.open(url, '_blank', 'noopener'); } catch (e) {} }
 
-    // What the drawer can say before CA has answered. Everything here is
-    // already in the record the card was built from, so it costs no request:
-    // the same icon, the same name, the same author and the same description
-    // the user just clicked. It is deliberately not the whole drawer. CA
-    // replaces the panel's contents wholesale when its own render lands, so
-    // anything built here is temporary by design, and building more of it would
-    // only be a second implementation of a drawer to keep in step with the
-    // first.
-    function primeDrawer(p) {
+    // Blank until finished. Set the moment a drawer is asked for, cleared by
+    // drawerReady() once CA's own render has landed and this file's own fixups
+    // have run over it.
+    function holdDrawer() {
       var host = document.getElementById('sidenavContent');
-      if (!host) return;
-      var a = null;
-      for (var i = 0; i < APPS.length; i++) { if (APPS[i].p === p) { a = APPS[i]; break; } }
-      if (!a) return;
-      var wrap = document.createElement('div');
-      wrap.className = 'popup asga-drawer-prime';
-      var head = document.createElement('div');
-      head.className = 'ca_popupIconArea';
-      var iconBox = document.createElement('div');
-      iconBox.className = 'popupIcon';
-      if (a.ic) {
-        var img = document.createElement('img');
-        img.className = 'popupIcon';
-        img.src = a.ic;
-        img.alt = '';
-        iconBox.appendChild(img);
-      }
-      head.appendChild(iconBox);
-      var info = document.createElement('div');
-      info.className = 'popupInfo';
-      var nm = document.createElement('div');
-      nm.className = 'popupName';
-      nm.textContent = a.n;
-      info.appendChild(nm);
-      if (a.au) {
-        var au = document.createElement('div');
-        au.className = 'popupAuthorMain';
-        au.textContent = a.au;
-        info.appendChild(au);
-      }
-      head.appendChild(info);
-      wrap.appendChild(head);
-      if (a.de) {
-        var de = document.createElement('div');
-        de.className = 'popupDescription';
-        de.textContent = a.de;
-        wrap.appendChild(de);
-      }
-      host.textContent = '';
-      host.appendChild(wrap);
+      if (host) host.classList.add('asga-drawer-wait');
+      clearTimeout(holdDrawer.t);
+      // A render that never completes must not leave the panel blank for good.
+      holdDrawer.t = setTimeout(showDrawer, 6000);
+    }
+    function showDrawer() {
+      clearTimeout(holdDrawer.t);
+      var host = document.getElementById('sidenavContent');
+      if (host) host.classList.remove('asga-drawer-wait');
+    }
+    // What finished looks like. CA closes an app drawer with its Details table
+    // and a maintainer profile with its statistics table, so either one standing
+    // in the panel means its render has landed. The check runs at the end of the
+    // observer's own pass, after this file has moved what it moves, so the frame
+    // the reader finally sees is the finished one rather than CA's.
+    function drawerReady() {
+      var host = document.getElementById('sidenavContent');
+      if (!host || !host.classList.contains('asga-drawer-wait')) return;
+      if (host.querySelector('.popupTable.contents') || host.querySelector('.repoTable') || host.querySelector('.asga-repo-apps')) showDrawer();
     }
     // The one way the grid opens CA's drawer, so the app it is showing is
     // always recorded. Everything the drawer does on our side (see
@@ -596,23 +570,23 @@
     // to ask after the fact.
     function openSidebar(p, n) {
       openPath = p || '';
+      holdDrawer();
       try { window.showSidebarApp(p, n); } catch (e) {}
       // CA wraps its own request for this drawer's contents in a hardcoded half
       // second of nothing, and for a plugin the request then downloads the .plg
       // to read its changelog, so the drawer sat blank for a second or more on
       // every open. When this app has been opened before, the copy stashed on
-      // its last render goes back in immediately; otherwise the grid's own
-      // record of the app primes a holding view. Either way CA's request still
-      // runs behind it and repaints over the top, which is what restores the
-      // charts, so this is a head start rather than a replacement. The paint
-      // waits a tick so it lands after CA has had the chance to blank the panel
-      // first, or it would just get wiped by CA's own empty render.
+      // its last render goes straight back in, which is complete the instant it
+      // lands and can show itself right away; when there is no stash, CA's own
+      // request is the only thing coming and holdDrawer() above is what keeps
+      // the panel blank until it lands. The paint below still waits a tick so it
+      // lands after CA has had the chance to blank the panel first, or it would
+      // just get wiped by CA's own empty render.
       var stashed = drawerCache[openPath];
+      if (!stashed) return;
       setTimeout(function () {
         var host = document.getElementById('sidenavContent');
-        if (!host || host.querySelector('.popupTable.contents')) return;   // CA already painted
-        if (stashed) host.innerHTML = stashed;
-        else primeDrawer(openPath);
+        if (host && !host.querySelector('.popupTable.contents')) { host.innerHTML = stashed; showDrawer(); }
       }, 0);
     }
 
@@ -796,7 +770,7 @@
       document.body.__asgaDrawerDetails = true;
       var host = document.getElementById('sidenavContent') || document.querySelector('.sidenav');
       if (!host) return;
-      new MutationObserver(function () { fixDrawerDetails(); fixDrawerIcon(); fixMaintainerIcon(); sizeDrawerIcon(); fixRepoDrawer(); cacheDrawer(); })
+      new MutationObserver(function () { fixDrawerDetails(); fixDrawerIcon(); fixMaintainerIcon(); sizeDrawerIcon(); fixRepoDrawer(); cacheDrawer(); drawerReady(); })
         .observe(host, { childList: true, subtree: true });
       fixDrawerDetails();
       fixDrawerIcon();
@@ -805,6 +779,7 @@
       fixRepoDrawer();
       cacheDrawer();
       wireBackButton();
+      drawerReady();
     }
     // The drawer must show the same icon the card did. CA resolves the drawer's
     // icon separately from the grid's, and when its own lookup comes up empty it
@@ -1156,7 +1131,10 @@
         var html = drawerCache[openPath];
         if (!html) return;   // nothing stashed, let CA do it the slow way
         var host = document.getElementById('sidenavContent');
-        if (host) host.innerHTML = html;
+        // A stashed copy is complete by definition, so BACK can drop the wait
+        // the same instant it repaints rather than waiting on drawerReady() to
+        // notice a table that is already there.
+        if (host) { host.innerHTML = html; showDrawer(); }
         // CA's own handler is deliberately left to run: it re-requests the app
         // and repaints over this, which is what puts the charts back.
       }, true);
@@ -1680,6 +1658,18 @@
       if (pos < text.length) el.appendChild(document.createTextNode(text.slice(pos)));
     }
 
+    // CA files a category as space separated tokens, each either a parent with a
+    // trailing colon or a parent and child joined by one: "Other: Productivity:
+    // Tools:Utilities Plugins:". The trailing colons are punctuation marking the
+    // end of a token rather than part of a name, so they come off, and what is
+    // left reads as the list it always was.
+    function allCategories(cf) {
+      if (!cf) return '';
+      return String(cf).split(/\s+/).filter(Boolean)
+        .map(function (t) { return t.replace(/:+$/, ''); })
+        .filter(Boolean).join(', ');
+    }
+
     function makeTile(a) {
       var tile = document.createElement('div');
       tile.className = 'asga-tile';
@@ -1773,10 +1763,12 @@
       cat.className = 'asga-tile-cat';
       cat.insertAdjacentHTML('afterbegin', TAG_ICON);
       var raw = a.ct || '';
-      // The line truncates on a narrow card, so the whole of it lives in the
-      // tooltip, the same way an abbreviated figure in the rail keeps its exact
-      // count there.
-      if (raw) cat.title = raw;
+      // The line the card prints is a label applist.php already shortened, so a
+      // card filed under five categories reads "and 2 more" and the tooltip,
+      // asked the same question, answered "and 2 more" as well. The tooltip is
+      // built from cf instead, CA's own untouched category string, which is
+      // never clipped: every category the app is filed under, in full.
+      if (a.cf || raw) cat.title = allCategories(a.cf) || raw;
       var colon = raw.indexOf(':');
       if (colon > 0) {
         var lead = document.createElement('span');

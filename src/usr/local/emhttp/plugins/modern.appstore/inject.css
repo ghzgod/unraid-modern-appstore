@@ -1380,6 +1380,13 @@ body.asga-active .sidenav {
   padding-top: 0 !important;   /* CA adds 40px of blank at the top */
 }
 body.asga-active #sidenavContent { padding: 0 0 48px; position: relative; }
+/* A drawer that fills in front of the reader is worse than one that takes a
+   moment. CA paints its own render in pieces and this plugin then moves several
+   of them, so anything shown before both are done is a layout that shifts under
+   the eye. The panel holds its contents invisible rather than absent, so the
+   panel itself still slides in at its own size, and everything inside it
+   appears in one frame once it is all there. */
+body.asga-active #sidenavContent.asga-drawer-wait > * { visibility: hidden; }
 body.asga-active .popup { margin: 0; padding: 0 24px; }
 
 /* Close: a slim bar that sticks to the top of the scroll area, holding a round
