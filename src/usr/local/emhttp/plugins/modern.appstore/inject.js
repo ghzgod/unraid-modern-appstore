@@ -751,9 +751,17 @@
     // javascript/helpers.js), which swaps in the active language's string, so
     // recognising a row CA already wrote means asking tr() the same question
     // rather than matching the English text directly.
+    // This file now also runs its own labels ('Total GitHub Stars' among them)
+    // through tr() to check whether CA already wrote the row, and CA's
+    // dictionary has no entry for a label it never shipped. A lookup that
+    // returns empty or undefined for those is not a translation, it is a miss,
+    // so only a genuine non-empty string is used and anything else falls
+    // through to the English.
     function caLabel(english) {
-      try { return (typeof window.tr === 'function') ? window.tr(english) : english; }
-      catch (e) { return english; }
+      try {
+        var t = (typeof window.tr === 'function') ? window.tr(english) : english;
+        return (typeof t === 'string' && t) ? t : english;
+      } catch (e) { return english; }
     }
     function rowByLabel(table, english) {
       var want = caLabel(english);
@@ -1148,6 +1156,31 @@
     // The average divides by the apps that actually have a figure rather than
     // by all of them, which is CA's own definition: a maintainer whose newest
     // app has no count yet should not see their average fall because of it.
+    //
+    // a.rp is the owner/repo of the GitHub project an app is built from, and
+    // a.s is that project's star count. Two templates by one maintainer often
+    // package the SAME upstream project, so each distinct repository is
+    // counted once rather than once per app: on a live catalog, "Firecrawl for
+    // Unraid" publishes 5 apps that all point at one repository, and summing
+    // per app reported 870,905 stars where the true figure is 174,181. 64 of
+    // the 1,111 maintainers scanned are affected by this same duplication.
+    //
+    // The answer is null rather than 0 when nothing is known, which is what
+    // keeps the row out of the table entirely: for a server with no GitHub
+    // token configured every app's s is null, and for 258 of the 1,111
+    // maintainers the scanner has matched no repository to any of their apps.
+    function repoStarTotal(mine) {
+      var seen = {}, total = 0, n = 0;
+      for (var i = 0; i < mine.length; i++) {
+        var a = mine[i];
+        if (a.s == null || !a.rp) continue;
+        if (seen[a.rp]) continue;
+        seen[a.rp] = 1;
+        total += a.s;
+        n++;
+      }
+      return n ? total : null;
+    }
     function fixRepoStats(mine) {
       var table = document.querySelector('#sidenavContent .repoTable');
       if (!table) return;
@@ -1156,6 +1189,14 @@
       if (counted) {
         setRepoRow(table, 'Total Known Downloads', total.toLocaleString());
         setRepoRow(table, 'Average Downloads Per App', Math.round(total / counted).toLocaleString());
+      }
+      // CA keeps no statistic on GitHub stars at all. This one lands directly
+      // above Total Docker Applications, and the tooltip says plainly that it
+      // totals the upstream projects a maintainer packages, not their own work.
+      var stars = repoStarTotal(mine);
+      if (stars != null) {
+        var starRow = setRepoRow(table, 'Total GitHub Stars', stars.toLocaleString(), 'Total Docker Applications');
+        if (starRow) starRow.title = 'Combined stars of the GitHub projects this maintainer packages, each project counted once. These are the upstream projects, not this maintainer\'s own repositories.';
       }
       // A count of zero is not a statistic, it is a row saying this maintainer
       // does not do a thing nobody asked whether they did. CA prints all three
@@ -1170,15 +1211,29 @@
     // CA runs every label in this table through its own tr(), so a row is
     // recognised by asking tr() the same question rather than by matching the
     // English text, which would find nothing on a server in any other language.
-    function setRepoRow(table, english, value) {
+    // Shared by setRepoRow and dropRepoRowIfZero, which used to each run this
+    // same scan on their own.
+    function repoRowByLabel(table, english) {
       var want = caLabel(english);
-      var body = table.tBodies[0] || table;
       for (var i = 0; i < table.rows.length; i++) {
         var left = table.rows[i].querySelector('.repoLeft');
-        if (!left || left.textContent.trim() !== want) continue;
-        var right = table.rows[i].querySelector('.repoRight');
-        if (right) { right.textContent = value; return; }
-        break;
+        if (left && left.textContent.trim() === want) return table.rows[i];
+      }
+      return null;
+    }
+    // Where a statistic sits in this table is part of what it says, so a
+    // caller building a new row can name beforeEnglish, the row it should land
+    // above, rather than always landing at the bottom. Appending is the
+    // fallback when that row is not present. Either way the row itself is
+    // returned, so the caller can go on to set something CA's own markup has
+    // no row for, such as a title tooltip.
+    function setRepoRow(table, english, value, beforeEnglish) {
+      var want = caLabel(english);
+      var body = table.tBodies[0] || table;
+      var row = repoRowByLabel(table, english);
+      if (row) {
+        var right = row.querySelector('.repoRight');
+        if (right) { right.textContent = value; return row; }
       }
       var tr = document.createElement('tr');
       var td1 = document.createElement('td');
@@ -1189,21 +1244,26 @@
       td2.textContent = value;
       tr.appendChild(td1);
       tr.appendChild(td2);
-      body.appendChild(tr);
+      // Inserted against the anchor's OWN parent rather than the tbody this
+      // function would otherwise append to. The two are the same element on
+      // every table CA emits, but insertBefore throws when they are not, and
+      // this runs inside the drawer's mutation observer, where a throw would
+      // take the rest of that pass with it and leave the panel held on Loading
+      // until its failsafe fires.
+      var anchor = beforeEnglish ? repoRowByLabel(table, beforeEnglish) : null;
+      if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(tr, anchor);
+      else body.appendChild(tr);
+      return tr;
     }
     // CA runs every label in this table through its own tr(), so a row is found
     // by asking tr() the same question rather than by matching English text,
     // which would match nothing on a server in any other language.
     function dropRepoRowIfZero(table, english) {
-      var want = caLabel(english);
-      for (var i = 0; i < table.rows.length; i++) {
-        var left = table.rows[i].querySelector('.repoLeft');
-        if (!left || left.textContent.trim() !== want) continue;
-        var right = table.rows[i].querySelector('.repoRight');
-        var n = right ? right.textContent.replace(/[^0-9]/g, '') : '';
-        if (n === '' || parseInt(n, 10) === 0) table.rows[i].parentNode.removeChild(table.rows[i]);
-        return;
-      }
+      var row = repoRowByLabel(table, english);
+      if (!row) return;
+      var right = row.querySelector('.repoRight');
+      var n = right ? right.textContent.replace(/[^0-9]/g, '') : '';
+      if (n === '' || parseInt(n, 10) === 0) row.parentNode.removeChild(row);
     }
 
     // The two buttons inside CA's own drawer that swap it for another one:

@@ -1551,6 +1551,22 @@ body.asga-active .popupAuthorMain {
   font-size: 1.3rem; line-height: 1.4; margin: 4px 0 14px; color: var(--asga-muted);
   overflow-wrap: break-word; word-break: break-word;
 }
+/* This line under the app's name is CA's own Author field, and it names
+   whoever makes the software, a different person from the maintainer named in
+   the card below. On Vector the header reads timberio, the Docker Hub account
+   the image is published under, while the Maintainer card reads coreylane, who
+   publishes the Unraid template. Left unlabelled, a name sitting directly under
+   a title reads as the maintainer, so this word says which of the two it
+   actually is. :not(:empty) matters because CA emits .popupAuthorMain whether
+   or not the template names an author, and without that guard an app with no
+   author would show a lone AUTHOR label with nothing after it. This is drawn
+   as a pseudo-element rather than by editing CA's markup, since this
+   stylesheet restyles CA's drawer and does not rewrite it. */
+body.asga-active .popupAuthorMain:not(:empty)::before {
+  content: 'Author';
+  font-size: 1rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em;
+  color: var(--asga-accent); margin-right: 8px;
+}
 /* nothing from a template may push the drawer sideways either */
 body.asga-active #sidenavContent { overflow-wrap: break-word; word-break: break-word; }
 
