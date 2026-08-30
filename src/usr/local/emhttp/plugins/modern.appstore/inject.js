@@ -568,26 +568,24 @@
     // always recorded. Everything the drawer does on our side (see
     // fixDrawerDetails) needs to know which app that is, and CA offers no way
     // to ask after the fact.
+    // One render, and the reader sees it once.
+    //
+    // This used to stash each drawer's finished markup and paint the stash back
+    // the instant the app was re-opened, to skip the hardcoded half second CA
+    // waits before it even asks for the contents. It bought perhaps a second,
+    // and it cost the thing that second was for: CA's own answer still arrived
+    // behind the stash and replaced it, so the reader watched a complete drawer
+    // turn into a different complete drawer. Worse, the stash was taken AFTER
+    // this file had added its own rows to the Details table, and the flag that
+    // says a table has already been added to is a property on the DOM node,
+    // which does not survive being written back through innerHTML: the restored
+    // table looked untouched, got a second Last Update and a second GitHub
+    // stars row, and then lost them again when CA's render landed on top.
+    // The wait is the honest version, and the panel says Loading while it runs.
     function openSidebar(p, n) {
       openPath = p || '';
       holdDrawer();
       try { window.showSidebarApp(p, n); } catch (e) {}
-      // CA wraps its own request for this drawer's contents in a hardcoded half
-      // second of nothing, and for a plugin the request then downloads the .plg
-      // to read its changelog, so the drawer sat blank for a second or more on
-      // every open. When this app has been opened before, the copy stashed on
-      // its last render goes straight back in, which is complete the instant it
-      // lands and can show itself right away; when there is no stash, CA's own
-      // request is the only thing coming and holdDrawer() above is what keeps
-      // the panel blank until it lands. The paint below still waits a tick so it
-      // lands after CA has had the chance to blank the panel first, or it would
-      // just get wiped by CA's own empty render.
-      var stashed = drawerCache[openPath];
-      if (!stashed) return;
-      setTimeout(function () {
-        var host = document.getElementById('sidenavContent');
-        if (host && !host.querySelector('.popupTable.contents')) { host.innerHTML = stashed; showDrawer(); }
-      }, 0);
     }
 
     // Screenshot lightbox. CA's own gallery (magnificPopup) closes the whole
@@ -770,13 +768,12 @@
       document.body.__asgaDrawerDetails = true;
       var host = document.getElementById('sidenavContent') || document.querySelector('.sidenav');
       if (!host) return;
-      new MutationObserver(function () { fixDrawerDetails(); fixDrawerIcon(); fixMaintainerIcon(); fixRepoDrawer(); cacheDrawer(); drawerReady(); })
+      new MutationObserver(function () { fixDrawerDetails(); fixDrawerIcon(); fixMaintainerIcon(); fixRepoDrawer(); drawerReady(); })
         .observe(host, { childList: true, subtree: true });
       fixDrawerDetails();
       fixDrawerIcon();
       fixMaintainerIcon();
       fixRepoDrawer();
-      cacheDrawer();
       wireDrawerNav();
       drawerReady();
     }
@@ -1209,53 +1206,22 @@
       }
     }
 
-    // BACK, without the wait.
-    //
-    // CA's BACK handler calls showSidebarApp again, and that function wraps its
-    // getPopupDescription request in a hardcoded setTimeout of 500ms before it
-    // even starts; for a plugin the request then downloads the .plg to read its
-    // changelog, so returning from a maintainer profile to the app you came
-    // from took several seconds of blank drawer.
-    //
-    // The app drawer's own markup is stashed the moment it renders, so BACK can
-    // repaint it immediately. CA's request still runs behind that, which is what
-    // restores the chart canvases and anything else drawn by script, so the
-    // instant paint is a head start rather than a replacement.
-    var drawerCache = {};
-    function cacheDrawer() {
-      var host = document.getElementById('sidenavContent');
-      if (!host || !openPath) return;
-      // Profile, not an app. Same reasoning as fixDrawerIcon above: the bio
-      // this used to look for is deleted by buildRepoApps, and caching the
-      // profile drawer's markup under the app's own path is what made BACK
-      // repaint the maintainer instead of the app it came from.
-      if (isRepoDrawer()) return;
-      if (!host.querySelector('.popupTable.contents')) return;   // not finished rendering
-      drawerCache[openPath] = host.innerHTML;
-    }
     // The two buttons inside CA's own drawer that swap it for another one:
     // Profile, and BACK. Neither went through the blank-until-finished hold
     // every opener on the grid's side already uses, so both of them dropped
     // the reader into CA's half-built markup and then moved it around under
-    // them. Profile can only wait; BACK usually does not have to, since the
-    // drawer it is returning to was stashed the moment it rendered.
+    // them. Both wait now. BACK used to repaint from a stash instead, which
+    // was the same false economy openSidebar has stopped making: CA's own
+    // request runs behind any repaint and lands on top of it either way, so
+    // all the stash ever did was show the reader one finished drawer and then
+    // replace it with another.
     function wireDrawerNav() {
       if (document.body.__asgaDrawerNav) return;
       document.body.__asgaDrawerNav = true;
       document.addEventListener('click', function (e) {
         if (!isOn() || !e.target.closest) return;
-        if (e.target.closest('#sidenavContent .repoPopup')) { holdDrawer(); return; }
-        var btn = e.target.closest('#sidenavContent .popUpBack');
-        if (!btn) return;
-        var html = drawerCache[openPath];
-        if (!html) { holdDrawer(); return; }   // nothing stashed, let CA do it the slow way
-        var host = document.getElementById('sidenavContent');
-        // A stashed copy is complete by definition, so BACK can drop the wait
-        // the same instant it repaints rather than waiting on drawerReady() to
-        // notice a table that is already there.
-        if (host) { host.innerHTML = html; showDrawer(); }
-        // CA's own handler is deliberately left to run: it re-requests the app
-        // and repaints over this, which is what puts the charts back.
+        if (e.target.closest('#sidenavContent .repoPopup') ||
+            e.target.closest('#sidenavContent .popUpBack')) holdDrawer();
       }, true);
     }
     // The maintainer profile drawer, tidied the same way the app drawer is.
@@ -1345,8 +1311,15 @@
     function fixDrawerDetails() {
       if (!isOn()) return;
       var table = document.querySelector('#sidenavContent .popupTable.contents');
-      if (!table || table.__asgaDetails) return;
-      table.__asgaDetails = true;
+      // Marked in the DOM rather than with a property on the node. This
+      // function ADDS rows, so running it twice on one table is two Last
+      // Update rows and two GitHub stars rows, and a property is exactly the
+      // kind of mark that goes missing: it is lost the moment the markup is
+      // written back through innerHTML, which is how a drawer restored from a
+      // stash used to arrive already carrying our rows while looking untouched.
+      // An attribute is part of the markup and survives that round trip.
+      if (!table || table.getAttribute('data-asga-details')) return;
+      table.setAttribute('data-asga-details', '1');
       var app = drawerApp();
       if (!app) return;
 
