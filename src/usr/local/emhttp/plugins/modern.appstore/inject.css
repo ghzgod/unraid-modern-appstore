@@ -420,18 +420,25 @@ body.dark .asga-settings-select { color-scheme: dark; }
    into the width of a single card, which every size on the card is then a
    fraction of. Fixed pixels were the bug this replaces: they were correct at
    one column width and 20% too small at the width the column actually grew to. */
+/* The grid measures a card off itself, so it stays a container of its own; this
+   one exists purely so the column count above has something to ask. */
+#asga-view { container: asga-view / inline-size; }
 .asga-grid {
   container-type: inline-size;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   column-gap: 14px; row-gap: 10px;
 }
-/* Four across stops being four across long before a phone: at nine hundred
-   pixels of grid a quarter column cannot hold six buttons and a name. These
-   are the widths where a column stops being able to, not device sizes. */
-@container (max-width: 1180px) { .asga-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@container (max-width: 860px)  { .asga-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@container (max-width: 560px)  { .asga-grid { grid-template-columns: minmax(0, 1fr); } }
+/* Hosted on the view rather than on the grid, because these rules restyle the
+   grid itself and a container styles its descendants, never itself. Written
+   against the grid they matched nothing at any width, which is how four columns
+   survived down to a 165px card with every button label truncated. The widths
+   are the ones where a column stops being able to hold six labelled buttons on
+   one line, not device sizes: the run needs about 330px of a band's inner
+   width, so a card has to clear 358px for it. */
+@container asga-view (max-width: 1579px) { .asga-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@container asga-view (max-width: 1101px) { .asga-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container asga-view (max-width: 729px)  { .asga-grid { grid-template-columns: minmax(0, 1fr); } }
 .asga-tile {
   position: relative;
   /* One column of the grid, which is a quarter of it less its three gaps.
@@ -468,7 +475,7 @@ body.dark .asga-settings-select { color-scheme: dark; }
    first and last carry the top and bottom. */
 .asga-tile > * { padding-left: 14px; padding-right: 14px; }
 .asga-tile > .asga-tile-head { padding-top: 14px; }
-.asga-tile > .asga-tile-dates { padding-bottom: 14px; }
+.asga-tile > .asga-tile-dates { padding-bottom: 18px; }
 /* The rail is a column of the CARD, not of the header, so the rule dividing it
    from the text runs past the description the way the reference draws it. The
    button row and the footer span both columns underneath it. */
@@ -626,7 +633,17 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    .asga-ficon rule further down: the icon reads larger here because it is the
    only signal of the app's type left on the card, not a footer glyph sitting
    beside its own label. */
-.asga-ficon.asga-ficon-lg { width: 16px; height: 16px; }
+/* The mark saying what kind of app this is closes the footer row, and it is the
+   one glyph on the card carrying a fact rather than labelling a number beside
+   it, so it reads a size above its neighbours. */
+/* Scoped through the footer band so it outranks the rule sizing that band's
+   other three glyphs. Both selectors carry two classes, so on a bare
+   .asga-ficon.asga-ficon-lg the winner was whichever came last in the file,
+   and this one does not. */
+.asga-tile-dates .asga-ficon.asga-ficon-lg {
+  width: clamp(15px, calc(var(--cw) * 0.042), 28px);
+  height: clamp(15px, calc(var(--cw) * 0.042), 28px);
+}
 /* Docker's own brand blue, which is why it is allowed to sit alongside this
    card's own palette: it names a real external mark, not a second in-house
    hue. */
@@ -670,6 +687,9 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    to opposite edges they read as two unrelated facts with a card's worth of
    space between them; together they read as one line about the app's age, and
    the left of the footer is left free for anything that needs it later. */
+/* A deeper band, at the same type size. The footer was the shortest thing on
+   the card and read as an afterthought stuck to the bottom edge rather than as
+   the band it is; the height it gains is all air around the same words. */
 .asga-tile-dates {
   /* One left-aligned run, not two clumps at opposite edges. Everything starts
      from the same edge on every card, so there is no middle void whose width
@@ -678,7 +698,7 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
   flex-wrap: wrap; row-gap: 4px;
   margin: 0; font-size: clamp(9px, calc(var(--cw) * 0.024), 15px); line-height: 1.5;
   position: relative;
-  padding-top: 9px; margin-top: 4px;
+  padding-top: 13px; margin-top: 2px;
   /* Opacity used to sit here at 0.55, dimming the whole row. Opacity on a
      container multiplies every colour painted inside it, so it was quietly
      desaturating the gold, teal and blue icon/stat colours below along with
@@ -724,8 +744,8 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    stroke="currentColor" */
 .asga-ficon { width: 12px; height: 12px; flex: 0 0 auto; }
 .asga-tile-dates .asga-ficon {
-  width: clamp(10px, calc(var(--cw) * 0.026), 17px);
-  height: clamp(10px, calc(var(--cw) * 0.026), 17px);
+  width: clamp(12px, calc(var(--cw) * 0.033), 22px);
+  height: clamp(12px, calc(var(--cw) * 0.033), 22px);
 }
 /* the text is the part that actually ellipsises; the icon never should */
 .asga-datetext {
@@ -754,15 +774,25 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    pushed down inside each card. */
 /* space-between, so the run spans the same width the description above it does
    rather than stopping 82px short of the card's right edge. */
+/* The row sits 2px lower so the space above it matches the space below. The
+   space below was 14px against the 10px above, because the footer band carries
+   a margin of its own on top of the grid's row gap, and a button run that is
+   nearer one neighbour than the other reads as having drifted. */
 .asga-tile-btns {
   display: flex; flex-wrap: nowrap; align-items: center;
-  justify-content: space-between; gap: calc(var(--cw) * 0.009); position: relative;
+  justify-content: space-between; gap: calc(var(--cw) * 0.007); position: relative;
+  margin-top: 2px;
 }
+/* Taller, and the label larger with it. The row had been sized down to whatever
+   would guarantee six labelled pills on one line, which left the buttons
+   shorter than anything else on the card and their text the smallest type in
+   the plugin. The vertical padding is what grows; the horizontal padding comes
+   in slightly to pay for it, so the run still fits one line. */
 .asga-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: calc(var(--cw) * 0.010);
   cursor: pointer; user-select: none; white-space: nowrap;
-  font-size: clamp(8px, calc(var(--cw) * 0.022), 14px);
-  padding: calc(var(--cw) * 0.009) calc(var(--cw) * 0.020); border-radius: 20px;
+  font-size: clamp(9px, calc(var(--cw) * 0.024), 15px);
+  padding: calc(var(--cw) * 0.0155) calc(var(--cw) * 0.018); border-radius: 20px;
   border: 1px solid rgba(127,127,127,0.4); color: var(--text-color, inherit);
   background: rgba(127,127,127,0.08);
   /* nowrap and shrinkable: at the narrowest column the labels ellipsise rather
@@ -774,8 +804,8 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 .asga-btn:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.14); }
 .asga-btn-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .asga-btn .asga-bicon {
-  width: clamp(8px, calc(var(--cw) * 0.022), 14px);
-  height: clamp(8px, calc(var(--cw) * 0.022), 14px);
+  width: clamp(8px, calc(var(--cw) * 0.021), 13px);
+  height: clamp(8px, calc(var(--cw) * 0.021), 13px);
 }
 /* Install is the one thing a card is for, so it is the one button that is
    filled rather than outlined. The fill is the accent this project already
