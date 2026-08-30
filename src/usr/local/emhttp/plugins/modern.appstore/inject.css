@@ -462,7 +462,14 @@ body.dark .asga-settings-select { color-scheme: dark; }
    figures. The middle column is the only one that gives, so a long name wraps
    instead of squeezing the figures out of the card. */
 .asga-tile-head {
-  display: grid; grid-template-columns: auto minmax(0, 1fr) auto;
+  /* The stat column is a fixed track rather than an auto one. Sized to its
+     contents it came out 82px on a card reading "0 Stars" and 98px on one
+     reading "9.1M Downloads", which put the rule that divides the card at a
+     different place on every tile in a row: three cards side by side drew
+     three vertical lines that almost, but did not, agree. A fixed track is
+     wide enough for the longest figure the feed carries and lands the rule on
+     one line across the whole grid. */
+  display: grid; grid-template-columns: auto minmax(0, 1fr) 100px;
   gap: 12px; align-items: start;
   --asga-icon-side: 88px;
 }
@@ -530,7 +537,10 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 }
 .asga-tile-statnum { font-size: 1.25rem; font-weight: 700; line-height: 1.1; }
 .asga-tile-statlabel {
+  /* the track above is fixed, so a word longer than it clips rather than
+     forcing the column wider and undoing the alignment it exists for */
   font-size: 0.85rem; line-height: 1.2;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
   color: color-mix(in srgb, var(--text-color, #f2f2f2) 66%, var(--background-color, #1d1b1b));
 }
 .asga-tile-stat-stars .asga-smark { color: #f0a500; }
