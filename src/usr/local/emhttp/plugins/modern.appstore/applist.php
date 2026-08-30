@@ -15,7 +15,7 @@
  *
  * Output: { "generated": <ts>, "feedReady": <bool>, "docker": {...}, "defaultSort": <string>,
  *           "historyDays": <int>,
- *           "apps": [ { p,n,sn,ic,fa,ct,s,dl,fs,fx,fk,lu,lk,ca,sx,rn,mi,t1,t7,t30,t365,rd,dt,td,tc } ] }
+ *           "apps": [ { p,n,sn,ic,fa,xc,ct,s,dl,fs,fx,fk,lu,lk,ca,sx,rn,mi,t1,t7,t30,t365,rd,dt,td,tc,of,bt,pv,rm } ] }
  *   p  = template path (passed to CA's showSidebarApp for Info/Install)
  *   n  = display name          sn = lowercase sort-name
  *   ic = icon URL              ct = category
@@ -40,6 +40,11 @@
  *   dt = CA's trending value, week-on-week download growth percent (null if absent)
  *   td = CA's trendDelta value, change in that growth percent (null if absent)
  *   tc = count of CA's weekly trend samples (0 if absent), for CA's ranking floor
+ *   xc = 1 when CA marks the app incompatible with this server (36 apps), 0 otherwise
+ *   of = 1 when the template is vendor-official (394 apps)
+ *   bt = 1 when the template is marked pre-release (211 apps)
+ *   pv = 1 when the container runs privileged (114 apps)
+ *   rm = the maintainer's readme URL, '' when the template names none (721 apps have one)
  */
 header('Content-Type: application/json');
 
@@ -346,6 +351,25 @@ function repo_meta($path) {
     return $map;
 }
 
+// One reader for every flag CA's templates carry, because the raw shapes
+// disagree with each other. Compatible, Official and Beta arrive as a real
+// PHP boolean on some templates and as the string 'true' on others, and
+// Privileged goes a step further: on some templates it is an array of
+// strings such as array('false','false'), true if any element of it is. A
+// plain truthy test on these values gets it wrong in the direction that
+// matters most, since it would have counted the string 'false' as true, and
+// that is not a rare shape: 3,409 of the 3,523 templates that carry
+// Privileged at all hold it as that literal string 'false'. So every call
+// site reads through this instead of comparing the raw value itself.
+function flag_true($v) {
+    if (is_array($v)) {
+        foreach ($v as $x) if (flag_true($x)) return true;
+        return false;
+    }
+    if (is_bool($v)) return $v;
+    return strtolower(trim((string)$v)) === 'true';
+}
+
 // The FontAwesome glyph a template names when it names no icon, and only
 // then: an app with a real picture has nothing to gain from one. CA stores it
 // as a bare glyph name ("unlink", "hdd-o") and draws it as fa fa-<name>, so
@@ -489,6 +513,12 @@ foreach ($tmpl as $t) {
         // anything that is not a FontAwesome name is dropped here rather than
         // trusted there.
         'fa'  => icon_fa($t),
+        // CA decided this app cannot run on this server, and its own drawer answers
+        // by rendering no install action at all. 36 of the 3,873 displayable apps
+        // are marked so, and without this the grid offered them a working Install
+        // button. Only an explicit false counts: a template that simply never
+        // declared the field is not a template declaring incompatibility.
+        'xc'  => (array_key_exists('Compatible', $t) && $t['Compatible'] !== null && !flag_true($t['Compatible'])) ? 1 : 0,
         'ct'  => card_category($t['Category'] ?? '', $mine['ct'] ?? ''),
         // ct is the card LABEL only. fetch_stars.php keeps just the app's first
         // category and strips the colons out of it, which reads well on a tile
@@ -546,6 +576,19 @@ foreach ($tmpl as $t) {
         'tc'  => count((array)($t['trends'] ?? [])),
         'rq'  => install_notice($t),
         'po'  => template_ports($t),
+        // Vendor-official templates, 394 of them. Worth saying on a card, because
+        // the catalog carries five competing templates for some apps and this is
+        // the one fact that separates them.
+        'of'  => flag_true($t['Official'] ?? '') ? 1 : 0,
+        // Pre-release, 211 apps.
+        'bt'  => flag_true($t['Beta'] ?? '') ? 1 : 0,
+        // Runs with elevated Docker privileges, 114 apps. CA carries a moderator
+        // comment on only 273 templates in total, so most of these say nothing
+        // about it anywhere the reader would see.
+        'pv'  => flag_true($t['Privileged'] ?? '') ? 1 : 0,
+        // The maintainer's own readme, on 721 apps. Neither the grid nor CA's
+        // drawer links it today.
+        'rm'  => (string)($t['ReadMe'] ?? ''),
     ];
 }
 

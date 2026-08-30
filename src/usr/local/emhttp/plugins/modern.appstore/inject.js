@@ -124,6 +124,11 @@
     // app. The pair now says what each half is: a calendar for the date the
     // app arrived, a clock for how long since it last changed.
     var CLOCK_ICON = '<svg class="asga-ficon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5.2l3.4 2"/></svg>';
+    // A shield for the 114 apps whose container is given elevated privileges
+    // on the host. CA carries a moderator comment on only 273 templates in
+    // total, so most of these say nothing about it anywhere the reader would
+    // see.
+    var PRIV_ICON = '<svg class="asga-ficon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5.5c0 4.2-2.9 7.6-7 8.5-4.1-.9-7-4.3-7-8.5V6z"/><path d="M12 9v3"/><path d="M12 15v.01"/></svg>';
     // The footer's star and download figures used to be literal text glyphs
     // (a ★ and a ⤓), which render at the font's own size and sit on the text
     // baseline, so they could never match the two fixed 12px SVG date icons
@@ -776,9 +781,10 @@
       document.body.__asgaDrawerDetails = true;
       var host = document.getElementById('sidenavContent') || document.querySelector('.sidenav');
       if (!host) return;
-      new MutationObserver(function () { fixDrawerDetails(); fixDrawerIcon(); fixMaintainerIcon(); fixRepoDrawer(); drawerReady(); })
+      new MutationObserver(function () { fixDrawerDetails(); addReadmeButton(); fixDrawerIcon(); fixMaintainerIcon(); fixRepoDrawer(); drawerReady(); })
         .observe(host, { childList: true, subtree: true });
       fixDrawerDetails();
+      addReadmeButton();
       fixDrawerIcon();
       fixMaintainerIcon();
       fixRepoDrawer();
@@ -1456,6 +1462,25 @@
         dlCell.title = downloadTitle(app.dl, app.ty);
       }
     }
+    // 721 templates name a readme and neither this grid nor CA's own drawer
+    // ever linked it. It joins the run of actions in the drawer header, as
+    // CA's own markup would have written it, so it reads as one more thing you
+    // can do with the app rather than as something bolted on.
+    function addReadmeButton() {
+      if (!isOn() || isRepoDrawer()) return;
+      var info = document.querySelector('#sidenavContent .popupInfo');
+      if (!info || info.querySelector('.asga-readme-btn')) return;
+      var app = drawerApp();
+      if (!app || !app.rm) return;
+      var btn = document.createElement('a');
+      btn.className = 'caButton asga-readme-btn';
+      btn.href = app.rm;
+      btn.target = '_blank';
+      btn.rel = 'noopener';
+      btn.textContent = 'Readme';
+      btn.title = 'Open this app\'s readme in a new tab';
+      info.appendChild(btn);
+    }
     // CA's own markup for a Details row, so the drawer's stylesheet applies to
     // this one exactly as it does to the rows CA wrote. The label loses CA's
     // trailing colon, which no other row in the table carries. Shared by the
@@ -1626,12 +1651,16 @@
     // into a new tab.
     function installApp(tile) {
       var p = tile.getAttribute('data-apppath'), ty = tile.getAttribute('data-type'), pu = tile.getAttribute('data-plugurl');
+      if (tile.getAttribute('data-incompatible')) return;
       if (ty === 'plugin') {
         // plugins: let CA drive its own plugin install (its flow differs from docker)
         openSidebar(p, tile.getAttribute('data-appname'));
         return;
       }
-      if (!docker.running) return;   // nothing to install into; the card says why
+      // Nothing to install into, or nothing that would run if there were. The
+      // card already says which, so this is a silent refusal rather than a
+      // second telling.
+      if (!docker.running) return;
 
       var notice = tile.getAttribute('data-requires') || '';
       var ports = (tile.getAttribute('data-ports') || '').split(',').filter(function (x) { return x !== ''; });
@@ -1856,6 +1885,7 @@
       if (a.su) tile.setAttribute('data-support', a.su);
       if (a.ri) { tile.setAttribute('data-pinrepo', a.ri); tile.setAttribute('data-pinname', a.pn || a.n); }
       tile.setAttribute('data-type', a.ty || 'docker');
+      if (a.xc) tile.setAttribute('data-incompatible', '1');
       if (a.pu) tile.setAttribute('data-plugurl', a.pu);
       if (a.rq) tile.setAttribute('data-requires', a.rq);
       if (a.po && a.po.length) tile.setAttribute('data-ports', a.po.join(','));
@@ -1879,6 +1909,14 @@
       name.className = 'asga-tile-name';
       name.textContent = a.n;
       nameRow.appendChild(name);
+      // The catalog carries several competing templates for some apps, and
+      // official is the one fact that separates them, so it belongs where the
+      // eye already is, beside the name, rather than in a drawer nobody opens
+      // to compare two cards. 394 apps are official and 211 are pre-release.
+      if (a.of) nameRow.appendChild(mkFlag('Official', 'asga-flag-official',
+        'Published by the people who make this software, rather than repackaged by a third party'));
+      if (a.bt) nameRow.appendChild(mkFlag('Beta', 'asga-flag-beta',
+        'The maintainer marks this template as pre-release'));
       htext.appendChild(nameRow);
       // The maintainer wears their own face. CA publishes an icon for 671 of
       // its 1182 repositories and the rest fall back to a person glyph, which
@@ -1982,8 +2020,13 @@
         tile.classList.add('asga-tile-blocked');
         var note = document.createElement('div');
         note.className = 'asga-tile-blocked-note';
-        note.textContent = (DOCKER_MSG[docker.reason] || 'Docker not available') + ', install unavailable';
-        desc.appendChild(note);
+        note.textContent = blockReason(a) + ', install unavailable';
+        // Ahead of the blurb, not after it. The band is clamped to two lines
+        // and the clamp counts this note as one of them, so appended it landed
+        // on line three of any app whose blurb already filled both and was
+        // clipped away unseen: the card dimmed Install and gave no reason at
+        // all, which on the 36 apps CA marks incompatible is the whole message.
+        desc.insertBefore(note, desc.firstChild);
       }
 
       // Info / Pin / Project / Support / Install buttons (Project + Support are
@@ -2043,7 +2086,7 @@
         // drawer, only Install is off, exactly as CA behaves.
         if (blocked(a)) {
           ib.classList.add('asga-btn-off');
-          ib.title = (DOCKER_MSG[docker.reason] || 'Docker is not available') + ', Docker apps cannot be installed';
+          ib.title = blockReason(a) + ', this app cannot be installed';
         }
         btns.appendChild(ib);
       }
@@ -2074,6 +2117,13 @@
       var kind = document.createElement('span');
       kind.className = 'asga-tile-kind';
       kind.insertAdjacentHTML('beforeend', (a.ty === 'plugin') ? PLUGIN_ICON : DOCKER_ICON);
+      if (a.pv) {
+        var priv = document.createElement('span');
+        priv.className = 'asga-tile-priv';
+        priv.title = 'This container runs privileged, with elevated access to the host';
+        priv.insertAdjacentHTML('beforeend', PRIV_ICON);
+        dates.appendChild(priv);
+      }
       dates.appendChild(kind);
       // Buttons directly under the description, dates last along the bottom
       // left. The 10px row-gap that used to separate the dates from the buttons
@@ -2257,6 +2307,13 @@
       b.appendChild(t);
       return b;
     }
+    function mkFlag(label, cls, title) {
+      var s = document.createElement('span');
+      s.className = 'asga-flag ' + cls;
+      s.title = title;
+      s.textContent = label;
+      return s;
+    }
 
     // A trending sort filters to apps that moved in its window, so an empty grid
     // is ambiguous: nothing moved, or the data for that window was never
@@ -2304,8 +2361,18 @@
         '. Only plugins can be installed or managed until Docker is running. Docker apps are still listed here.';
       el.style.display = '';
     }
-    // A docker app cannot be installed while the daemon is down; a plugin can.
-    function blocked(a) { return !docker.running && (a.ty || 'docker') !== 'plugin'; }
+    // Two different reasons an app cannot be installed, and the card says
+    // which. CA marks 36 of the 3,873 displayable apps incompatible with this
+    // server and its own drawer answers by rendering no install action at
+    // all, while this grid used to offer them a working Install button.
+    // Docker being down is the other reason and it stops docker apps only,
+    // since a plugin still installs fine.
+    function blockReason(a) {
+      if (a.xc) return 'Not compatible with this version of Unraid';
+      if (!docker.running && (a.ty || 'docker') !== 'plugin') return (DOCKER_MSG[docker.reason] || 'Docker not available');
+      return '';
+    }
+    function blocked(a) { return !!blockReason(a); }
 
     function render() {
       if (!isOn() || caSpecial) return;

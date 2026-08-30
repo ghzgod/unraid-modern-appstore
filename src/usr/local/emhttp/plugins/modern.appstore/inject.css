@@ -719,6 +719,31 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
   flex: 1 1 auto; min-width: 0;
 }
+/* Official and Beta flags, sitting in the name row right after the app name.
+   394 of the 3,873 displayable apps in the catalog are vendor-official and
+   211 are marked pre-release, and the catalog carries several competing
+   templates for some apps besides, so this is the one fact that tells them
+   apart and it belongs beside the name rather than buried in the drawer. A
+   small corner radius rather than the full pill this file gives its buttons,
+   since a pill here would read as another control to press and this states a
+   fact instead. Green and amber are the two state colours this file already
+   keeps for exactly that job (the pinned button's fill, the scan progress
+   label), not a third hue invented for the occasion, and the accent is left
+   out on purpose: in this design the accent means something the reader can
+   click, and neither flag is. */
+.asga-flag {
+  display: inline-flex; align-items: center; flex: 0 0 auto;
+  font-size: 0.9rem; font-weight: 700; line-height: 1;
+  text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 2px 6px; border-radius: 4px; border: 1px solid transparent;
+  white-space: nowrap;
+}
+.asga-flag-official {
+  color: #6ac47f; background: rgba(106, 196, 127, 0.14); border-color: rgba(106, 196, 127, 0.35);
+}
+.asga-flag-beta {
+  color: #f0a500; background: rgba(240, 165, 0, 0.14); border-color: rgba(240, 165, 0, 0.35);
+}
 .asga-tile-author {
   font-size: clamp(9px, calc(var(--cw) * 0.0255), 15px); line-height: 1.35;
   color: color-mix(in srgb, var(--text-color, #f2f2f2) 76%, var(--background-color, #1d1b1b));
@@ -964,6 +989,28 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 .asga-suplink { display: block; padding: 7px 12px; font-size: 1rem; color: var(--text-color, inherit); text-decoration: none; }
 .asga-suplink:hover { background: rgba(255,140,47,0.16); }
 
+/* The privileged marker, sitting right before the kind glyph so the two hug
+   the footer's right edge together. 114 apps hand their container elevated
+   access to the host, and Community Applications carries a moderator comment
+   on only 273 templates out of the whole catalog, so most of those 114 said
+   nothing about it anywhere the reader would see before landing here. Amber
+   rather than the neutral grey the two date icons beside it use, because this
+   one is a caution and they are not. Same shape as .asga-tile-kind below,
+   right down to the auto margin, since it is what pulls this one to the right
+   edge first and lets the kind glyph simply follow it there. */
+.asga-tile-priv { display: inline-flex; align-items: center; margin-left: auto; flex: 0 0 auto; }
+.asga-tile-priv .asga-ficon { color: #f0a500; }
+/* Two auto margins in one flex row share the free space between them rather
+   than the second one collapsing to nothing, so with the shield and the kind
+   glyph both carrying one the shield came to rest halfway along the footer and
+   only the glyph reached the right edge. The shield keeps its auto margin,
+   since it now leads that pair, and the glyph behind it gives its own up: with
+   no margin of its own it falls back on the row's 14px column gap, which is
+   the same distance every other pair of items along that footer sits at. A
+   margin here instead measured 22px and made this one pair looser than the
+   rest of the line. Written as a sibling selector so the 3,738 cards with no
+   shield leave the kind glyph's own rule doing exactly what it did before. */
+.asga-tile-priv + .asga-tile-kind { margin-left: 0; }
 /* the type icon closes the date row, so the icons along the card's bottom read
    as one line: updated, added, and what kind of app it is */
 .asga-tile-kind { display: inline-flex; align-items: center; margin-left: auto; flex: 0 0 auto; }
@@ -1004,6 +1051,17 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
   margin: 0 0 12px; font-size: 0.92rem; color: #e05c4a;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* The note is a CHILD of the description band, because the card spans exactly
+   four of the grid's row tracks and a fifth top-level element would push the
+   button row out of its track on blocked cards alone. That band is clamped to
+   two lines and the clamp counts this note as one of them, so while it was
+   appended after the blurb any app whose blurb already filled both lines had
+   its note laid out 13px past the visible bottom and clipped away entirely:
+   the card dimmed its Install button and then said nothing whatsoever about
+   why, which is the one thing a blocked card has to say. It is inserted ahead
+   of the blurb now (see makeTile), so it holds the first of the two lines and
+   the blurb takes whatever is left. Nothing here enforces that, which is why
+   it is written down: the order of those two children is load bearing. */
 .asga-btn.asga-btn-off { opacity: 0.4; cursor: not-allowed; }
 .asga-btn.asga-btn-off:hover { border-color: rgba(127,127,127,0.4); background: rgba(127,127,127,0.08); }
 
@@ -2128,6 +2186,12 @@ body.asga-active .asga-repo-drawer .popupInfo > .appIconsPopUp { order: 4; }
    to read as the pill it sits beside */
 body.asga-active #sidenavContent .asga-repo-url,
 body.asga-active #sidenavContent .asga-repo-url:hover { text-decoration: none; }
+/* 721 templates in the catalog name a readme and nothing ever linked to it
+   before. It is an anchor wearing the shared .caButton pill, so the only
+   thing it needs of its own is the underline turned off, exactly the way the
+   repository link two lines above already handles the same problem. */
+body.asga-active #sidenavContent .asga-readme-btn,
+body.asga-active #sidenavContent .asga-readme-btn:hover { text-decoration: none; }
 
 /* the maintainer's own links, as a row of pills rather than bare icon links */
 body.asga-active .repoLinks { margin: 18px 0 0; }
