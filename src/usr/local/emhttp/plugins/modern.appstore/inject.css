@@ -1440,17 +1440,39 @@ body.asga-active #sidenavContent.asga-drawer-wait > * { visibility: hidden; }
    fraction of THAT lands somewhere below the fold. CA blanks this element on
    most opens and the question never comes up; on the ones where it does not,
    this is what keeps the wheel where the reader is looking. */
-body.asga-active #sidenavContent.asga-drawer-wait { height: 100%; overflow: hidden; }
+/* The 48px of bottom padding this element normally carries would sit INSIDE
+   the 100% under content-box sizing and push the panel's true middle down by
+   half of it, so both go while the wait is on: nothing is being shown for
+   them to space. */
+body.asga-active #sidenavContent.asga-drawer-wait {
+  height: 100%; box-sizing: border-box; padding-bottom: 0; overflow: hidden;
+}
+/* The wheel and the word are centred as ONE block, not separately. Each is
+   placed from the panel's own middle by half the pair's height, which is what
+   makes the space above the wheel and the space below the word equal.
+   Centring the wheel alone would read top-heavy, since the word hanging under
+   it drags the visual weight down.
+
+   The pair is 60 of wheel, 18 of gap and 15 of text: 93 tall, 47 to the
+   middle (rounded up, so the half-pixel goes above the wheel rather than
+   under the text, where it would show as a slack line). border-box on the
+   wheel is what makes that 60 true: a border is drawn OUTSIDE a content-box
+   width, so a 56px wheel with a 4px ring measured 64 and ate 8px of the gap
+   meant to sit under it. Positioned with margins rather than a translate,
+   since the rotation owns this element's transform. */
 body.asga-active #sidenavContent.asga-drawer-wait::before {
-  content: ''; position: absolute; left: 50%; top: 38%;
-  width: 30px; height: 30px; margin-left: -15px;
-  border: 3px solid rgba(255, 140, 47, 0.25); border-top-color: #ff8c2f;
+  content: ''; position: absolute; left: 50%; top: 50%;
+  box-sizing: border-box;
+  width: 60px; height: 60px; margin-left: -30px; margin-top: -47px;
+  border: 4px solid rgba(255, 140, 47, 0.22); border-top-color: #ff8c2f;
   border-radius: 50%; animation: asga-rotate 0.8s linear infinite;
 }
 body.asga-active #sidenavContent.asga-drawer-wait::after {
-  content: 'Loading'; position: absolute; left: 0; right: 0; top: 38%;
-  margin-top: 44px; text-align: center;
-  font-size: 1.15rem; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+  /* -47 to the top of the pair, then past the wheel and the gap under it */
+  content: 'Loading'; position: absolute; left: 0; right: 0; top: 50%;
+  margin-top: 31px; text-align: center;
+  font-size: 1.2rem; line-height: 15px; font-weight: 600;
+  letter-spacing: 0.1em; text-transform: uppercase;
   color: color-mix(in srgb, var(--text-color, #f2f2f2) 60%, transparent);
 }
 /* the word alone for anyone who asked their OS for less motion; a wheel that
@@ -1808,11 +1830,14 @@ body.asga-active #sidenavContent .ca_popupIconArea > .popupIcon > .asga-avatar-g
 body.asga-active #sidenavContent .asga-avatar-glyph svg.asga-bicon-line {
   width: 46%; height: 46%; opacity: 0.75;
 }
-/* Row three is a track of its own that the three buttons share, each taking a
+/* Row three is a track of its own that the buttons share, each taking a
    column sized to itself, so they read as a run on the name's left edge rather
-   than as three cells of a card. */
+   than as cells of a card. Four button columns rather than three: a maintainer
+   who takes donations gets a fourth, and it needs a track of its own or it
+   lands in the flexible gutter at the end and is squeezed to nothing. The
+   gutter stays last, and stays the only track that can give. */
 body.asga-active .popupInfoLeft:has(.popupAuthorTitle) {
-  grid-template-columns: auto repeat(3, max-content) minmax(0, 1fr);
+  grid-template-columns: auto repeat(4, max-content) minmax(0, 1fr);
 }
 body.asga-active .popupAuthorTitle { grid-column: 1 / -1; }
 body.asga-active .popupInfoLeft:has(.popupAuthorTitle) .popupAuthorIcon { grid-column: 1; grid-row: 2 / span 2; align-self: start; }
@@ -1829,17 +1854,24 @@ body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .caButton.ca_favouriteR
    drawer is one control; only the margin differs, since this card lays its own
    run out. */
 body.asga-active #sidenavContent .popupInfoLeft .caButton { width: auto; margin: 0; }
-/* donate copy gets its own row rather than sitting in the button run */
-/* The donate line keeps its own row above the buttons, but the Donate button
-   itself joins the run and sits last, after Favourite, when the maintainer has
-   one at all. */
-/* order 5, after every button. At order 0 it sat between the name and the
-   buttons, and being a full width row it pushed them onto a line of their own,
-   so a maintainer with a sponsor line got a two row card and one without got a
-   single row. Same card either way now: name on the left, buttons on the right,
-   sponsor line underneath when there is one. */
-body.asga-active .donateText { flex: 0 0 100%; order: 5; margin: 8px 0 0; color: var(--asga-muted); font-size: 1.15rem; }
-body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .donateDiv { flex: 0 0 auto; order: 4; margin: 0; }
+/* Donate. CA emits these two only for a maintainer who takes donations, which
+   is why the card looked correct on most apps and wrecked on sonarr.
+   They were placed with flex properties left over from when this card was a
+   flex row. In a grid, flex means nothing and order only reshuffles the queue,
+   so neither had a cell and both were auto-placed into whatever was free:
+   - the blurb landed in COLUMN ONE, the avatar's column, which is sized to
+     `auto` and therefore grew to fit a 349px paragraph. That is what pushed a
+     52px avatar out to 349px wide and shoved the name and the whole button run
+     into the right half of the card.
+   - the button landed in the LAST column, the minmax(0, 1fr) gutter, which by
+     then had nothing left to give, so it computed to 0px wide and rendered
+     "Donate" one letter per line down the card's right edge.
+   Both get a cell of their own now. The button joins the run as its fourth
+   member, after Favourite, and the blurb takes a full-width row underneath,
+   which is where the flex version meant to put them both. */
+body.asga-active .donateText { margin: 8px 0 0; color: var(--asga-muted); font-size: 1.15rem; }
+body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .donateDiv { grid-column: 5; grid-row: 3; margin: 0; }
+body.asga-active .popupInfoLeft:has(.popupAuthorTitle) > .donateText { grid-column: 1 / -1; grid-row: 4; }
 
 /* .donateArea/.repoDonateText belong to the maintainer profile drawer, not
    this Maintainer card: CA only wraps a donate blurb in .donateArea there,
