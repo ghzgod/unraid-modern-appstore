@@ -850,8 +850,11 @@
 
         var dates = document.createElement('div');
         dates.className = 'asga-repo-app-dates';
-        dates.appendChild(dateSpan('asga-tile-updated', CLOCK_ICON, 'Updated', a.lu, a.lk !== 'r', a.lk === 'r'));
-        dates.appendChild(dateSpan('asga-tile-added', CAL_ICON, 'Added', a.fs, false, true));
+        // Same pair in the same order the card uses, and the same answer for an
+        // app that predates CA's records.
+        var rowAdded = addedSpan(a);
+        if (rowAdded) dates.appendChild(rowAdded);
+        if (a.lu) dates.appendChild(dateSpan('asga-tile-updated', CLOCK_ICON, 'Updated', a.lu, a.lk !== 'r', a.lk === 'r'));
         row.appendChild(dates);
 
         // The row is the button now. A pill at the end of every row said Show
@@ -1352,6 +1355,25 @@
       }
     }
 
+    // The Added date, including for the apps CA has no date for. It marks those
+    // with a FirstSeen of 1 rather than a timestamp, meaning the app was already
+    // there when CA started keeping records, which it began doing on the 11th of
+    // June 2015. So the card says the one true thing available: not the date the
+    // app arrived, which nobody holds, but the date before which it must have.
+    function addedSpan(a) {
+      if (a.fs) return dateSpan('asga-tile-added', CAL_ICON, 'Added', a.fs, false, true);
+      if (a.fk !== 'e') return null;
+      var wrap = document.createElement('span');
+      wrap.className = 'asga-tile-added';
+      wrap.insertAdjacentHTML('afterbegin', CAL_ICON);
+      wrap.title = 'Added before June 2015, which is as far back as the app catalog keeps records';
+      var txt = document.createElement('span');
+      txt.className = 'asga-datetext';
+      txt.textContent = 'before Jun 2015';
+      wrap.appendChild(txt);
+      return wrap;
+    }
+
     function makeTile(a) {
       var tile = document.createElement('div');
       tile.className = 'asga-tile';
@@ -1575,9 +1597,6 @@
       // Both halves are appended even when their date is unknown, so a card
       // that knows only one of the two reserves the same footer line as its
       // neighbours and every button row in a grid row still bottom-aligns.
-      // Updated first, then Added, because both sit at the right edge and the
-      // last thing before the card boundary is the one the eye lands on: when
-      // the app arrived in the store is the more stable of the two facts.
       var dates = document.createElement('div');
       dates.className = 'asga-tile-dates';
       // The card's actual footer now: two dates and what kind of app this is,
@@ -1585,13 +1604,13 @@
       // ride here too, as a run of four facts, which is why this band once had
       // to fit that many; they moved up into the header's own stat column, so
       // the footer only ever has to hold the two dates and the kind icon.
-      // A date the catalog does not have takes no room rather than printing the
-      // word unknown beside a dimmed mark. The footer is a run that starts at
-      // one edge with the app's kind pushed to the other, so a card that knows
-      // one date and not the other still reads as the same row as its
-      // neighbours, just a shorter one.
+      // Added leads and Updated follows: when an app arrived is the more stable
+      // of the two facts and the one the eye should land on first. A date the
+      // catalog holds nothing at all for still takes no room rather than
+      // printing a word where a date belongs.
+      var added = addedSpan(a);
+      if (added) dates.appendChild(added);
       if (a.lu) dates.appendChild(dateSpan('asga-tile-updated', CLOCK_ICON, 'Updated', a.lu, a.lk !== 'r', a.lk === 'r'));
-      if (a.fs) dates.appendChild(dateSpan('asga-tile-added', CAL_ICON, 'Added', a.fs, false, true));
       // What kind of app this is, at the far end of the same row the two date
       // icons sit on, so every icon along the card's bottom shares one line.
       var kind = document.createElement('span');

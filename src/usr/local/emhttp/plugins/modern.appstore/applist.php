@@ -15,12 +15,14 @@
  *
  * Output: { "generated": <ts>, "feedReady": <bool>, "docker": {...}, "defaultSort": <string>,
  *           "historyDays": <int>,
- *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,lu,lk,ca,sx,rn,mi,t1,t7,t30,t365,rd,dt,td,tc } ] }
+ *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,fk,lu,lk,ca,sx,rn,mi,t1,t7,t30,t365,rd,dt,td,tc } ] }
  *   p  = template path (passed to CA's showSidebarApp for Info/Install)
  *   n  = display name          sn = lowercase sort-name
  *   ic = icon URL              ct = category
  *   s  = GitHub stars (or null)  dl = Unraid downloads (or 0)
- *   fs = FirstSeen unix ts (date added; 0 if unknown)
+ *   fs = FirstSeen unix ts (date added; 0 if unknown or if the app predates CA's records)
+ *   fk = 'e' when CA's FirstSeen was the sentinel 1 rather than a real date, meaning
+ *        the app existed before CA started keeping records; '' otherwise
  *   lu = last-update unix ts (0 if unknown)   lk = its source: 'r' registry push, 'v' plugin version
  *   sa = last star-fetch attempt for this app's repo (0 = never tried)
  *   sx = text the grid searches but never shows (full description + hidden keywords)
@@ -389,12 +391,16 @@ foreach ($tmpl as $t) {
     $overview = trim(preg_replace('/\s+/', ' ', strip_tags((string)($t['Overview'] ?? ''))));
     $sx = clip(trim((string)($t['ExtraSearchTerms'] ?? '') . ' ' . $overview), 2000);
 
-    // CA carries FirstSeen = 1 for apps that predate its record-keeping (all of
-    // binhex's catalog, 78 apps today). That is a sentinel, not a 1970 date, and
-    // CA's own fixTemplates() blanks it the same way ("if Date == 1, Date = null").
-    // Report it as unknown so the grid omits the line instead of printing 1969.
-    $fs = (int)($t['FirstSeen'] ?? 0);
-    if ($fs <= 1) $fs = 0;
+    // CA writes FirstSeen as 1, rather than as a date, for an app that predates
+    // its own record keeping. That is 110 of the feed's templates and it covers
+    // many of the oldest and best known ones, so collapsing it to nothing left
+    // those cards with no Added date at all. The sentinel is passed on as its
+    // own kind instead, and the grid says what is actually true of them: they
+    // arrived before CA started counting, which it began doing in June 2015.
+    // Zero still means the feed carries no FirstSeen of any sort.
+    $fsRaw = (int)($t['FirstSeen'] ?? 0);
+    $fs = $fsRaw > 1 ? $fsRaw : 0;
+    $fk = $fsRaw === 1 ? 'e' : '';
 
     list($lu, $lk) = last_update($t);
 
@@ -444,6 +450,7 @@ foreach ($tmpl as $t) {
         's'   => isset($mine['s']) ? $mine['s'] : null,
         'dl'  => $dl,
         'fs'  => $fs,
+        'fk'  => $fk,                                        // 'e' when the app predates CA's own records
         'lu'  => $lu,
         'lk'  => $lk,
         'sa'  => $fetchedAt[strtolower($mine['rp'] ?? '')] ?? 0,
