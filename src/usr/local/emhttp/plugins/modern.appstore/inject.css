@@ -473,8 +473,13 @@ body.dark .asga-settings-select { color-scheme: dark; }
    from the text runs past the description the way the reference draws it. The
    button row and the footer span both columns underneath it. */
 .asga-tile > .asga-tile-head  { grid-column: 1; grid-row: 1; }
-.asga-tile > .asga-tile-desc  { grid-column: 1; grid-row: 2; }
-.asga-tile > .asga-tile-stats { grid-column: 2; grid-row: 1 / span 2; }
+/* The description spans both columns and the rail stops at the header, so the
+   rule beside the figures is only as long as the thing it divides. Running it
+   down past the last figure bought nothing: there is no second column to
+   separate down there, and the description was being held to two thirds of the
+   card for the sake of a line guarding empty space. */
+.asga-tile > .asga-tile-desc  { grid-column: 1 / -1; grid-row: 2; }
+.asga-tile > .asga-tile-stats { grid-column: 2; grid-row: 1; }
 .asga-tile > .asga-tile-btns  { grid-column: 1 / -1; grid-row: 3; }
 .asga-tile > .asga-tile-dates { grid-column: 1 / -1; grid-row: 4; }
 
@@ -586,7 +591,9 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 }
 .asga-tile-stat-stars .asga-smark { color: #f0a500; }
 .asga-tile-stat-dl .asga-smark { color: #4ab8c9; }
-.asga-tile-stat.asga-stat-none .asga-smark,
+/* Only the figure dims when there is nothing to report. The mark keeps its
+   colour: it names which figure this is, and that is still true of an app with
+   no stars, so draining it made the row look broken rather than empty. */
 .asga-tile-stat.asga-stat-none .asga-tile-statnum {
   color: color-mix(in srgb, var(--text-color, #f2f2f2) 42%, var(--background-color, #1d1b1b));
 }
