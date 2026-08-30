@@ -792,12 +792,19 @@
       a.title = 'This maintainer on X';
       a.insertAdjacentHTML('afterbegin', X_MARK);
     }
-    function buildRepoApps(bio) {
+    // Every app the open profile drawer's maintainer publishes. CA keys this
+    // drawer by the repository name it prints as the title, and the grid's own
+    // records carry that same key in rn, so the catalogue in memory answers
+    // this without a request.
+    function repoApps() {
       var nameEl = document.querySelector('#sidenavContent .popupName');
       var repo = nameEl ? nameEl.textContent.trim() : '';
-      if (!repo) return;
+      if (!repo) return [];
       var key = repo.toLowerCase();
-      var mine = APPS.filter(function (a) { return (a.rn || '').trim().toLowerCase() === key; });
+      return APPS.filter(function (a) { return (a.rn || '').trim().toLowerCase() === key; });
+    }
+    function buildRepoApps(bio) {
+      var mine = repoApps();
       if (!mine.length) return;   // nothing to show, leave CA's bio alone
 
       var list = document.createElement('div');
@@ -881,6 +888,52 @@
       // to scroll.
       var sbw = list.offsetWidth - list.clientWidth;
       if (sbw > 0) list.style.marginRight = (-sbw) + 'px';
+    }
+
+    // The two rows CA leaves out for anyone who does not publish Docker
+    // containers. Its own counters are fed only by templates carrying a
+    // Registry, so a maintainer of plugins alone gets neither row and a
+    // maintainer of both gets a total that counts only half of what they make.
+    // Both are answered here from the same dl figure the grid's cards print,
+    // which covers a plugin's installs and a container's pulls alike, and CA's
+    // own values are replaced rather than left beside ours so every profile
+    // drawer reports the same six statistics on the same basis.
+    //
+    // The average divides by the apps that actually have a figure rather than
+    // by all of them, which is CA's own definition: a maintainer whose newest
+    // app has no count yet should not see their average fall because of it.
+    function fixRepoStats(mine) {
+      var table = document.querySelector('#sidenavContent .repoTable');
+      if (!table) return;
+      var total = 0, counted = 0;
+      mine.forEach(function (a) { if (a.dl > 0) { total += a.dl; counted++; } });
+      if (!counted) return;
+      setRepoRow(table, 'Total Known Downloads', total.toLocaleString());
+      setRepoRow(table, 'Average Downloads Per App', Math.round(total / counted).toLocaleString());
+    }
+    // CA runs every label in this table through its own tr(), so a row is
+    // recognised by asking tr() the same question rather than by matching the
+    // English text, which would find nothing on a server in any other language.
+    function setRepoRow(table, english, value) {
+      var want = caLabel(english);
+      var body = table.tBodies[0] || table;
+      for (var i = 0; i < table.rows.length; i++) {
+        var left = table.rows[i].querySelector('.repoLeft');
+        if (!left || left.textContent.trim() !== want) continue;
+        var right = table.rows[i].querySelector('.repoRight');
+        if (right) { right.textContent = value; return; }
+        break;
+      }
+      var tr = document.createElement('tr');
+      var td1 = document.createElement('td');
+      td1.className = 'repoLeft';
+      td1.textContent = want;
+      var td2 = document.createElement('td');
+      td2.className = 'repoRight';
+      td2.textContent = value;
+      tr.appendChild(td1);
+      tr.appendChild(td2);
+      body.appendChild(tr);
     }
 
     // BACK, without the wait.
@@ -995,6 +1048,8 @@
       // reason to open a maintainer is to see what they make. It is replaced by
       // the list of their apps, each with its icon, name, blurb and a way
       // through to it.
+      var mine = repoApps();
+      fixRepoStats(mine);
       buildRepoApps(bio);
     }
     function fixDrawerDetails() {

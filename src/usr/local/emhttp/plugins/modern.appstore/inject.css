@@ -429,16 +429,14 @@ body.dark .asga-settings-select { color-scheme: dark; }
   grid-template-columns: repeat(4, minmax(0, 1fr));
   column-gap: 14px; row-gap: 10px;
 }
-/* Hosted on the view rather than on the grid, because these rules restyle the
-   grid itself and a container styles its descendants, never itself. Written
-   against the grid they matched nothing at any width, which is how four columns
-   survived down to a 165px card with every button label truncated. The widths
-   are the ones where a column stops being able to hold six labelled buttons on
-   one line, not device sizes: the run needs about 330px of a band's inner
-   width, so a card has to clear 358px for it. */
-@container asga-view (max-width: 1579px) { .asga-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-@container asga-view (max-width: 1101px) { .asga-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@container asga-view (max-width: 729px)  { .asga-grid { grid-template-columns: minmax(0, 1fr); } }
+/* Four across is the layout, not a starting point that degrades at the first
+   opportunity. Three columns is the one count that must never happen: at that
+   width a card runs to around 500px, and a button row laid out to span it puts
+   a band of empty space through the middle of every card. The fallbacks below
+   are for a genuinely narrow window rather than for a slightly smaller desktop
+   one, and the buttons shed their labels before the grid sheds a column. */
+@container asga-view (max-width: 1039px) { .asga-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container asga-view (max-width: 619px)  { .asga-grid { grid-template-columns: minmax(0, 1fr); } }
 .asga-tile {
   position: relative;
   /* One column of the grid, which is a quarter of it less its three gaps.
@@ -778,9 +776,15 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    space below was 14px against the 10px above, because the footer band carries
    a margin of its own on top of the grid's row gap, and a button run that is
    nearer one neighbour than the other reads as having drifted. */
+/* The run starts at the card's left edge and Install is pushed to the right,
+   rather than the six of them being spread to fill whatever width the card
+   happens to have. Spread, they read as six unrelated controls at a wide card
+   and as a row only by accident at a narrow one; started from one edge they
+   read as a run at every width, and the one button that matters still lands in
+   the corner the eye goes to. */
 .asga-tile-btns {
   display: flex; flex-wrap: nowrap; align-items: center;
-  justify-content: space-between; gap: calc(var(--cw) * 0.007); position: relative;
+  justify-content: flex-start; gap: calc(var(--cw) * 0.007); position: relative;
   margin-top: 2px;
 }
 /* Taller, and the label larger with it. The row had been sized down to whatever
@@ -801,6 +805,8 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
   flex: 0 1 auto; min-width: 0;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
+.asga-tile-btns > .asga-install,
+.asga-tile-btns > .asga-btn-installed { margin-left: auto; }
 .asga-btn:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.14); }
 .asga-btn-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .asga-btn .asga-bicon {
@@ -817,6 +823,21 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
   color: #17140f; font-weight: 700;
 }
 .asga-btn.asga-install:hover { background: #ff8c2f; border-color: #ff8c2f; }
+/* Below this the card is too narrow for six labelled buttons on one line, so
+   the four that are not Info or Install keep their mark and lose their word.
+   A label that ellipsises to "Supp..." tells the reader less than the mark
+   alone does, and losing a column to keep the words would cost more than the
+   words are worth. */
+@container asga-view (max-width: 1539px) {
+  .asga-tile-btns > .asga-pin .asga-btn-label,
+  .asga-tile-btns > .asga-project .asga-btn-label,
+  .asga-tile-btns > .asga-support .asga-btn-label,
+  .asga-tile-btns > .asga-maint .asga-btn-label { display: none; }
+  .asga-tile-btns > .asga-pin,
+  .asga-tile-btns > .asga-project,
+  .asga-tile-btns > .asga-support,
+  .asga-tile-btns > .asga-maint { gap: 0; }
+}
 /* #6ac47f is this project's one positive semantic colour. It means a state the
    server is already in, which is why both of the buttons below wear it: the app
    is installed, or the app is pinned. It is the only hue besides the accent
