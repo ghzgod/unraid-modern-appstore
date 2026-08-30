@@ -907,9 +907,19 @@
       if (!table) return;
       var total = 0, counted = 0;
       mine.forEach(function (a) { if (a.dl > 0) { total += a.dl; counted++; } });
-      if (!counted) return;
-      setRepoRow(table, 'Total Known Downloads', total.toLocaleString());
-      setRepoRow(table, 'Average Downloads Per App', Math.round(total / counted).toLocaleString());
+      if (counted) {
+        setRepoRow(table, 'Total Known Downloads', total.toLocaleString());
+        setRepoRow(table, 'Average Downloads Per App', Math.round(total / counted).toLocaleString());
+      }
+      // A count of zero is not a statistic, it is a row saying this maintainer
+      // does not do a thing nobody asked whether they did. CA prints all three
+      // regardless: its own guard on the language row is an isset() against a
+      // variable it initialises to zero at the top, so the test can never fail.
+      // Total Applications stays whatever it reads, because that one is the
+      // headline the rest of the table qualifies.
+      ['Total Docker Applications', 'Total Plugin Applications', 'Total Languages'].forEach(function (label) {
+        dropRepoRowIfZero(table, label);
+      });
     }
     // CA runs every label in this table through its own tr(), so a row is
     // recognised by asking tr() the same question rather than by matching the
@@ -934,6 +944,20 @@
       tr.appendChild(td1);
       tr.appendChild(td2);
       body.appendChild(tr);
+    }
+    // CA runs every label in this table through its own tr(), so a row is found
+    // by asking tr() the same question rather than by matching English text,
+    // which would match nothing on a server in any other language.
+    function dropRepoRowIfZero(table, english) {
+      var want = caLabel(english);
+      for (var i = 0; i < table.rows.length; i++) {
+        var left = table.rows[i].querySelector('.repoLeft');
+        if (!left || left.textContent.trim() !== want) continue;
+        var right = table.rows[i].querySelector('.repoRight');
+        var n = right ? right.textContent.replace(/[^0-9]/g, '') : '';
+        if (n === '' || parseInt(n, 10) === 0) table.rows[i].parentNode.removeChild(table.rows[i]);
+        return;
+      }
     }
 
     // BACK, without the wait.

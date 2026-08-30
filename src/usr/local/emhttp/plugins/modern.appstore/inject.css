@@ -1901,15 +1901,23 @@ body.asga-active .asga-repo-app-icon {
 body.asga-active .asga-repo-app-text {
   grid-column: 2; grid-row: 1 / span 2; align-self: center; min-width: 0;
 }
+/* the name holds one line for the same reason the blurb below holds two: a
+   row that grows to fit a long name reads as ragged next to the ones beside
+   it that didn't need the room */
 body.asga-active .asga-repo-app-name {
   font-size: 1.4rem; font-weight: 600; line-height: 1.3;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   transition: color 0.15s ease;
 }
 /* two lines at most, so one wordy app cannot make its row twice the height of
    its neighbours' */
+/* min-height reserves those two lines whether the blurb needs them or not: a
+   list whose rows change height with the length of a sentence reads as
+   ragged, and the alternative, a fixed height, would clip a longer blurb. */
 body.asga-active .asga-repo-app-desc {
   font-size: 1.2rem; line-height: 1.4; color: var(--asga-muted);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  min-height: calc(2 * 1.2rem * 1.4);
 }
 /* The two corners of the right column. Both carry the grid's own .asga-stat,
    .asga-tile-added and .asga-tile-updated classes, so a figure here is built
