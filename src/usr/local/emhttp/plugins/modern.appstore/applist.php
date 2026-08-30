@@ -15,10 +15,12 @@
  *
  * Output: { "generated": <ts>, "feedReady": <bool>, "docker": {...}, "defaultSort": <string>,
  *           "historyDays": <int>,
- *           "apps": [ { p,n,sn,ic,ct,s,dl,fs,fx,fk,lu,lk,ca,sx,rn,mi,t1,t7,t30,t365,rd,dt,td,tc } ] }
+ *           "apps": [ { p,n,sn,ic,fa,ct,s,dl,fs,fx,fk,lu,lk,ca,sx,rn,mi,t1,t7,t30,t365,rd,dt,td,tc } ] }
  *   p  = template path (passed to CA's showSidebarApp for Info/Install)
  *   n  = display name          sn = lowercase sort-name
  *   ic = icon URL              ct = category
+ *   fa = FontAwesome glyph name, and only when ic is empty: what CA's own drawer
+ *        draws for an app whose template names no icon (see icon_fa())
  *   s  = GitHub stars (or null)  dl = Unraid downloads (or 0)
  *   fs = FirstSeen unix ts (date added; 0 if unknown or if the app predates CA's records)
  *   fx = 1 when fs is CA's manufactured floor (1433000000) rather than a date it
@@ -310,6 +312,22 @@ function repo_icons($path) {
     return $map;
 }
 
+// The FontAwesome glyph a template names when it names no icon, and only
+// then: an app with a real picture has nothing to gain from one. CA stores it
+// as a bare glyph name ("unlink", "hdd-o") and draws it as fa fa-<name>, so
+// what comes back here is the name alone and the grid builds the class.
+// Whitelisted to the characters a FontAwesome name is made of, because this
+// value is written straight into a class attribute on the other side and it
+// arrives from a third-party template.
+function icon_fa($t) {
+    if (trim((string)($t['Icon'] ?? '')) !== '') return '';
+    $fa = strtolower(trim((string)($t['IconFA'] ?? '')));
+    // CA tolerates authors who write the whole class out; only the name is
+    // wanted, since the grid supplies the fa- prefix itself.
+    $fa = preg_replace('~^fa[\s-]+~', '', $fa);
+    return preg_match('~^[a-z0-9-]{1,40}$~', $fa) ? $fa : '';
+}
+
 // our own catalog (already has name/path/icon/category/stars/trends for every app)
 $ours = read_json_ro("$dataDir/apps.json");
 $byPath = [];
@@ -419,6 +437,16 @@ foreach ($tmpl as $t) {
         // from the feed, so that is the value that settles a disagreement; our
         // stored copy is only the fallback for when the feed has none.
         'ic'  => $t['Icon'] ?? ($mine['ic'] ?? ''),
+        // What CA draws when a template names no icon at all: the FontAwesome
+        // glyph the author picked instead, which CA's own drawer renders as
+        // <i class="fa fa-unlink popupIcon">. 117 displayable apps have no
+        // Icon, and 59 of those carry one of these, so leaving the field out
+        // is what put a question mark on a card whose drawer, sitting right
+        // beside it, drew a perfectly good mark. Sent as the bare glyph name;
+        // it goes straight into a class attribute on the other side, so
+        // anything that is not a FontAwesome name is dropped here rather than
+        // trusted there.
+        'fa'  => icon_fa($t),
         'ct'  => card_category($t['Category'] ?? '', $mine['ct'] ?? ''),
         // ct is the card LABEL only. fetch_stars.php keeps just the app's first
         // category and strips the colons out of it, which reads well on a tile

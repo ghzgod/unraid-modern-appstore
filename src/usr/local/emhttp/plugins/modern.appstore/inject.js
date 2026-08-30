@@ -902,6 +902,68 @@
       return owner ? ('https://github.com/' + owner + '.png?size=128') : '';
     }
 
+    // The picture that stands for an app, built into whatever box the caller
+    // has. The order of answers is CA's own, which is the point: a card and
+    // the drawer it opens are the same app and must never disagree about what
+    // it looks like.
+    //
+    //   1. the icon the template names
+    //   2. the FontAwesome glyph it names INSTEAD when it names no icon. 117
+    //      displayable apps have no icon of their own and 59 of those carry
+    //      one of these, which CA's drawer renders and this grid used to throw
+    //      away, so Unassigned Devices sat on the page as a question mark
+    //      while its own drawer drew the broken-link mark the author chose.
+    //   3. the GitHub avatar of whoever publishes it, for the rest
+    //   4. CA's question mark, which by here is the honest answer
+    var ICON_FALLBACK = '/plugins/dynamix.docker.manager/images/question.png';
+    function appIcon(a, cls) {
+      if (!a.ic && a.fa) {
+        var glyph = document.createElement('i');
+        // a.fa is the bare glyph name; applist.php whitelists it to the
+        // characters such a name is made of before it is ever sent, since it
+        // lands in a class attribute here.
+        //
+        // Two icon fonts, not one. Unraid's webGui ships its own, whose
+        // classes are the whole name and carry an icon- prefix
+        // (icon-preclear), and putting FontAwesome's fa- in front of one of
+        // those resolves to nothing: CA does exactly that, which is why
+        // Unassigned Devices Preclear opens a drawer with a blank square where
+        // its mark should be. A name that names the Unraid font is used as it
+        // stands, and everything else is FontAwesome.
+        var fontCls = a.fa.indexOf('icon-') === 0 ? a.fa : ('fa fa-' + a.fa);
+        glyph.className = fontCls + (cls ? ' ' + cls : '') + ' asga-icon-fa';
+        glyph.setAttribute('aria-hidden', 'true');
+        return glyph;
+      }
+      var img = document.createElement('img');
+      if (cls) img.className = cls;
+      var ghAvatar = ghAvatarFor(a);
+      img.src = a.ic || ghAvatar || ICON_FALLBACK;
+      img.loading = 'lazy';
+      img.alt = '';
+      img.onerror = function (e) {
+        // CA binds one error handler across every img on the page each time a
+        // drawer renders, and it paints the Docker question mark on whatever
+        // failed. This handler was assigned first, so stopping the event here
+        // is what leaves the chain below in charge of its own fallbacks
+        // instead of CA overwriting each one the moment it is chosen.
+        if (e && e.stopImmediatePropagation) e.stopImmediatePropagation();
+        if (ghAvatar && this.src !== ghAvatar && this.src.indexOf('github.com') < 0) { this.src = ghAvatar; return; }
+        // github.com drops some of the avatar requests a full screen of cards
+        // fires at once. Without a retry that transient miss became a permanent
+        // question mark, on a card whose icon works perfectly on reload.
+        if (ghAvatar && this.src.indexOf('github.com') >= 0 && !this.dataset.avatarRetry) {
+          this.dataset.avatarRetry = '1';
+          var im = this;
+          setTimeout(function () { im.src = ghAvatar + '&retry=1'; }, 1200);
+          return;
+        }
+        if (this.src.indexOf('question.png') < 0) this.src = ICON_FALLBACK;
+      };
+      watchTone(img);
+      return img;
+    }
+
     // CA publishes no icon for 511 of its 1182 repositories and serves the
     // Docker question mark for those, which is how the same maintainer ends up
     // with a face on the card and a placeholder in the drawer beside it.
@@ -1003,13 +1065,10 @@
         row.setAttribute('role', 'button');
         row.title = 'Show ' + a.n + ' in the app store';
 
-        var ic = document.createElement('img');
-        ic.className = 'asga-repo-app-icon';
-        ic.src = a.ic || '/plugins/dynamix.docker.manager/images/question.png';
-        ic.loading = 'lazy';
-        ic.alt = '';
-        watchTone(ic);
-        row.appendChild(ic);
+        // Same four answers the grid's own card gets, from the same builder,
+        // so a row here and a card out there can no more disagree about an
+        // app's picture than they already can about its numbers.
+        row.appendChild(appIcon(a, 'asga-repo-app-icon'));
 
         var text = document.createElement('div');
         text.className = 'asga-repo-app-text';
@@ -1775,35 +1834,7 @@
 
       var iconWrap = document.createElement('div');
       iconWrap.className = 'asga-tile-icon';
-      var img = document.createElement('img');
-      var fallback = '/plugins/dynamix.docker.manager/images/question.png';
-      // owner for the avatar fallback: the starred repo when one was matched,
-      // else the app's own GitHub links. Plugins carry no docker repository to
-      // derive an owner from, so their Project or plugin URL is read instead;
-      // before this they always fell through to the question mark.
-      var ghAvatar = ghAvatarFor(a);
-      img.src = a.ic || ghAvatar || fallback; img.loading = 'lazy'; img.alt = '';
-      img.onerror = function (e) {
-        // CA binds one error handler across every img on the page each time a
-        // drawer renders, and it paints the Docker question mark on whatever
-        // failed. This handler was assigned first, so stopping the event here
-        // is what leaves the chain below in charge of its own fallbacks
-        // instead of CA overwriting each one the moment it is chosen.
-        if (e && e.stopImmediatePropagation) e.stopImmediatePropagation();
-        if (ghAvatar && this.src !== ghAvatar && this.src.indexOf('github.com') < 0) { this.src = ghAvatar; return; }
-        // github.com drops some of the avatar requests a full screen of cards
-        // fires at once. Without a retry that transient miss became a permanent
-        // question mark, on a card whose icon works perfectly on reload.
-        if (ghAvatar && this.src.indexOf('github.com') >= 0 && !this.dataset.avatarRetry) {
-          this.dataset.avatarRetry = '1';
-          var im = this;
-          setTimeout(function () { im.src = ghAvatar + '&retry=1'; }, 1200);
-          return;
-        }
-        if (this.src.indexOf('question.png') < 0) this.src = fallback;
-      };
-      watchTone(img);
-      iconWrap.appendChild(img);
+      iconWrap.appendChild(appIcon(a, ''));
       head.appendChild(iconWrap);
 
 

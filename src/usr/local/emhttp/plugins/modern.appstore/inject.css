@@ -584,6 +584,20 @@ body.dark .asga-settings-select { color-scheme: dark; }
   width: 100%; height: 100%; object-fit: contain; border-radius: 10px; box-sizing: border-box;
   background: rgba(127, 127, 127, 0.08); border: 1px solid rgba(127, 127, 127, 0.22); padding: 4px;
 }
+/* An app whose template names no picture but does name a FontAwesome glyph
+   (117 apps have no icon and 59 of those carry one; see appIcon in inject.js).
+   It wears the same plate the picture beside it would have, so a row of cards
+   keeps one rhythm whichever of the two an app turns out to carry, and it is
+   drawn at a mark's weight rather than at full strength, since it stands for
+   an app instead of being one. The size tracks the tile so it scales with the
+   card exactly as an image in the same box does. */
+.asga-tile-icon .asga-icon-fa {
+  display: flex; align-items: center; justify-content: center;
+  width: 100%; height: 100%; box-sizing: border-box; border-radius: 10px;
+  background: rgba(127, 127, 127, 0.08); border: 1px solid rgba(127, 127, 127, 0.22);
+  font-size: calc(var(--asga-icon-side) * 0.44); line-height: 1;
+  color: color-mix(in srgb, var(--text-color, #f2f2f2) 66%, transparent);
+}
 /* What sits behind an icon answers the icon, not the theme. Roughly a fifth of
    the catalog's icons are dark artwork drawn for a light page, and the plate
    above is near-black, so those arrived with nothing to see: an icon averaging
@@ -2146,6 +2160,14 @@ body.asga-active .asga-repo-app-icon {
   width: 40px; height: 40px; box-sizing: border-box;
   object-fit: contain; border-radius: 8px; padding: 3px;
   background: var(--asga-control); border: 1px solid var(--asga-cardline);
+}
+/* the glyph form of the same tile, for the apps that carry one instead of a
+   picture; the rule above already gave it the plate, so only the mark inside
+   it needs placing */
+body.asga-active .asga-repo-app-icon.asga-icon-fa {
+  display: flex; align-items: center; justify-content: center;
+  font-size: 17px; line-height: 1;
+  color: color-mix(in srgb, var(--asga-fg) 66%, transparent);
 }
 body.asga-active .asga-repo-app-text {
   grid-column: 2; grid-row: 1; align-self: start; min-width: 0;
