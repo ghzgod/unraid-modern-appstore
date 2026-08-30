@@ -844,13 +844,24 @@
       if (!img || img.__asgaMaint || !url) return;
       if ((img.getAttribute('src') || '').indexOf('question.png') < 0) return;
       img.__asgaMaint = true;
-      img.setAttribute('src', url);
-      // The placeholder may already have been measured, and the flag that
-      // records it would otherwise leave the avatar wearing the question mark's
-      // verdict about how dark it is. It is a different picture, so it gets its
-      // own reading.
-      img.__asgaTone = false;
-      watchTone(img);
+      // Loaded first, swapped second. Assigning the src directly took the
+      // placeholder away the instant it was set and left the element with
+      // nothing to draw until the avatar arrived, which is a bordered box of
+      // alt text sitting where a face should be. Waiting for the decode means
+      // the two frames are the placeholder and the avatar, with nothing in
+      // between, and a URL that never loads simply leaves CA's own placeholder
+      // where it was.
+      var probe = new Image();
+      probe.onload = function () {
+        img.setAttribute('src', url);
+        // The placeholder may already have been measured for its brightness,
+        // and the flag recording that would otherwise leave the avatar wearing
+        // the question mark's verdict. It is a different picture, so it gets
+        // its own reading.
+        img.__asgaTone = false;
+        watchTone(img);
+      };
+      probe.src = url;
     }
     function fixMaintainerIcon() {
       if (!isOn()) return;
@@ -1002,6 +1013,7 @@
         row.appendChild(go);
 
         function show() {
+          flashPath = a.p;
           if (typeof window.closeSidebar === 'function') try { window.closeSidebar(); } catch (e2) {}
           var box = document.getElementById('searchBox');
           if (box) box.value = a.n;
@@ -1670,9 +1682,30 @@
         .filter(Boolean).join(', ');
     }
 
+    // Which app the reader just asked to be shown, so the grid can point at it.
+    // A search for an app's name can return a dozen cards and nothing in the
+    // result says which one was asked for, so the one that was gets marked and
+    // the mark is cleared the moment the reader looks anywhere else.
+    var flashPath = '';
+    function clearFlash() {
+      if (!flashPath) return;
+      flashPath = '';
+      var lit = document.querySelectorAll('#asga-grid .asga-tile.asga-flash');
+      for (var i = 0; i < lit.length; i++) lit[i].classList.remove('asga-flash');
+    }
+    function wireFlashDismiss() {
+      if (document.body.__asgaFlash) return;
+      document.body.__asgaFlash = true;
+      // Capture, so a click that lands on a card and opens its drawer still
+      // clears the mark on the way through rather than leaving it lit behind
+      // the panel.
+      document.addEventListener('click', clearFlash, true);
+    }
+
     function makeTile(a) {
       var tile = document.createElement('div');
       tile.className = 'asga-tile';
+      if (flashPath && a.p === flashPath) tile.classList.add('asga-flash');
       tile.setAttribute('data-apppath', a.p);
       tile.setAttribute('data-appname', a.n);
       if (a.rn) tile.setAttribute('data-repo', a.rn);
@@ -3531,6 +3564,7 @@
       wireDescriptionTidy();
       wireDrawerDetails();
       wireRepoClick();
+      wireFlashDismiss();
       showWarningIfNeeded();
       applyViewMode();
       dismissCaLoading();

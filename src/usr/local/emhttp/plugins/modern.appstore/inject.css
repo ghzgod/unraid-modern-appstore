@@ -518,6 +518,30 @@ body.dark .asga-settings-select { color-scheme: dark; }
 }
 .asga-tile > *, .asga-tile-head > *, .asga-tile-htext > * { min-width: 0; max-width: 100%; }
 .asga-tile:hover { border-color: #ff8c2f; }
+/* The card the reader just asked for. It flashes three times and then holds a
+   quiet outline, because a search for an app's name can return a dozen cards
+   and the one that was actually asked for should not have to be hunted for.
+   .asga-tile sets overflow: hidden a few rules up (it exists to stop an
+   unbreakable token in a name or category spilling past the card), and that
+   would crop a box-shadow ring the moment it grew past the card's own edge,
+   so the mark is drawn with outline instead: an outline is never part of the
+   box an element's own overflow clips. Only outline-color animates, not its
+   width, since a widening outline is exactly the growth that would get cut.
+   It sits on the accent this plugin uses for everything the reader is meant
+   to act on. */
+@keyframes asga-flash-ring {
+  0%, 100% { outline-color: rgba(255, 140, 47, 0.55); }
+  50%      { outline-color: rgba(255, 140, 47, 0.12); }
+}
+.asga-tile.asga-flash {
+  border-color: #ff8c2f;
+  outline: 2px solid rgba(255, 140, 47, 0.55);
+  outline-offset: 2px;
+  animation: asga-flash-ring 0.6s ease-in-out 3;
+}
+@media (prefers-reduced-motion: reduce) {
+  .asga-tile.asga-flash { animation: none; }
+}
 /* The card's inset lives on its bands, not on the card. A subgrid item's own
    padding would shift its tracks off the parent's and undo the alignment the
    subgrid exists for, so the four bands each carry the side inset and the
