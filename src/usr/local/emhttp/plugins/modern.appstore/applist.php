@@ -391,16 +391,16 @@ foreach ($tmpl as $t) {
     $overview = trim(preg_replace('/\s+/', ' ', strip_tags((string)($t['Overview'] ?? ''))));
     $sx = clip(trim((string)($t['ExtraSearchTerms'] ?? '') . ' ' . $overview), 2000);
 
-    // CA writes FirstSeen as 1, rather than as a date, for an app that predates
-    // its own record keeping. That is 110 of the feed's templates and it covers
-    // many of the oldest and best known ones, so collapsing it to nothing left
-    // those cards with no Added date at all. The sentinel is passed on as its
-    // own kind instead, and the grid says what is actually true of them: they
-    // arrived before CA started counting, which it began doing in June 2015.
-    // Zero still means the feed carries no FirstSeen of any sort.
-    $fsRaw = (int)($t['FirstSeen'] ?? 0);
-    $fs = $fsRaw > 1 ? $fsRaw : 0;
-    $fk = $fsRaw === 1 ? 'e' : '';
+    // CA's own floor, lifted from its skins/Narrow/skin.php:
+    //     $FirstSeen = ($FirstSeen < 1433649600) ? 1433000000 : $FirstSeen;
+    //     $DateAdded = tr(date("M j, Y", $FirstSeen), 0);
+    // Anything earlier than the 7th of June 2015, including the sentinel of 1
+    // it writes for an app whose arrival it never recorded, becomes 1433000000
+    // and prints as an ordinary date. That is why CA's stock drawer reads
+    // "May 30, 2015" for those apps. Matching it exactly is the whole point:
+    // that drawer is one toggle away and the two must not disagree.
+    $fs = (int)($t['FirstSeen'] ?? 0);
+    if ($fs < 1433649600) $fs = 1433000000;
 
     list($lu, $lk) = last_update($t);
 
@@ -450,7 +450,6 @@ foreach ($tmpl as $t) {
         's'   => isset($mine['s']) ? $mine['s'] : null,
         'dl'  => $dl,
         'fs'  => $fs,
-        'fk'  => $fk,                                        // 'e' when the app predates CA's own records
         'lu'  => $lu,
         'lk'  => $lk,
         'sa'  => $fetchedAt[strtolower($mine['rp'] ?? '')] ?? 0,

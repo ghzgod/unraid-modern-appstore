@@ -1355,23 +1355,13 @@
       }
     }
 
-    // The Added date, including for the apps CA has no date for. It marks those
-    // with a FirstSeen of 1 rather than a timestamp, meaning the app was already
-    // there when CA started keeping records, which it began doing on the 11th of
-    // June 2015. So the card says the one true thing available: not the date the
-    // app arrived, which nobody holds, but the date before which it must have.
+    // applist.php already applies CA's own floor to FirstSeen, so every app has
+    // a date here and it is the same date CA's stock drawer prints. The time of
+    // day is asked for only above that floor: below it the clock reads whatever
+    // CA's constant happens to encode rather than anything that happened.
     function addedSpan(a) {
-      if (a.fs) return dateSpan('asga-tile-added', CAL_ICON, 'Added', a.fs, false, true);
-      if (a.fk !== 'e') return null;
-      var wrap = document.createElement('span');
-      wrap.className = 'asga-tile-added';
-      wrap.insertAdjacentHTML('afterbegin', CAL_ICON);
-      wrap.title = 'Added before June 2015, which is as far back as the app catalog keeps records';
-      var txt = document.createElement('span');
-      txt.className = 'asga-datetext';
-      txt.textContent = 'before Jun 2015';
-      wrap.appendChild(txt);
-      return wrap;
+      if (!a.fs) return null;
+      return dateSpan('asga-tile-added', CAL_ICON, 'Added', a.fs, false, a.fs > 1433649600);
     }
 
     function makeTile(a) {
