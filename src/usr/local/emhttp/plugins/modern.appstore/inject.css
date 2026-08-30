@@ -429,15 +429,44 @@ body.dark .asga-settings-select { color-scheme: dark; }
   grid-template-columns: repeat(4, minmax(0, 1fr));
   column-gap: 14px; row-gap: 10px;
 }
-/* Four across is the layout, not a starting point that degrades at the first
-   opportunity. Three columns is still the one count that must never happen: at
-   that width a card runs to around 500px, and a button row laid out to span it
-   puts a band of empty space through the middle of every card. The grid drops
-   to two only once a card can no longer hold all six buttons, labelled, on one
-   line; a label is never dropped to buy width, since a bare mark tells the
-   reader less than the word it replaced. */
-@container asga-view (max-width: 1459px) { .asga-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@container asga-view (max-width: 619px)  { .asga-grid { grid-template-columns: minmax(0, 1fr); } }
+/* Four across is the layout, and the ladder below it steps one column at a
+   time. It used to jump straight from four to two, which is why a single notch
+   of browser zoom halved the grid: at 110% a 1560px view measures 1418 CSS
+   pixels and fell through the four-column test to land on two, with cards
+   nearly twice the width they had a moment earlier.
+   Three columns was banned for a while because a button row laid out with
+   space-between scattered its six buttons to the card's edges at that width.
+   That is no longer how the row is laid out, and every size on the card is a
+   fraction of the card's own width now, so a wider card carries proportionally
+   larger type and the run keeps filling the same share of it.
+   Each threshold is the width at which a card can no longer hold all six
+   buttons, labelled, on one line: the run needs about 330px of a band's inner
+   width, so a card has to clear 358px, and a column has to clear that plus its
+   share of the gaps. A label is never dropped to buy width, since a bare mark
+   tells the reader less than the word it replaced. */
+/* --cw has to follow the column count, not just the grid width. It is the width
+   of one card, and one card is the grid less its gaps divided by however many
+   columns there are, so a ladder that changes the count without restating it
+   leaves every size on the card computed for a quarter of the grid while the
+   card is actually a third of it. That is what made a three column grid render
+   type sized for a 344px card inside a 463px one, and the button run fill only
+   72% of the row it sits in.
+   The selector carries the grid as well as the card because the base rule that
+   declares --cw sits further down this file at the same specificity, and a
+   container query adds none of its own, so an equally weighted override placed
+   above it would simply lose. */
+@container asga-view (max-width: 1473px) {
+  .asga-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .asga-grid > .asga-tile { --cw: calc(33.3333cqw - 9.3333px); }
+}
+@container asga-view (max-width: 1101px) {
+  .asga-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .asga-grid > .asga-tile { --cw: calc(50cqw - 7px); }
+}
+@container asga-view (max-width: 729px) {
+  .asga-grid { grid-template-columns: minmax(0, 1fr); }
+  .asga-grid > .asga-tile { --cw: 100cqw; }
+}
 .asga-tile {
   position: relative;
   /* One column of the grid, which is a quarter of it less its three gaps.
