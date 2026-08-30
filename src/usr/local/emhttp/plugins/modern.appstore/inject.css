@@ -40,6 +40,18 @@ html.asga-pre .templateSearch,
 html.asga-pre .caMenu li.subCategory,
 html.asga-pre .spinner.fixed { display: none !important; }
 
+/* Until our own grid has painted, CA's chrome is hidden outright rather than
+   merely repositioned. On a refresh CA opens its "Updating Content" modal and
+   leaves its search box and its whole left column sitting behind it, which is
+   the old app store showing through the new one for as long as the catalog
+   takes to load. .asga-ready is set on <html> the moment our first render
+   finishes, so this lasts exactly as long as there is nothing of ours to see.
+   A failsafe in inject.js sets the same class after fifteen seconds, so a
+   render that never happens cannot leave the page stripped for good. */
+html.asga-pre:not(.asga-ready) .searchAreaHolder,
+html.asga-pre:not(.asga-ready) .menuItems,
+html.asga-pre:not(.asga-ready) .caMenu { display: none !important; }
+
 /* our toolbar row lives in CA's search row */
 #searchFilter { margin-top: 6px; }
 .asga-bar {

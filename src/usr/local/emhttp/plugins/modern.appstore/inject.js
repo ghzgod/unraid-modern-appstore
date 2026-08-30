@@ -3274,7 +3274,19 @@
       if (isOn() && !document.getElementById('asga-view')) render();
     }
 
+    // Our grid is up, so CA's own search box and left column can come back from
+    // behind the loading modal. Called from render() rather than from attachUI,
+    // because attachUI runs before the first paint and the point of the class is
+    // that there is now something of ours to look at.
+    function markReady() {
+      document.documentElement.classList.add('asga-ready');
+    }
+
     function start() {
+      // A render that never happens must not leave the page stripped of CA's
+      // chrome for good, so the same class lands on a timer whatever else does
+      // or does not occur.
+      setTimeout(markReady, 15000);
       triggerNewScan();
       loadViews();   // pin/installed membership, so tiles show correct pin state
       loadApps(function () {
@@ -3284,6 +3296,7 @@
         initSort();    // restore last sort (or the configured default after 20 min)
         attachUI();
         render();
+        markReady();
         waitForFeed();   // no-op unless CA's catalog is still being downloaded
         var main = document.querySelector('.mainArea') || document.body;
         var pending = false;
