@@ -674,7 +674,21 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 /* The maintainer's picture sits where a person glyph used to, at the size of
    the line it shares rather than the size of an avatar, so the author line
    keeps its own height. */
-.asga-tile-author, .asga-tile-cat { display: flex; align-items: center; gap: 5px; min-width: 0; }
+/* The gap sits between the mark and its text, and nowhere else. A flex gap
+   applies between EVERY child, so on the category row it also pushed the two
+   words apart: measured off the rendered pixels, the icon sat 5px from
+   "MediaApp:" while "MediaApp:" sat 7px from "Music", the extra coming from
+   the colon's and the M's own sidebearings on top of the gap. Two words
+   further apart than an icon is from its own label is backwards, and it is
+   what made the line read as out of true. The mark takes a margin instead,
+   and the second half of the category takes a word space, which is what the
+   space between two words should be. */
+.asga-tile-author, .asga-tile-cat { display: flex; align-items: center; gap: 0; min-width: 0; }
+.asga-tile-author > :first-child, .asga-tile-cat > :first-child { margin-right: 6px; }
+/* only when a lead actually precedes it: a category with no colon renders the
+   whole string as .asga-tile-catrest alone, and it must not take a word space
+   on top of the mark's own margin. */
+.asga-tile-catlead + .asga-tile-catrest { margin-left: 0.26em; }
 .asga-tile-authorname, .asga-tile-catlead, .asga-tile-catrest { min-width: 0; }
 .asga-tile-authorname, .asga-tile-catrest {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -2313,7 +2327,12 @@ body.asga-active #sidenavContent .asga-readme-btn,
 body.asga-active #sidenavContent .asga-readme-btn:hover { text-decoration: none; }
 
 /* the maintainer's own links, as a row of pills rather than bare icon links */
-body.asga-active .repoLinks { margin: 18px 0 0; }
+/* No top margin of its own. The statistics table inside this wrapper is an
+   .asga-card now and carries the drawer's own 18px, so the wrapper adding a
+   second one stacked them: measured 36px from the header to the table against
+   18px from the table to the app list below it. The card supplies the gap,
+   the wrapper supplies none. */
+body.asga-active .repoLinks { margin: 0; }
 body.asga-active .repoLinkArea { display: flex; flex-wrap: wrap; gap: 8px; }
 body.asga-active .appIconsPopUp {
   display: inline-flex; align-items: center; gap: 6px;
