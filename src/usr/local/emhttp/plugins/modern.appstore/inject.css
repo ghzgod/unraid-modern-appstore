@@ -2373,7 +2373,11 @@ body.asga-active .asga-repo-drawer {
   display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
 }
 /* the statistics block keeps its own height whatever the list does */
-body.asga-active #sidenavContent:has(.asga-repo-drawer) > .popup > .repoLinks { flex: 0 0 auto; }
+/* The table keeps its own height whatever the list does. Matched wherever it
+   sits rather than as a direct child of .popup, because it is moved up beside
+   the list (see fixRepoDrawer) and the old child selector stopped matching the
+   moment it was. */
+body.asga-active #sidenavContent:has(.asga-repo-drawer) .repoLinks { flex: 0 0 auto; }
 
 /* Scrollable, and the only part of the drawer that scrolls. buildRepoApps sets
    a negative right margin on this element to match whatever width the
