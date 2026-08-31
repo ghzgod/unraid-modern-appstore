@@ -84,11 +84,14 @@ html:not(.Theme--legacyOS) body.asga-active .asga-bar { display: contents; }
    relative and only as wide as its content, which would otherwise become the
    toggle's containing block. */
 html:not(.Theme--legacyOS) #searchFilter { position: static; }
-/* 110px: the gear's own 22px inset, plus two 36px boxes (the help button and
-   the gear) and two 8px gaps between them (22 + 36 + 8 + 36 + 8 = 110), so the
-   toggle keeps clearing both instead of the one it used to step past. */
+/* 154px: the gear's own 22px inset, plus three 36px boxes (the help button,
+   the update glyph and the gear) and three 8px gaps between them
+   (22 + 36 + 8 + 36 + 8 + 36 + 8 = 154), so the toggle keeps clearing all
+   three instead of just the two it used to step past. The update glyph is
+   display:none on most page loads, but it still occupies its own slot in
+   this chain even when hidden, so nothing has to shift when it appears. */
 html:not(.Theme--legacyOS) .asga-toggle {
-  position: absolute; right: 110px; top: 31px; transform: translateY(-50%);
+  position: absolute; right: 154px; top: 31px; transform: translateY(-50%);
   margin: 0;
 }
 /* The gear takes the seat the toggle used to hold, on the grid's right edge.
@@ -105,17 +108,39 @@ html:not(.Theme--legacyOS) .asga-settings {
 }
 html:not(.Theme--legacyOS) .asga-settings:hover { border-color: #ff8c2f; background: rgba(255, 140, 47, 0.14); opacity: 1; }
 html:not(.Theme--legacyOS) .asga-settings:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 1px; }
-/* Help / About button: the gear's twin, one box-plus-gap to its left. 66px is
-   the gear's own 22px inset, plus the gear's 36px box, plus an 8px gap
-   (22 + 36 + 8 = 66). It opens a slide-in panel rather than navigating
-   anywhere, so it is a <button>, not a link, but reads the same as the gear:
-   same box, border, radius, background and hover/focus treatment. */
+/* Update glyph: the gear's other neighbour, one box-plus-gap in from it. 66px
+   is the gear's own 22px inset, plus the gear's 36px box, plus an 8px gap
+   (22 + 36 + 8 = 66), the same arithmetic the help button used before this
+   icon took its old spot and pushed it one slot further out. This box is
+   drawn only when the installed version is behind the published one
+   (checkForUpdate() in inject.js un-hides it), which is why it can carry
+   the accent at rest while the help and settings glyphs on either side of
+   it stay muted until hovered. */
+html:not(.Theme--legacyOS) .asga-update {
+  position: absolute; right: 66px; top: 31px; transform: translateY(-50%); margin: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 36px; min-width: 36px; height: 36px; box-sizing: border-box;
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.08);
+  color: #ff8c2f; text-decoration: none; opacity: 1;
+}
+html:not(.Theme--legacyOS) .asga-update:hover { border-color: #ff8c2f; background: rgba(255, 140, 47, 0.14); }
+html:not(.Theme--legacyOS) .asga-update:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 1px; }
+/* Help / About button: the gear's twin, now two boxes-plus-gaps to its left
+   instead of one, since the update glyph took the nearer slot. 110px is the
+   gear's own 22px inset, plus the gear's and the update glyph's 36px boxes,
+   plus their two 8px gaps (22 + 36 + 8 + 36 + 8 = 110). It opens a slide-in
+   panel rather than navigating anywhere, so it is a <button>, not a link,
+   but reads the same as the gear: same box, border, radius, background and
+   hover/focus treatment. */
 html:not(.Theme--legacyOS) .asga-help {
   /* margin: 0 is load-bearing. This is a real <button>, so Unraid's global
      button styling hands it a 12px right margin that the gear (an <a>) never
-     picks up. That margin shifted this 12px left of its own right: 66px, which
-     closed the gap to the gear to 20px and pushed it 4px UNDER the toggle. */
-  position: absolute; right: 66px; top: 31px; transform: translateY(-50%); margin: 0;
+     picks up. That margin shifted this 12px left of its own right, which is
+     what used to close its gap to the gear and push it under the toggle;
+     the same reasoning holds at this button's current 110px offset. */
+  position: absolute; right: 110px; top: 31px; transform: translateY(-50%); margin: 0;
   display: inline-flex; align-items: center; justify-content: center;
   width: 36px; min-width: 36px; height: 36px; box-sizing: border-box;
   padding: 0; border: 1px solid rgba(127, 127, 127, 0.3);
@@ -134,7 +159,19 @@ html.Theme--legacyOS .asga-help {
   color: inherit; cursor: pointer; opacity: 0.8;
 }
 html.Theme--legacyOS .asga-help:hover { opacity: 1; }
-.asga-settings svg, .asga-help svg { width: 16px; height: 16px; fill: currentColor; }
+/* 7.1's inline row needs no right-offset math at all, so the update glyph
+   only needs the same 26px box and left margin the gear and help button use
+   there, in whatever DOM order it falls (see inject.js, where it sits
+   between them). It is accent-coloured at rest for the same reason as its
+   absolutely-positioned counterpart above: this glyph exists on the page at
+   all only when there is an update to point at. */
+html.Theme--legacyOS .asga-update {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 26px; height: 26px; margin-left: 10px;
+  color: #ff8c2f; text-decoration: none; opacity: 1;
+}
+.asga-settings svg, .asga-help svg, .asga-update svg { width: 16px; height: 16px; }
+.asga-settings svg, .asga-help svg { fill: currentColor; }
 /* constrain the native select's box height so its glyphs center on the same
    line as the adjacent text labels (a taller default box made it sit high) */
 /* Unraid draws the dropdown triangle as two 4px gradients hugging the right
@@ -256,6 +293,13 @@ body.asga-drawer-open { overflow: hidden; }
 /* ---- About panel content: everything below is specific to what the About
    panel puts inside the shared .asga-drawer-body, not part of the shell. ---- */
 .asga-about-version { font-size: 1.2rem; opacity: 0.7; margin: 16px 0 0; }
+/* Same type size and weight as the version line above it, just without that
+   line's opacity: 0.7 dimming, since this one only ever renders when
+   checkForUpdate() (inject.js) has found the installed version behind the
+   published one, the same fact that lets the toolbar glyph carry the accent
+   at rest while its muted neighbours wait for a hover. The 6px top margin
+   keeps it reading as this panel's second line rather than a new block. */
+.asga-about-update { font-size: 1.2rem; color: #ff8c2f; margin: 6px 0 0; }
 .asga-about-section { margin-top: 22px; }
 .asga-about-heading {
   margin: 0 0 8px; font-size: 1.1rem; font-weight: 700;
@@ -681,15 +725,13 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
   background: rgba(127, 127, 127, 0.10); border: 1px solid rgba(127, 127, 127, 0.20);
 }
 .asga-tile-statnum { font-size: clamp(11px, calc(var(--cw) * 0.031), 20px); font-weight: 700; line-height: 1.1; }
-/* This slot was measured for a four character figure like "1.2M", at the size
-   set above. The word that stands in for a figure nobody measured runs to
-   seven characters, "unknown", so it gets its own smaller size scaled by
-   that same 4-to-7 ratio rather than the fixed size above, and nothing else:
-   the colour and weight stay whatever asga-tile-statnum already set, since
-   this class always rides alongside it rather than replacing it. Without the
-   reduction the word would either wrap onto a second line or push the stat
-   rail wider than the card's other rows allow. */
-.asga-tile-statnum-none { font-size: clamp(9px, calc(var(--cw) * 0.019), 13px); }
+/* A reduction rule used to live here for a figure nobody measured: the word
+   "unknown" ran to seven characters against a slot this size was measured
+   for a four character figure like "1.2M", so it had to shrink to fit, and a
+   stat that renders at a different size from the one beside it is exactly
+   the raggedness this card fights everywhere else. "n/a" is three characters
+   and fits this slot at full size, so the two figures in the rail now stay
+   on one rhythm and nothing here needs to shrink for it. */
 .asga-tile-statlabel {
   /* the track above is fixed, so a word longer than it clips rather than
      forcing the column wider and undoing the alignment it exists for */

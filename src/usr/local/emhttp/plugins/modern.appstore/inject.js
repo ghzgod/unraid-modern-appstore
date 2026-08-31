@@ -2298,16 +2298,16 @@
     // This card used to print the number nought for a figure nobody had
     // measured, on 998 cards for downloads and 1,689 for stars, where only 4
     // and 164 respectively were real zeros. A zero is a claim. The word is
-    // not, so a null count now reads as the word "unknown" instead. The noun
-    // is dropped in that case too: "unknown stars" still reads as a quantity,
-    // where "unknown" on its own does not.
+    // not, so a null count now reads as "n/a" instead. The noun is dropped in
+    // that case too, so a missing count never grows into something like
+    // "n/a stars" that could be mistaken for a real figure at a glance.
     function statSpan(cls, icon, n, noun, title) {
       var s = document.createElement('span');
       var known = (n != null);
       s.className = 'asga-stat ' + cls + (known && n > 0 ? '' : ' asga-stat-none');
       s.title = title;
       s.insertAdjacentHTML('afterbegin', icon);
-      s.appendChild(document.createTextNode(known ? fmt(n) : 'unknown'));
+      s.appendChild(document.createTextNode(known ? fmt(n) : 'n/a'));
       if (known) {
         // the noun rides in its own element so the button row, which has no
         // room for it, can drop the word and keep the figure. The tooltip
@@ -2329,9 +2329,12 @@
     // This card used to print the number nought for a figure nobody had
     // measured, on 998 cards for downloads and 1,689 for stars, where only 4
     // and 164 respectively were real zeros. A zero is a claim. The word is
-    // not, so a null count now prints as the word "unknown" in place of the
-    // figure, carrying its own class so the CSS can shrink it to fit the
-    // column a four character figure was sized for.
+    // not, so a null count now prints as "n/a" in place of the figure. Unlike
+    // the seven character word "unknown" this replaced, "n/a" fits the same
+    // slot a four character figure like 1.2M was sized for, so the shrink
+    // this element's class used to trigger is gone from inject.css; the
+    // class name itself stays put here as the hook, just with nothing left
+    // to shrink it now.
     function statTile(cls, mark, n, word, title) {
       var s = document.createElement('div');
       var known = (n != null);
@@ -2342,7 +2345,7 @@
       box.insertAdjacentHTML('afterbegin', mark);
       var num = document.createElement('span');
       num.className = 'asga-tile-statnum' + (known ? '' : ' asga-tile-statnum-none');
-      num.textContent = known ? fmt(n) : 'unknown';
+      num.textContent = known ? fmt(n) : 'n/a';
       var lab = document.createElement('span');
       lab.className = 'asga-tile-statlabel';
       lab.textContent = word;
@@ -2742,6 +2745,20 @@
           '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M16 8A8 8 0 1 1 0 8a8 8 0 0 1 16 0zM8 1a7 7 0 1 0 0 14A7 7 0 0 0 8 1z"/>' +
           '<path d="M5.255 5.786a.237.237 0 0 0 .241.247h.825c.138 0 .248-.113.266-.25.09-.656.54-1.134 1.342-1.134.686 0 1.314.343 1.314 1.168 0 .635-.374.927-.965 1.371-.673.489-1.206 1.06-1.168 1.987l.003.217a.25.25 0 0 0 .25.246h.811a.25.25 0 0 0 .25-.25v-.105c0-.718.273-.927 1.01-1.486.609-.463 1.244-.977 1.244-2.056 0-1.511-1.276-2.241-2.673-2.241-1.267 0-2.655.59-2.75 2.286zm1.557 5.763c0 .533.425.927 1 .927.609 0 1.028-.394 1.028-.927 0-.552-.42-.94-1.028-.94-.575 0-1 .388-1 .94z"/></svg>' +
         '</button>' +
+        // Hidden by default (inline style, not a class, so CA's own CSS
+        // reset on <a> elements cannot un-hide it by accident) and only
+        // un-hidden by checkForUpdate() once latest.php actually reports a
+        // newer version. A control that is always present and almost always
+        // means nothing stops being read at all, so this one only exists on
+        // the page at all when there is something to act on. It is an
+        // anchor to /Plugins rather than a button so a middle click or a
+        // ctrl/cmd click opens the plugins page in a tab like any other link.
+        '<a id="asga-update" class="asga-update" href="/Plugins" style="display:none" ' +
+          'title="A newer version of this plugin is available. Opens the Plugins page, where it can be updated." ' +
+          'aria-label="Plugin update available">' +
+          '<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
+          '<path d="M8 1.5v8.4"/><path d="M4.6 6.5 8 9.9l3.4-3.4"/><path d="M2.5 12.5h11"/></svg>' +
+        '</a>' +
         // The gear lives in the bar so it is present in both view states, and
         // it stays a plain link (see the click handler below) so a middle
         // click or a ctrl/cmd click still opens the real settings page in a
@@ -2783,6 +2800,7 @@
       updateStamp();
       // once a minute so a page left open does not read "just now" all night
       if (!bar.__stampTick) bar.__stampTick = setInterval(updateStamp, 60000);
+      checkForUpdate();
     }
 
     // Safari renders a <select>'s open list as a native macOS menu that no CSS
@@ -3157,6 +3175,7 @@
     // second time never rebuilds the DOM or refires the network request. ----
     var aboutData = null;    // about.php's answer, or the string 'error' after a failed fetch; null means "not fetched yet"
     var aboutPanel = null;   // the drawer object, built lazily by ensureAboutPanel()
+    var updateInfo = null;   // latest.php's answer, set once checkForUpdate()'s fetch lands; null means "not answered yet"
 
     // Confirms before leaving the page: reuses attentionModal, this plugin's
     // own confirm dialog, rather than a second one. Confirming opens the
@@ -3223,6 +3242,19 @@
         if (data.updatedAt) txt += ' (updated ' + new Date(data.updatedAt * 1000).toLocaleDateString() + ')';
         verLine.textContent = txt;
         body.appendChild(verLine);
+      }
+
+      // A second, separately coloured line only when checkForUpdate() has
+      // actually found something newer than what is installed; updateInfo
+      // stays null until that fetch lands and stays an object with
+      // updateAvailable: false once it lands clean but current, so both of
+      // those read as "say nothing" here, the same way the toolbar glyph
+      // stays hidden for them.
+      if (updateInfo && updateInfo.updateAvailable && updateInfo.latest) {
+        var upLine = document.createElement('p');
+        upLine.className = 'asga-about-update';
+        upLine.textContent = 'Version ' + updateInfo.latest + ' is available. Update it from the Plugins page.';
+        body.appendChild(upLine);
       }
 
       appendAboutSection(body, 'What this does', [
@@ -3580,6 +3612,31 @@
       var tip = 'App catalog synced ' + new Date(stamps.feed * 1000).toLocaleString();
       if (stamps.scan) tip += '\nGitHub stars scanned ' + new Date(stamps.scan * 1000).toLocaleString();
       el.title = tip;
+    }
+
+    // Whether the plugin itself has a newer release, checked once per page
+    // load and read back by both the toolbar glyph below and the About
+    // panel's version line. updateChecked is the guard: addSortBar() can be
+    // re-entered whenever CA rebuilds its own toolbar (a category switch, a
+    // view refresh), and a second call must not refire the request or blank
+    // out an answer the first call already found.
+    var updateChecked = false;
+    function checkForUpdate() {
+      if (updateChecked) return;
+      updateChecked = true;
+      fetch(PREFIX + 'latest.php?_=' + Date.now())
+        .then(function (r) { return r.ok ? r.json() : null; })
+        .then(function (j) {
+          if (!j) return;
+          updateInfo = j;
+          if (j.updateAvailable) {
+            var el = document.getElementById('asga-update');
+            if (el) el.style.display = '';
+          }
+        })
+        // same silent-no-op contract as every other fetch in this file: a
+        // dead endpoint just means the glyph stays hidden, never a broken page
+        .catch(function () {});
     }
 
     // GitHub view on/off, persisted. When off, we un-hide CA's own grid and let

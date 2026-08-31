@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.08.29}"
+VERSION="${1:-2026.08.31}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -16,7 +16,7 @@ PLUGIN_URL="https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main
 SUPPORT_URL="https://github.com/ghzgod/unraid-modern-appstore"
 
 # --- payload files (order: php, js, css, pages, readme) --------------------
-FILES=(fetch_stars.php refresh.php cancel.php newscan.php scanpage.php applist.php pinned.php lastupdate.php icontone.php addeddate.php about.php config.php settings.php inject.js inject.css ModernAppStore.page ModernAppStoreLoader.page README.md)
+FILES=(fetch_stars.php refresh.php cancel.php newscan.php scanpage.php applist.php pinned.php lastupdate.php icontone.php addeddate.php about.php latest.php config.php settings.php inject.js inject.css ModernAppStore.page ModernAppStoreLoader.page README.md)
 
 # guard: CDATA cannot contain ]]>
 for f in "${FILES[@]}"; do
