@@ -781,11 +781,12 @@
       document.body.__asgaDrawerDetails = true;
       var host = document.getElementById('sidenavContent') || document.querySelector('.sidenav');
       if (!host) return;
-      new MutationObserver(function () { fixDrawerDetails(); addReadmeButton(); cardSections(); fixDrawerIcon(); fixMaintainerIcon(); fixRepoDrawer(); drawerReady(); })
+      new MutationObserver(function () { fixDrawerDetails(); addReadmeButton(); cardSections(); renameFavourite(); fixDrawerIcon(); fixMaintainerIcon(); fixRepoDrawer(); drawerReady(); })
         .observe(host, { childList: true, subtree: true });
       fixDrawerDetails();
       addReadmeButton();
       cardSections();
+      renameFavourite();
       fixDrawerIcon();
       fixMaintainerIcon();
       fixRepoDrawer();
@@ -1506,6 +1507,23 @@
     // because this runs on every mutation of the drawer.
     var SECTION_HEADS = '.additionalRequirementsHeader, .chartTitle, .changelogTitle, .templateErrors, .repoStats';
     var SECTION_STOP = SECTION_HEADS + ', .ca_popupIconArea, .popupCloseArea, .popupDescription, .popupInfoLeft, .popupInfoSection, .spotlightPopup, .modComment, .ca_note';
+    // CA spells this the British way, in its markup and in its class name
+    // alike (ca_favouriteRepo). The button is renamed the same guarded way
+    // "See All Apps" becomes "Show All Apps" in the profile drawer: only when
+    // the text is still the exact English CA shipped, so a server running a
+    // language pack keeps whatever that pack translated it to rather than
+    // having an English word forced back over it. CA emits this button in two
+    // places, the profile drawer's header and the app drawer's maintainer
+    // card, so it is matched by class across the whole panel rather than
+    // inside either one.
+    function renameFavourite() {
+      if (!isOn()) return;
+      var btns = document.querySelectorAll('#sidenavContent .ca_favouriteRepo');
+      for (var i = 0; i < btns.length; i++) {
+        if (btns[i].textContent.trim() === 'Favourite') btns[i].textContent = 'Favorite';
+      }
+    }
+
     function cardSections() {
       if (!isOn()) return;
       // Two hosts, not one. The app drawer hangs its sections off .popupContent,

@@ -1734,10 +1734,15 @@ body.asga-active #sidenavContent .caButton.actionsPopup:hover { background: rgba
    reports, so they wear the same positive colour rather than the accent. A
    drawer that painted them accent would disagree with the card the user just
    clicked to get here. */
+/* Colour alone says the toggle is on. This used to add font-weight 600 as
+   well, and against neighbours sitting at 400 that read as a different size
+   rather than a different state: same 11.5px and same 28px box, but the
+   heavier text made the button 2px wider than the identical one beside it and
+   the eye called it bigger. A state change should not change the type. */
 body.asga-active #sidenavContent .caButton.pinPopup.pinned,
 body.asga-active #sidenavContent .caButton.ca_favouriteRepo.fav {
   border-color: rgba(106, 196, 127, 0.4); color: #6ac47f !important;
-  background: rgba(106, 196, 127, 0.15); font-weight: 600;
+  background: rgba(106, 196, 127, 0.15);
 }
 body.asga-active #sidenavContent .caButton.pinPopup.pinned:hover,
 body.asga-active #sidenavContent .caButton.ca_favouriteRepo.fav:hover {
@@ -2245,10 +2250,14 @@ body.asga-active #sidenavContent .popUpBack { order: -1; }
    --ca-dark-orange-color is literally #009900, which is where the solid green
    slab came from. Only an !important background can answer that, so this one
    is deliberate rather than lazy. */
+/* The weight is deliberately absent here as well as in the rule further up.
+   This is the second of the two that paint this one button, and leaving it
+   behind in either is enough to make the favourited state read a size larger
+   than the button beside it. */
 body.asga-active #sidenavContent .caButton.ca_favouriteRepo.fav {
   background: rgba(106, 196, 127, 0.15) !important;
   border-color: rgba(106, 196, 127, 0.4);
-  color: #6ac47f !important; font-weight: 600;
+  color: #6ac47f !important;
 }
 body.asga-active #sidenavContent .caButton.ca_favouriteRepo.fav:hover {
   background: rgba(106, 196, 127, 0.22) !important;
