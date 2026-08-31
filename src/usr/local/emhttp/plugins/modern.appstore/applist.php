@@ -22,6 +22,8 @@
  *   fa = FontAwesome glyph name, and only when ic is empty: what CA's own drawer
  *        draws for an app whose template names no icon (see icon_fa())
  *   s  = GitHub stars (or null)  dl = Unraid downloads, null when CA never counted this app (943 templates carry no count, and an image published outside Docker Hub usually never gets one)
+ *   dz = why dl is null: 'b' when the count was suppressed because the app runs a
+ *        shared official base image (72 apps), '' when CA never counted it at all
  *   fs = FirstSeen unix ts (date added; 0 if unknown or if the app predates CA's records)
  *   fx = 1 when fs is CA's manufactured floor (1433000000) rather than a date it
  *        recorded, 0 otherwise
@@ -456,9 +458,16 @@ foreach ($tmpl as $t) {
     // of zero.
     $dl = array_key_exists('downloads', $t) && $t['downloads'] !== null && $t['downloads'] !== ''
         ? (int)$t['downloads'] : null;
+    // Why the count is absent, when it is, so the card can say which of the
+    // two it is rather than guessing. 'b' is the base image case below and it
+    // is a different sentence entirely: those 72 images (mongo, postgres,
+    // nginx, redis) are on Docker Hub, and telling the reader the app is
+    // published somewhere else would be plainly untrue. Everything else with
+    // no count is an image Docker Hub does not carry.
+    $dz = '';
     if (empty($t['Plugin'])) {
         $imgName = explode(':', trim($t['Repository'] ?? ''))[0];
-        if ($imgName === '' || strpos($imgName, '/') === false) $dl = null;
+        if ($imgName === '' || strpos($imgName, '/') === false) { $dl = null; $dz = 'b'; }
     }
 
     // description: prefer our stored copy, fall back to CA's Overview; cut to
@@ -564,6 +573,11 @@ foreach ($tmpl as $t) {
         'pu'  => $t['PluginURL'] ?? '',                      // plugin .plg url (plugins install differently)
         's'   => isset($mine['s']) ? $mine['s'] : null,
         'dl'  => $dl,
+        // Why dl is null, when it is: 'b' means the count was suppressed
+        // because the app runs a shared official base image, '' means CA
+        // simply never had one. The card owes the reader a different
+        // sentence for each and cannot tell them apart from dl alone.
+        'dz'  => $dz,
         'fs'  => $fs,
         'fx'  => $fx,                                        // 1 when fs is CA's floor rather than a date it recorded
         'lu'  => $lu,

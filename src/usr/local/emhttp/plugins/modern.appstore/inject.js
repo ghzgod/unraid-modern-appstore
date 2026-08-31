@@ -1102,7 +1102,7 @@
         var badges = document.createElement('div');
         badges.className = 'asga-repo-app-badges';
         badges.appendChild(statSpan('asga-stat-stars', STAR_ICON, a.s, 'star', starTitle(a.s)));
-        badges.appendChild(statSpan('asga-stat-dl', DL_ICON, a.dl, a.ty === 'plugin' ? 'install' : 'pull', downloadTitle(a.dl, a.ty)));
+        badges.appendChild(statSpan('asga-stat-dl', DL_ICON, a.dl, a.ty === 'plugin' ? 'install' : 'pull', downloadTitle(a.dl, a.ty, a.dz)));
         row.appendChild(badges);
 
         var dates = document.createElement('div');
@@ -1460,7 +1460,7 @@
         anchor.parentNode.insertBefore(dlRow, anchor.nextSibling);
         var dlCell = dlRow.querySelector('.popupTableRight');
         dlCell.textContent = app.dl.toLocaleString();
-        dlCell.title = downloadTitle(app.dl, app.ty);
+        dlCell.title = downloadTitle(app.dl, app.ty, app.dz);
       }
     }
     // 721 templates name a readme and neither this grid nor CA's own drawer
@@ -2053,7 +2053,7 @@
       var stats = document.createElement('div');
       stats.className = 'asga-tile-stats';
       stats.appendChild(statTile('asga-tile-stat-stars', STAR_MARK, a.s, 'Stars', starTitle(a.s)));
-      stats.appendChild(statTile('asga-tile-stat-dl', DL_MARK, a.dl, a.ty === 'plugin' ? 'Installs' : 'Downloads', downloadTitle(a.dl, a.ty)));
+      stats.appendChild(statTile('asga-tile-stat-dl', DL_MARK, a.dl, a.ty === 'plugin' ? 'Installs' : 'Downloads', downloadTitle(a.dl, a.ty, a.dz)));
       tile.appendChild(head);
       // Appended to the card rather than to the header: the stylesheet places
       // it in a column of the card that spans both the header and the
@@ -2369,8 +2369,19 @@
     // zero, the rest being an image CA never got a pull count for at all (most
     // often because it is published outside Docker Hub, which is where CA's
     // count comes from). Null and 0 now get their own sentence apiece.
-    function downloadTitle(dl, ty) {
+    // Three different reasons a figure is missing, and the reader is owed the
+    // one that applies. 72 apps run a shared official base image (mongo,
+    // postgres, nginx, redis) and were being told they are "published
+    // somewhere else", which is plainly untrue: those images are on Docker Hub,
+    // and the reason there is no number is that the only number available is
+    // that base image's global pulls across every project using it, which says
+    // nothing whatever about this app. dz carries which case it is, because dl
+    // is null either way and the card cannot tell them apart from that alone.
+    function downloadTitle(dl, ty, dz) {
       if (dl == null) {
+        if (dz === 'b') {
+          return 'This app runs a shared official base image, and the only count available is that image\'s pulls across every project using it, which says nothing about this app. So it is not shown.';
+        }
         return ty === 'plugin'
           ? 'The app catalog has no install count for this plugin'
           : 'The app catalog has no pull count for this image. Counts come from Docker Hub, and this app is published somewhere else.';

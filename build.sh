@@ -57,6 +57,66 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Every section of the info drawer now sits in the same card. Additional
+  Requirements, the Trends chart, the change log, Template Errors and the
+  maintainer profile's Statistics all rendered as a bare heading with loose
+  text under them, while every other section sat in a grey card, so the drawer
+  read as two designs stacked on each other. They also never shared a padding:
+  the description and the Details table sat on one value and everything else on
+  another, so the text started at a different inset every third block. There is
+  one value now.
+- The card names the person who publishes the app rather than the company that
+  wrote the software. Community Applications carries both, and they disagree on
+  2,722 of the 3,873 displayable apps, so seven cards in ten were showing one
+  person's face beside another one's name and naming someone the drawer, one
+  click away, never mentioned. Grafana read "grafana" on the card and "atribe"
+  in its own maintainer panel; both say atribe now.
+- A download or star figure nobody measured no longer reads as the number
+  nought. Only 4 apps in the catalog have a download count Community
+  Applications measured as zero and only 164 have a repository with genuinely
+  no stars, yet 998 cards and 1,689 cards respectively were printing one. Those
+  read n/a now, and hovering says which of the reasons applies: an image
+  Docker Hub does not carry, an app running a shared official base image where
+  the only figure available belongs to that base image, or a repository the
+  scanner has not matched yet.
+- Apps Community Applications marks incompatible with this server no longer
+  offer a working Install button. There are 36 of them, and its own drawer
+  renders no install action for them at all, while this grid offered one and
+  said nothing.
+- Official and pre-release templates carry a badge, 394 and 211 of them. The
+  catalog has several competing templates for some apps and this is the one
+  fact that separates them. An app whose container runs privileged carries a
+  shield in the card footer: 114 do, and Community Applications carries a
+  moderator comment on only 273 templates in total, so most of those said
+  nothing about it anywhere the reader would see.
+- An app whose template names no icon draws the glyph its author chose instead
+  of a question mark. 117 apps have no icon and 59 of those name a glyph, which
+  the stock drawer draws and this grid used to throw away. The two icon fonts
+  are told apart, so Unassigned Devices Preclear draws the mark the stock
+  drawer leaves as a blank square.
+- The maintainer's readme is a button in the drawer, on the 721 apps that name
+  one. Neither this plugin nor the stock drawer linked it before.
+- The maintainer profile's Statistics gains the total stars of everything that
+  maintainer packages, counting each upstream project once rather than once per
+  app, since several templates often point at the same repository.
+- The drawer says Loading while it fills, and shows its contents once. It used
+  to open blank for up to three seconds, and on a second visit it painted a
+  stashed copy of the previous render, which the real answer then replaced a
+  moment later. On some apps that first copy carried a duplicate Last Update
+  and GitHub stars row that then vanished.
+- The toolbar gains an update indicator between the help and settings icons. It
+  appears only when the installed version is behind the published one, and
+  opens the Plugins page, where it can be updated. The About panel names both
+  versions.
+- Card titles take one line and truncate with an ellipsis rather than wrapping
+  to two, so the maintainer and category move up. The full name is on hover.
+- Smaller things: the spotlight badge is legible rather than a smudge, the
+  maintainer card no longer breaks when a maintainer takes donations, the
+  drawer's icon is one fixed square instead of a different size per app, and
+  the author line in the drawer header says AUTHOR so it is not mistaken for
+  the maintainer named below it.
+
+##2026.08.29
 - GitHub locked down its stargazers and watchers listing endpoints
   (/repos/{owner}/{repo}/stargazers and /subscribers) to a repository's own
   admins and collaborators, announced in its changelog on 30 June 2026 and
