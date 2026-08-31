@@ -1964,6 +1964,11 @@
       var name = document.createElement('div');
       name.className = 'asga-tile-name';
       name.textContent = a.n;
+      // The name is one line now and ellipsises rather than wrapping, so the
+      // hover has to be able to give back what the line could not fit. Set on
+      // the name itself rather than relying on the card's own title, the same
+      // way the category line below answers for the categories it clipped.
+      name.title = a.n;
       nameRow.appendChild(name);
       // The catalog carries several competing templates for some apps, and
       // official is the one fact that separates them, so it belongs where the
@@ -2289,21 +2294,29 @@
     // The noun is pluralised off the RAW count rather than the abbreviated
     // figure beside it, because "1.2k" is many and "1" is one, and the two do
     // not agree once fmt() has shortened the number.
+    //
+    // This card used to print the number nought for a figure nobody had
+    // measured, on 998 cards for downloads and 1,689 for stars, where only 4
+    // and 164 respectively were real zeros. A zero is a claim. The word is
+    // not, so a null count now reads as the word "unknown" instead. The noun
+    // is dropped in that case too: "unknown stars" still reads as a quantity,
+    // where "unknown" on its own does not.
     function statSpan(cls, icon, n, noun, title) {
       var s = document.createElement('span');
       var known = (n != null);
-      var v = known ? n : 0;
-      s.className = 'asga-stat ' + cls + (known && v > 0 ? '' : ' asga-stat-none');
+      s.className = 'asga-stat ' + cls + (known && n > 0 ? '' : ' asga-stat-none');
       s.title = title;
       s.insertAdjacentHTML('afterbegin', icon);
-      s.appendChild(document.createTextNode(fmt(v)));
-      // the noun rides in its own element so the button row, which has no room
-      // for it, can drop the word and keep the figure. The tooltip still spells
-      // the whole thing out either way.
-      var w = document.createElement('span');
-      w.className = 'asga-stat-noun';
-      w.textContent = ' ' + noun + (v === 1 ? '' : 's');
-      s.appendChild(w);
+      s.appendChild(document.createTextNode(known ? fmt(n) : 'unknown'));
+      if (known) {
+        // the noun rides in its own element so the button row, which has no
+        // room for it, can drop the word and keep the figure. The tooltip
+        // still spells the whole thing out either way.
+        var w = document.createElement('span');
+        w.className = 'asga-stat-noun';
+        w.textContent = ' ' + noun + (n === 1 ? '' : 's');
+        s.appendChild(w);
+      }
       return s;
     }
     // One figure in the card's stat column: a boxed mark, the abbreviated
@@ -2312,18 +2325,24 @@
     // nothing is known about keeps its slot and dims, for the same reason the
     // footer's do: a missing box on one card and not the next is what makes a
     // wall of cards read as ragged.
+    //
+    // This card used to print the number nought for a figure nobody had
+    // measured, on 998 cards for downloads and 1,689 for stars, where only 4
+    // and 164 respectively were real zeros. A zero is a claim. The word is
+    // not, so a null count now prints as the word "unknown" in place of the
+    // figure, carrying its own class so the CSS can shrink it to fit the
+    // column a four character figure was sized for.
     function statTile(cls, mark, n, word, title) {
       var s = document.createElement('div');
       var known = (n != null);
-      var v = known ? n : 0;
-      s.className = 'asga-tile-stat ' + cls + (known && v > 0 ? '' : ' asga-stat-none');
+      s.className = 'asga-tile-stat ' + cls + (known && n > 0 ? '' : ' asga-stat-none');
       s.title = title;
       var box = document.createElement('span');
       box.className = 'asga-tile-statbox';
       box.insertAdjacentHTML('afterbegin', mark);
       var num = document.createElement('span');
-      num.className = 'asga-tile-statnum';
-      num.textContent = fmt(v);
+      num.className = 'asga-tile-statnum' + (known ? '' : ' asga-tile-statnum-none');
+      num.textContent = known ? fmt(n) : 'unknown';
       var lab = document.createElement('span');
       lab.className = 'asga-tile-statlabel';
       lab.textContent = word;
@@ -2334,16 +2353,29 @@
     }
     function starTitle(s) {
       if (s == null) return 'This app has not been matched to a GitHub repository yet';
+      if (s === 0) return 'This app\'s source repository has no stars yet';
       return s.toLocaleString() + ' GitHub star' + (s === 1 ? '' : 's') +
              ' on this app\'s source repository';
     }
     // Plugins carry a real install count of their own, and "Docker image pulls"
     // is the wrong noun for something that was never pulled from a registry.
+    //
+    // A null count and a real zero used to read the same tooltip, which is the
+    // same mistake the number nought made on the tile itself: 998 cards showed
+    // "0 Downloads" when only 4 apps in the whole catalog carry an explicit
+    // zero, the rest being an image CA never got a pull count for at all (most
+    // often because it is published outside Docker Hub, which is where CA's
+    // count comes from). Null and 0 now get their own sentence apiece.
     function downloadTitle(dl, ty) {
-      if (!dl) {
+      if (dl == null) {
         return ty === 'plugin'
-          ? 'The app catalog carries no install count for this plugin'
-          : 'The app catalog carries no pull count for this image, which is usual for one published outside Docker Hub';
+          ? 'The app catalog has no install count for this plugin'
+          : 'The app catalog has no pull count for this image. Counts come from Docker Hub, and this app is published somewhere else.';
+      }
+      if (dl === 0) {
+        return ty === 'plugin'
+          ? 'No Unraid server has installed this plugin yet'
+          : 'This app\'s image has no pulls recorded yet';
       }
       return ty === 'plugin'
         ? dl.toLocaleString() + ' Unraid servers have installed this plugin'

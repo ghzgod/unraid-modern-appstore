@@ -21,7 +21,7 @@
  *   ic = icon URL              ct = category
  *   fa = FontAwesome glyph name, and only when ic is empty: what CA's own drawer
  *        draws for an app whose template names no icon (see icon_fa())
- *   s  = GitHub stars (or null)  dl = Unraid downloads (or 0)
+ *   s  = GitHub stars (or null)  dl = Unraid downloads, null when CA never counted this app (943 templates carry no count, and an image published outside Docker Hub usually never gets one)
  *   fs = FirstSeen unix ts (date added; 0 if unknown or if the app predates CA's records)
  *   fx = 1 when fs is CA's manufactured floor (1433000000) rather than a date it
  *        recorded, 0 otherwise
@@ -446,10 +446,19 @@ foreach ($tmpl as $t) {
     // guard: a plugin's Repository is a CDN link to its .plg file, not a docker
     // image reference, so the namespace test means nothing there and was
     // silently zeroing every plugin's download count.
-    $dl = (int)($t['downloads'] ?? 0);
+    //
+    // 943 of the 3,873 displayable templates carry no downloads key whatsoever
+    // and only 4 carry an explicit zero, so coercing a missing key to 0 stated
+    // a measurement that was never taken. Null now means not counted and 0
+    // means counted as none, and the grid renders the two differently. The
+    // base-image case above joins it: suppressing a misleading base image
+    // figure is right, but the result is an unknown count rather than a count
+    // of zero.
+    $dl = array_key_exists('downloads', $t) && $t['downloads'] !== null && $t['downloads'] !== ''
+        ? (int)$t['downloads'] : null;
     if (empty($t['Plugin'])) {
         $imgName = explode(':', trim($t['Repository'] ?? ''))[0];
-        if ($imgName === '' || strpos($imgName, '/') === false) $dl = 0;
+        if ($imgName === '' || strpos($imgName, '/') === false) $dl = null;
     }
 
     // description: prefer our stored copy, fall back to CA's Overview; cut to
