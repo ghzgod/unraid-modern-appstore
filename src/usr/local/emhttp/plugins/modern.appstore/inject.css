@@ -85,15 +85,18 @@ html:not(.Theme--legacyOS) body.asga-active .asga-bar { display: contents; }
    toggle's containing block. */
 html:not(.Theme--legacyOS) #searchFilter { position: static; }
 /* 154px: the gear's own 22px inset, plus three 36px boxes (the help button,
-   the update glyph and the gear) and three 8px gaps between them
-   (22 + 36 + 8 + 36 + 8 + 36 + 8 = 154), so the toggle keeps clearing all
-   three instead of just the two it used to step past. The update glyph is
-   display:none on most page loads, but it still occupies its own slot in
-   this chain even when hidden, so nothing has to shift when it appears. */
+   the update glyph and the gear) and three 8px gaps between them.
+   These offsets are the layout WITHOUT the update glyph, which is the state
+   nearly every page load is in, so the toggle clears two icons at
+   22 + 36 + 8 + 36 + 8 = 110. Holding a slot open for a glyph that is not
+   drawn is what left a 44px hole between the help button and the gear on
+   every server already running the current version. The .asga-has-update
+   rules further down step both controls out by one icon, and only then. */
 html:not(.Theme--legacyOS) .asga-toggle {
-  position: absolute; right: 154px; top: 31px; transform: translateY(-50%);
+  position: absolute; right: 110px; top: 31px; transform: translateY(-50%);
   margin: 0;
 }
+html:not(.Theme--legacyOS) .asga-bar.asga-has-update .asga-toggle { right: 154px; }
 /* The gear takes the seat the toggle used to hold, on the grid's right edge.
    Both it and the help button beside it are pinned the same way in both view
    states, so neither moves when the view is switched. */
@@ -118,7 +121,7 @@ html:not(.Theme--legacyOS) .asga-settings:focus-visible { outline: 2px solid #ff
    it stay muted until hovered. */
 html:not(.Theme--legacyOS) .asga-update {
   position: absolute; right: 66px; top: 31px; transform: translateY(-50%); margin: 0;
-  display: inline-flex; align-items: center; justify-content: center;
+  display: none; align-items: center; justify-content: center;
   width: 36px; min-width: 36px; height: 36px; box-sizing: border-box;
   border: 1px solid rgba(127, 127, 127, 0.3);
   border-radius: 8px;
@@ -140,7 +143,7 @@ html:not(.Theme--legacyOS) .asga-help {
      picks up. That margin shifted this 12px left of its own right, which is
      what used to close its gap to the gear and push it under the toggle;
      the same reasoning holds at this button's current 110px offset. */
-  position: absolute; right: 110px; top: 31px; transform: translateY(-50%); margin: 0;
+  position: absolute; right: 66px; top: 31px; transform: translateY(-50%); margin: 0;
   display: inline-flex; align-items: center; justify-content: center;
   width: 36px; min-width: 36px; height: 36px; box-sizing: border-box;
   padding: 0; border: 1px solid rgba(127, 127, 127, 0.3);
@@ -166,10 +169,19 @@ html.Theme--legacyOS .asga-help:hover { opacity: 1; }
    absolutely-positioned counterpart above: this glyph exists on the page at
    all only when there is an update to point at. */
 html.Theme--legacyOS .asga-update {
-  display: inline-flex; align-items: center; justify-content: center;
+  display: none; align-items: center; justify-content: center;
   width: 26px; height: 26px; margin-left: 10px;
   color: #ff8c2f; text-decoration: none; opacity: 1;
 }
+/* The glyph is drawn only when checkForUpdate() has found a newer version and
+   marked the bar, and the help button steps out by one icon at the same
+   moment. Visibility lives here rather than on an inline style so that the
+   shift and the appearance are one rule change and cannot disagree: an inline
+   display would have won over any of this, and hiding it without moving its
+   neighbours is exactly what left the hole. */
+html:not(.Theme--legacyOS) .asga-bar.asga-has-update .asga-update { display: inline-flex; }
+html:not(.Theme--legacyOS) .asga-bar.asga-has-update .asga-help { right: 110px; }
+html.Theme--legacyOS .asga-bar.asga-has-update .asga-update { display: inline-flex; }
 .asga-settings svg, .asga-help svg, .asga-update svg { width: 16px; height: 16px; }
 .asga-settings svg, .asga-help svg { fill: currentColor; }
 /* constrain the native select's box height so its glyphs center on the same

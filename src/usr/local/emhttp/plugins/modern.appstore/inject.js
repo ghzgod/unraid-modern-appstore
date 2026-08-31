@@ -2764,7 +2764,7 @@
         // the page at all when there is something to act on. It is an
         // anchor to /Plugins rather than a button so a middle click or a
         // ctrl/cmd click opens the plugins page in a tab like any other link.
-        '<a id="asga-update" class="asga-update" href="/Plugins" style="display:none" ' +
+        '<a id="asga-update" class="asga-update" href="/Plugins" ' +
           'title="A newer version of this plugin is available. Opens the Plugins page, where it can be updated." ' +
           'aria-label="Plugin update available">' +
           '<svg viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">' +
@@ -3640,9 +3640,13 @@
         .then(function (j) {
           if (!j) return;
           updateInfo = j;
+          // One class on the bar, because the glyph appearing and the two
+          // controls beside it stepping out to make room are the same event.
+          // Showing it on its own left its 44px slot standing empty on every
+          // server that was already up to date, which is most of them.
           if (j.updateAvailable) {
-            var el = document.getElementById('asga-update');
-            if (el) el.style.display = '';
+            var bar = document.getElementById('asga-bar');
+            if (bar) bar.classList.add('asga-has-update');
           }
         })
         // same silent-no-op contract as every other fetch in this file: a
