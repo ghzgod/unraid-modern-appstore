@@ -128,14 +128,23 @@
     // on the host. CA carries a moderator comment on only 273 templates in
     // total, so most of these say nothing about it anywhere the reader would
     // see.
-    var PRIV_ICON = '<svg class="asga-ficon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5.5c0 4.2-2.9 7.6-7 8.5-4.1-.9-7-4.3-7-8.5V6z"/><path d="M12 9v3"/><path d="M12 15v.01"/></svg>';
+    // Several of these glyphs are not centred in their own viewBox: a tag's ink
+    // runs y=3 to y=20 and a docker whale's y=5 to y=20, so their centres land
+    // at 11.5 and 12.5 against a box whose centre is 12. Box-centring the
+    // element then still leaves the drawing half a unit off, which measured
+    // 0.69px high on the category line beside its text. The correction is the
+    // viewBox's own min-y rather than edits to the path data, since it moves
+    // the whole drawing by an exact amount and cannot introduce an arithmetic
+    // slip across a dozen coordinates. Verified with getBBox() afterwards:
+    // every icon's ink centre reads 12.
+    var PRIV_ICON = '<svg class="asga-ficon" viewBox="0 -0.5 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5.5c0 4.2-2.9 7.6-7 8.5-4.1-.9-7-4.3-7-8.5V6z"/><path d="M12 9v3"/><path d="M12 15v.01"/></svg>';
     // The footer's star and download figures used to be literal text glyphs
     // (a ★ and a ⤓), which render at the font's own size and sit on the text
     // baseline, so they could never match the two fixed 12px SVG date icons
     // above. Built the same way, and carrying the same asga-ficon class, so
     // all four footer icons are one size and one shape.
     var STAR_ICON = '<svg class="asga-ficon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.8 6.2 20.9l1.1-6.5L2.6 9.8l6.5-.9z"/></svg>';
-    var DL_ICON = '<svg class="asga-ficon" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg>';
+    var DL_ICON = '<svg class="asga-ficon" viewBox="0 -0.5 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg>';
     // The card header used to spell "Docker" or "Plugin" out as a text pill on
     // its own line; these two replace it with an icon that shares the name's
     // line instead, so the header buys that line back. Carries asga-ficon like
@@ -143,7 +152,7 @@
     // here rather than the 12px a footer glyph gets away with beside its text.
     // Docker's own brand blue, which is why it is allowed to sit alongside this
     // card's own palette: it names a real external mark, not a second hue.
-    var DOCKER_ICON = '<svg class="asga-ficon asga-ficon-lg asga-kind-docker" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="This is a Docker application"><title>This is a Docker application</title><path d="M4 12h17a1 1 0 0 1 1 1 7 7 0 0 1-7 7H9a7 7 0 0 1-7-7v-1z"/><path d="M6 12V9h3v3M10 12V9h3v3M14 12V9h3v3M10 8V5h3v3"/></svg>';
+    var DOCKER_ICON = '<svg class="asga-ficon asga-ficon-lg asga-kind-docker" viewBox="0 0.5 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="This is a Docker application"><title>This is a Docker application</title><path d="M4 12h17a1 1 0 0 1 1 1 7 7 0 0 1-7 7H9a7 7 0 0 1-7-7v-1z"/><path d="M6 12V9h3v3M10 12V9h3v3M14 12V9h3v3M10 8V5h3v3"/></svg>';
     // Violet, and deliberately not the #ff8c2f accent: the accent means
     // interactive everywhere else on this card, and this icon states a fact
     // about the app rather than offering to do anything.
@@ -158,17 +167,17 @@
     var PROJECT_ICON = '<svg class="asga-bicon" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
     var SUPPORT_ICON = '<svg class="asga-bicon" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.6"/><path d="M14.6 9.4 18 6M9.4 9.4 6 6M14.6 14.6 18 18M9.4 14.6 6 18"/></svg>';
     var REPO_ICON    = '<svg class="asga-bicon" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 8-4 4 4 4"/><path d="m15 8 4 4-4 4"/></svg>';
-    var INSTALL_ICON = '<svg class="asga-bicon" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg>';
+    var INSTALL_ICON = '<svg class="asga-bicon" viewBox="0 -0.5 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg>';
     // The maintainer's own picture goes beside their name; this stands in for
     // the 511 of CA's 1182 maintainers who have published none.
-    var PERSON_ICON  = '<svg class="asga-bicon asga-bicon-line" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.4"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>';
+    var PERSON_ICON  = '<svg class="asga-bicon asga-bicon-line" viewBox="0 0.3 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.4"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>';
     // A tag rather than the folder Project wears: the two sit on the same card
     // and a category is a label attached to the app, not a place its files live.
-    var TAG_ICON     = '<svg class="asga-bicon asga-bicon-line" viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12.5V5a2 2 0 0 1 2-2h7.5L21 11.5 12.5 20z"/><circle cx="7.6" cy="7.6" r="1.4"/></svg>';
+    var TAG_ICON     = '<svg class="asga-bicon asga-bicon-line" viewBox="0 -0.5 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12.5V5a2 2 0 0 1 2-2h7.5L21 11.5 12.5 20z"/><circle cx="7.6" cy="7.6" r="1.4"/></svg>';
     // The two figures in the card's stat column, at the size a boxed mark needs
     // rather than the 12px a footer glyph gets away with.
     var STAR_MARK = '<svg class="asga-smark" viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M12 3l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.8 6.2 20.9l1.1-6.5L2.6 9.8l6.5-.9z"/></svg>';
-    var DL_MARK   = '<svg class="asga-smark" viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg>';
+    var DL_MARK   = '<svg class="asga-smark" viewBox="0 -0.5 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg>';
     // Exclamation-in-a-circle for the About panel's "Report an issue" header
     // button (see makeDrawer's headerAction and ensureAboutPanel below). No
     // asga-ficon class: that class forces its own 12px/16px sizing, and this
