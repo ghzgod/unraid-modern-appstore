@@ -685,15 +685,17 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    space between two words should be. */
 .asga-tile-author, .asga-tile-cat { display: flex; align-items: center; gap: 0; min-width: 0; }
 .asga-tile-author > :first-child, .asga-tile-cat > :first-child { margin-right: 6px; }
-/* only when a lead actually precedes it: a category with no colon renders the
-   whole string as .asga-tile-catrest alone, and it must not take a word space
-   on top of the mark's own margin. */
-.asga-tile-catlead + .asga-tile-catrest { margin-left: 0.26em; }
-.asga-tile-authorname, .asga-tile-catlead, .asga-tile-catrest { min-width: 0; }
-.asga-tile-authorname, .asga-tile-catrest {
+
+.asga-tile-authorname, .asga-tile-cattext { min-width: 0; }
+/* The category is one text run in one box: the two halves are spans inside
+   .asga-tile-cattext, so the clipping belongs to the wrapper. Clipping the
+   second half on its own would have measured its width independently of the
+   first, which is the same class of problem the space between them used to
+   have. */
+.asga-tile-authorname, .asga-tile-cattext {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.asga-tile-catlead { font-weight: 600; flex: 0 0 auto; }
+.asga-tile-catlead { font-weight: 600; }
 .asga-tile-catrest { color: color-mix(in srgb, var(--text-color, #f2f2f2) 62%, var(--background-color, #1d1b1b)); }
 /* The maintainer's picture and the category's mark are the same size as the two
    marks in the stat rail. They sit on the same card at the same rank, so a

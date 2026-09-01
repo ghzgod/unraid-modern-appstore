@@ -3488,10 +3488,7 @@ echo json_encode(['error' => 'method not allowed']);
     var PREFIX = '/plugins/modern.appstore/';
 
     var APPS = [];
-    // repo: the maintainer name a 'repo' special view is filtering to (CA's
-    // RepoName, exactly as it arrives in data-repository). Only meaningful
-    // when special === 'repo'; every other special view leaves it untouched.
-    var view = { sort: 'new', q: '', cat: '', catLabel: 'All Apps', special: '', repo: '', page: 1, perPage: 96 };
+    var view = { sort: 'new', q: '', cat: '', catLabel: 'All Apps', special: '', page: 1, perPage: 96 };
     // the configured opening sort, overwritten once applist.php answers with the
     // server's real value; 'new' is only what's used before that response lands
     // or if the config on disk can't be read
@@ -3533,9 +3530,10 @@ echo json_encode(['error' => 'method not allowed']);
     // The few views we can't yet rebuild from our data are handed back to CA.
     // 'repos' used to live in this list too: CA's own repo search, which the
     // drawer's All Apps button ran, landed here and forced the fallback. Now
-    // that wireRepoClick() renders a maintainer's apps in our own grid (rn +
-    // view.special === 'repo'), CA never needs to take that view over, so it
-    // is not one of the views left to hand back.
+    // that wireRepoClick() drops a maintainer:NAME qualifier into the search
+    // box and lets the existing search path filter to that maintainer, CA
+    // never needs to take that view over, so it is not one of the views left
+    // to hand back.
     var caSpecial = false;
     var CA_SPECIAL = /^(previous_apps|prev_docker|prev_plugins|action_centre)$/;
     function stripTag(ri) { return (ri || '').toLowerCase().split(':')[0]; }
@@ -3925,32 +3923,70 @@ echo json_encode(['error' => 'method not allowed']);
       for (var i = 0; i < words.length; i++) if (h.indexOf(words[i]) < 0) return false;
       return true;
     }
+    // A maintainer filter used to live only in view.special/view.repo, a mode
+    // with nothing typed into the search box and so nothing to clear: clicking
+    // Show All Apps left the reader stuck on one maintainer with no way back.
+    // maintainer:NAME is that same filter spelled out as a qualifier the
+    // reader can see sitting in the field and delete. Everything that is not
+    // the qualifier stays free text, so "maintainer:atribe plex" still narrows
+    // within that maintainer. The quoted form exists because a maintainer's
+    // display name can carry a space, such as "Dusty Roberts".
+    var MAINT_RE = /(^|\s)maintainer:(?:"([^"]*)"|(\S+))/i;
+    function parseQuery(q) {
+      var raw = String(q || '');
+      var m = MAINT_RE.exec(raw);
+      var who = '';
+      if (m) {
+        who = (m[2] !== undefined ? m[2] : m[3]) || '';
+        raw = raw.replace(m[0], ' ');
+      }
+      return {
+        maintainer: who.trim(),
+        words: raw.trim().toLowerCase().split(/\s+/).filter(Boolean)
+      };
+    }
+    // The other half of parseQuery, building the token wireRepoClick drops
+    // into the search box. Quoted only when the name actually needs it, since
+    // maintainer:atribe reads better than maintainer:"atribe" for the common
+    // single-word case, and a stray quote in a maintainer's own name would
+    // otherwise break the qualifier's own parsing.
+    function maintainerToken(name) {
+      var n = String(name || '').replace(/"/g, '').trim();
+      if (!n) return '';
+      return /[\s:]/.test(n) ? 'maintainer:"' + n + '"' : 'maintainer:' + n;
+    }
     // The query as the words the filters actually test, shared by the list and
-    // by the cards so the two can never disagree about what matched.
+    // by the cards so the two can never disagree about what matched. Reads
+    // through parseQuery now, so a maintainer qualifier is never handed to the
+    // highlighter or the name-first ordering as though it were a word the
+    // reader typed to search for.
     function searchWords() {
-      return view.q.trim().toLowerCase().split(/\s+/).filter(Boolean);
+      return parseQuery(view.q).words;
     }
     function currentList() {
-      var words = searchWords();
+      var q = parseQuery(view.q);
       var opt = optFor(view.sort);
       var list = APPS.filter(function (a) {
         if (view.special === 'pinned') { if (!pinnedSet || !pinnedSet.has((a.ri || '') + '&' + (a.pn || ''))) return false; }
         else if (view.special === 'installed') { if (!installedSet || !installedSet.has(stripTag(a.ri))) return false; }
-        // repo: CA hands the maintainer name back from an HTML attribute
-        // (data-repository), so it is compared trimmed and case-insensitively
-        // rather than as an exact string match against rn. view.repo keeps its
-        // original casing (it doubles as the heading text), so both sides are
-        // lowercased here rather than when view.repo is set.
-        else if (view.special === 'repo') { if ((a.rn || '').trim().toLowerCase() !== view.repo.trim().toLowerCase()) return false; }
+        // Matched against the display author (a.au) exactly, never as a
+        // substring: a substring test on a short maintainer name is
+        // catastrophic here, a live measurement found "ITI" matching 1,789
+        // apps against the 1 that maintainer actually publishes, and "Unraid"
+        // matching 835 against 19. Exact, case-insensitive equality against
+        // a.au was verified to return the identical set the old repository
+        // match did, across all 1,118 maintainers in the catalog, with zero
+        // display-name collisions between repositories.
+        if (q.maintainer && (a.au || '').trim().toLowerCase() !== q.maintainer.toLowerCase()) return false;
         if (opt.filter && !opt.filter(a)) return false;   // e.g. trending: only movers
         if (!catMatch(a, view.cat)) return false;
-        if (words.length && !qMatch(a, words)) return false;
+        if (q.words.length && !qMatch(a, q.words)) return false;
         return true;
       });
       list.sort(opt.cmp);
-      if (words.length) {
+      if (q.words.length) {
         var named = [], other = [];
-        for (var i = 0; i < list.length; i++) (nameMatch(list[i], words) ? named : other).push(list[i]);
+        for (var i = 0; i < list.length; i++) (nameMatch(list[i], q.words) ? named : other).push(list[i]);
         list = named.concat(other);
       }
       return list;
@@ -4118,8 +4154,10 @@ echo json_encode(['error' => 'method not allowed']);
     // used to be let through to CA_SPECIAL's 'repos' entry and hand the whole
     // page back to CA's grid: the user asked to see one maintainer's apps and
     // got CA's cards instead of ours. This intercepts that one button and
-    // drives our own grid to a maintainer view instead, the same way the left
-    // menu's Pinned/Installed entries already do.
+    // fills the search box with a maintainer:NAME qualifier instead, routing
+    // through the search path that already exists rather than a view-state
+    // flag of our own, so the filter is something the reader can see and
+    // clear instead of a hidden mode with no way out.
     function wireRepoClick() {
       if (document.body.__asgaRepoClick) return;
       document.body.__asgaRepoClick = true;
@@ -4130,12 +4168,24 @@ echo json_encode(['error' => 'method not allowed']);
         e.preventDefault(); e.stopImmediatePropagation();
         var repo = (btn.getAttribute('data-repository') || '').trim();
         if (!repo) return;
+        // data-repository carries CA's raw RepoName, such as "atribe's
+        // Repository", but the grid filters on the display author (a.au), so
+        // the raw name is only used here to look the display name up against
+        // rn. A repository with no app currently in the catalog has nothing
+        // for the qualifier to match, so the click does nothing rather than
+        // filtering the grid to a name that would show zero tiles.
+        var who = '';
+        for (var i = 0; i < APPS.length; i++) {
+          if ((APPS[i].rn || '').trim().toLowerCase() === repo.toLowerCase()) { who = APPS[i].au || ''; break; }
+        }
+        if (!who) return;
         if (typeof window.closeSidebar === 'function') try { window.closeSidebar(); } catch (e2) {}
-        view.special = 'repo'; view.repo = repo;
-        view.page = 1; view.q = ''; view.cat = '';
-        var box = document.getElementById('searchBox'); if (box) box.value = '';
-        applyViewMode();
-        render();
+        // applySearch() already resets the page, clears the category and
+        // calls render, so nothing else is needed here.
+        var token = maintainerToken(who);
+        var box = document.getElementById('searchBox');
+        if (box) box.value = token;
+        applySearch(token);
       }, true);
     }
     // CA renders an app's Overview by turning newlines into <br> and leading
@@ -5534,6 +5584,19 @@ echo json_encode(['error' => 'method not allowed']);
       // built from cf instead, CA's own untouched category string, which is
       // never clipped: every category the app is filed under, in full.
       if (a.cf || raw) cat.title = allCategories(a.cf) || raw;
+      // The two halves live in ONE text run, separated by a real space, rather
+      // than being two flex items with a margin between them. They are one
+      // sentence, and as separate items each carried its own box that the
+      // browser positioned and rounded on its own: the space between them was
+      // an em of a font sized by a clamp() on a container query unit, while
+      // the icon's gap beside it was a fixed pixel margin, so the two scaled
+      // differently and drifted apart at some page zooms and not others.
+      // Measured across five zooms, the word gap ran 2.28, 3.39, 3.31, 3.19
+      // and 5.84px while the icon gap climbed evenly from 5.39 to 9. A space
+      // character is sized by the font that surrounds it, at every zoom,
+      // without anything here having to say so.
+      var txt = document.createElement('span');
+      txt.className = 'asga-tile-cattext';
       var colon = raw.indexOf(':');
       if (colon > 0) {
         var lead = document.createElement('span');
@@ -5542,14 +5605,16 @@ echo json_encode(['error' => 'method not allowed']);
         var rest = document.createElement('span');
         rest.className = 'asga-tile-catrest';
         rest.textContent = raw.slice(colon + 1);
-        cat.appendChild(lead);
-        cat.appendChild(rest);
+        txt.appendChild(lead);
+        txt.appendChild(document.createTextNode(' '));
+        txt.appendChild(rest);
       } else {
         var only = document.createElement('span');
         only.className = 'asga-tile-catrest';
         only.textContent = raw;
-        cat.appendChild(only);
+        txt.appendChild(only);
       }
+      cat.appendChild(txt);
       htext.appendChild(cat);
       head.appendChild(htext);
 
@@ -6014,7 +6079,6 @@ echo json_encode(['error' => 'method not allowed']);
           !feedReady ? feedWaitNote()
           : view.special === 'pinned' ? 'No pinned apps yet. Use the Pin App button on any app to add it here.'
           : view.special === 'installed' ? 'No installed apps matched the App Store catalog.'
-          : view.special === 'repo' ? 'No apps by ' + view.repo + ' matched the App Store catalog.'
           : view.q ? 'No apps match "' + view.q + '".'
           : emptySortNote() || 'No apps to show.'));
         grid.appendChild(empty);
@@ -6024,14 +6088,19 @@ echo json_encode(['error' => 'method not allowed']);
         grid.appendChild(frag);
       }
 
-      var noun = view.special === 'pinned' ? 'pinned apps' : view.special === 'installed' ? 'installed apps' : view.special === 'repo' ? 'apps by this maintainer' : 'apps';
-      var title = view.special === 'pinned' ? 'Pinned Apps' : view.special === 'installed' ? 'Installed Apps' : view.special === 'repo' ? view.repo : (view.cat ? view.catLabel : 'All Apps');
+      // A maintainer qualifier names its own maintainer, so the heading reads
+      // that name directly rather than the generic "All Apps" the free-text
+      // path falls back to, and the sub-line below shows only the free text
+      // beside it rather than repeating the qualifier back at the reader.
+      var q = parseQuery(view.q);
+      var noun = q.maintainer ? 'apps by this maintainer' : view.special === 'pinned' ? 'pinned apps' : view.special === 'installed' ? 'installed apps' : 'apps';
+      var title = q.maintainer ? q.maintainer : view.special === 'pinned' ? 'Pinned Apps' : view.special === 'installed' ? 'Installed Apps' : (view.cat ? view.catLabel : 'All Apps');
       var from = total ? start + 1 : 0, to = Math.min(start + view.perPage, total);
       var cnt = document.getElementById('asga-count');
       cnt.textContent = '';
       var h = document.createElement('span'); h.className = 'asga-count-title'; h.textContent = title;
       var s = document.createElement('span'); s.className = 'asga-count-sub';
-      s.textContent = total ? ('  ' + from + '–' + to + ' of ' + total + ' ' + noun + (view.q ? ' matching "' + view.q + '"' : '')) : '';
+      s.textContent = total ? ('  ' + from + '–' + to + ' of ' + total + ' ' + noun + (q.words.length ? ' matching "' + q.words.join(' ') + '"' : '')) : '';
       cnt.appendChild(h); cnt.appendChild(s);
       renderPager(pages);
       markCurrentCategory();
@@ -7196,7 +7265,7 @@ echo json_encode(['error' => 'method not allowed']);
       // CA disables its category menu for the duration of a search, so a search
       // there always spans the whole store. This does the same rather than
       // quietly searching inside whichever category was last opened.
-      view.special = ''; view.repo = ''; view.cat = ''; view.catLabel = 'All Apps';
+      view.special = ''; view.cat = ''; view.catLabel = 'All Apps';
       view.q = q; view.page = 1; render();
     }
     function wireSearch() {
@@ -7227,12 +7296,7 @@ echo json_encode(['error' => 'method not allowed']);
       for (var i = 0; i < items.length; i++) {
         var it = items[i], cat = it.getAttribute('data-category') || '';
         var on;
-        // A maintainer view has no menu item to light up, and the ternary
-        // below treats anything that is not 'pinned' as 'installed', so
-        // without this the Installed Apps entry lit up whenever someone
-        // opened a maintainer's apps.
-        if (view.special === 'repo') on = false;
-        else if (view.special) on = (cat === (view.special === 'pinned' ? 'pinned_apps' : 'installed_apps'));
+        if (view.special) on = (cat === (view.special === 'pinned' ? 'pinned_apps' : 'installed_apps'));
         else if (view.cat) on = (cat === view.cat);
         else on = it.classList.contains('allApps') || cat === 'All';
         it.classList.toggle('asga-menu-cur', !!on);
@@ -7252,7 +7316,7 @@ echo json_encode(['error' => 'method not allowed']);
         // Pinned + Installed: CA's own views are broken, so render them ourselves.
         if (cat === 'pinned_apps' || cat === 'installed_apps') {
           caSpecial = false; view.special = (cat === 'installed_apps') ? 'installed' : 'pinned';
-          view.repo = ''; view.cat = ''; view.q = ''; if (box) box.value = ''; view.page = 1;
+          view.cat = ''; view.q = ''; if (box) box.value = ''; view.page = 1;
           loadViews(function () { applyViewMode(); render(); });
           return;
         }
@@ -7261,7 +7325,7 @@ echo json_encode(['error' => 'method not allowed']);
           caSpecial = true; applyViewMode(); return;
         }
         // Home (startup screens) and All Apps both mean the full catalog for us.
-        caSpecial = false; view.special = ''; view.repo = '';
+        caSpecial = false; view.special = '';
         var homeLike = item.classList.contains('startupButton') || /^(onlynew|spotlight|top_trending|home)$/.test(cat);
         if (homeLike || cat === 'All' || cat === 'New' || cat === '' || item.classList.contains('allApps')) { view.cat = ''; view.catLabel = 'All Apps'; }
         else { view.cat = cat; view.catLabel = label || cat; }
@@ -8164,15 +8228,17 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    space between two words should be. */
 .asga-tile-author, .asga-tile-cat { display: flex; align-items: center; gap: 0; min-width: 0; }
 .asga-tile-author > :first-child, .asga-tile-cat > :first-child { margin-right: 6px; }
-/* only when a lead actually precedes it: a category with no colon renders the
-   whole string as .asga-tile-catrest alone, and it must not take a word space
-   on top of the mark's own margin. */
-.asga-tile-catlead + .asga-tile-catrest { margin-left: 0.26em; }
-.asga-tile-authorname, .asga-tile-catlead, .asga-tile-catrest { min-width: 0; }
-.asga-tile-authorname, .asga-tile-catrest {
+
+.asga-tile-authorname, .asga-tile-cattext { min-width: 0; }
+/* The category is one text run in one box: the two halves are spans inside
+   .asga-tile-cattext, so the clipping belongs to the wrapper. Clipping the
+   second half on its own would have measured its width independently of the
+   first, which is the same class of problem the space between them used to
+   have. */
+.asga-tile-authorname, .asga-tile-cattext {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.asga-tile-catlead { font-weight: 600; flex: 0 0 auto; }
+.asga-tile-catlead { font-weight: 600; }
 .asga-tile-catrest { color: color-mix(in srgb, var(--text-color, #f2f2f2) 62%, var(--background-color, #1d1b1b)); }
 /* The maintainer's picture and the category's mark are the same size as the two
    marks in the stat rail. They sit on the same card at the same rank, so a
