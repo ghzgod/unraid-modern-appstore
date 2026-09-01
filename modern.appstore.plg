@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.09.02">
+<!ENTITY version "2026.09.02a">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
@@ -14,6 +14,37 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" support="&support;">
 
 <CHANGES>
+##2026.09.02a
+- The app card is redesigned. A strip across the top of every card is tinted in
+  that app's own icon colour, read off the icon on the server: the strongest
+  hue by chroma, so a gold compass on a navy plate gives gold, an outline mark
+  gives its outline, and an SVG icon gives the colour its shapes are filled
+  with. A greyscale icon gets a neutral strip rather than borrowing a colour.
+  The strip fades to the right and downward so the icon, which sits on its
+  bottom edge on an opaque plate, and the kind glyph in its corner never fight
+  it.
+- The name has the whole width of the card and always prints whole, with the
+  Official, Beta, Privileged and Unraid flags beside it as words. Under it the
+  maintainer and the categories share one line, and the line prints as many
+  categories as it has room for rather than always two: "and 1 more" no longer
+  stands where the word it stood for would have fit. Stars, pulls, updated and
+  added sit on one facts line.
+- The six buttons are six equal cells on one row at every width, every label
+  whole, Install filled in orange on the right. The type steps down with the
+  card, to 8.5px on a phone, and never ellipsises.
+- Three cards to a row, never four: a fourth column bought nothing but smaller
+  type, since every size on the card scales with its column. Two columns below
+  1048px of grid, one below 694px.
+- Apps published by Unraid wear an Unraid flag, from the feed's LTOfficial
+  mark.
+- The toolbar no longer breaks apart between 768 and 1200px: the sort control,
+  the view toggle and the three buttons move as one row, beside the search box
+  when they fit and on the line under it when they do not, with the buttons
+  right-aligned at their usual 8px. Below 960 the search box takes the whole
+  row and the toggle leads a line of its own with the buttons on the right.
+- The icon colour cache moved to a new file and a new browser key, so the
+  first load after updating asks the server for every icon again.
+
 ##2026.09.02
 - The About panel gains a Check for Updates button in its header, beside the
   report-an-issue and close icons. It asks right now rather than waiting on the
@@ -1658,6 +1689,7 @@ echo json_encode(['scanned' => count($valid), 'stars' => $out ?: (object)[]], JS
  *   td = CA's trendDelta value, change in that growth percent (null if absent)
  *   tc = count of CA's weekly trend samples (0 if absent), for CA's ranking floor
  *   xc = 1 when CA marks the app incompatible with this server (36 apps), 0 otherwise
+ *   lt = 1 when Unraid itself publishes the app (CA's LTOfficial)
  *   of = 1 when the template is vendor-official (394 apps)
  *   bt = 1 when the template is marked pre-release (211 apps)
  *   pv = 1 when the container runs privileged (114 apps)
@@ -2214,6 +2246,8 @@ foreach ($tmpl as $t) {
         'tc'  => count((array)($t['trends'] ?? [])),
         'rq'  => install_notice($t),
         'po'  => template_ports($t),
+        // Unraid's own apps, 32 of them, read from CA's LTOfficial flag.
+        'lt'  => flag_true($t['LTOfficial'] ?? '') ? 1 : 0,
         // Vendor-official templates, 394 of them. Worth saying on a card, because
         // the catalog carries five competing templates for some apps and this is
         // the one fact that separates them.
@@ -2672,7 +2706,8 @@ respond($ts, $src, false);
 <![CDATA[
 <?php
 /**
- * Mean brightness of an app icon, so the grid can decide what to put behind it.
+ * Mean brightness and a representative colour of an app icon, so the grid can
+ * decide what to put behind it and what colour to tint that backing with.
  *
  * Roughly a fifth of the catalog's icons are dark artwork drawn for a light
  * page, and this addon's icon tile is a near-black plate, so those icons
@@ -2681,10 +2716,10 @@ respond($ts, $src, false);
  * canvas taints it and the pixels cannot be read back. The server has no such
  * restriction.
  *
- * POST {"u":["<icon url>", ...]} -> {"<icon url>": <0-255 mean luminance>}
+ * POST u=<JSON array of icon urls> (form-encoded, with the webGui's csrf_token) -> {"<icon url>": [<0-255 mean luminance>, <6-hex colour, or empty string>]}
  *
- * An icon that cannot be fetched or decoded answers -1, which the caller reads
- * as "leave this tile alone" rather than asking again on every render.
+ * An icon that cannot be fetched or decoded answers [-1, ''], which the caller
+ * reads as "leave this tile alone" rather than asking again on every render.
  *
  * Answers are cached to the addon's data directory on flash and kept: an
  * icon's artwork does not change, and artwork that does arrives under a new
@@ -2694,10 +2729,18 @@ respond($ts, $src, false);
 header('Content-Type: application/json');
 
 $dataDir   = '/boot/config/plugins/modern.appstore';
-$cacheFile = $dataDir . '/icontone.json';
+// New file: the old cache's entries are plain integers and would be misread
+// as a [lum, colour] pair.
+$cacheFile = $dataDir . '/icontone5.json';
 $appsFile  = __DIR__ . '/apps.json';
 
-$req  = json_decode(file_get_contents('php://input'), true);
+// the webGui only lets a form-encoded POST through with its csrf token, so
+// the request now arrives as a field rather than a raw JSON body
+if (isset($_POST['u'])) {
+    $req = ['u' => json_decode((string)$_POST['u'], true)];
+} else {
+    $req = json_decode(file_get_contents('php://input'), true);
+}
 $want = (is_array($req) && isset($req['u']) && is_array($req['u'])) ? $req['u'] : [];
 $want = array_values(array_unique(array_filter(array_map('strval', $want))));
 if (!$want) { echo '{}'; exit; }
@@ -2734,7 +2777,7 @@ if ($todo) {
 }
 
 if ($todo) {
-    foreach (fetchLuminance($todo) as $u => $l) { $out[$u] = $l; $cache[$u] = $l; }
+    foreach (fetchTone($todo) as $u => $l) { $out[$u] = $l; $cache[$u] = $l; }
     if (is_dir($dataDir) || @mkdir($dataDir, 0755, true)) {
         $tmp = $cacheFile . '.tmp';
         if (@file_put_contents($tmp, json_encode($cache)) !== false) @rename($tmp, $cacheFile);
@@ -2744,9 +2787,9 @@ if ($todo) {
 echo json_encode($out);
 
 /**
- * Downloads each icon in one pass and hands the bytes to luminanceOf().
+ * Downloads each icon in one pass and hands the bytes to toneOf().
  */
-function fetchLuminance(array $urls) {
+function fetchTone(array $urls) {
     $res = [];
     $mh = curl_multi_init();
     $handles = [];
@@ -2770,37 +2813,201 @@ function fetchLuminance(array $urls) {
         $body = curl_multi_getcontent($c);
         curl_multi_remove_handle($mh, $c);
         curl_close($c);
-        $res[$u] = luminanceOf($body);
+        $res[$u] = toneOf($body);
     }
     curl_multi_close($mh);
     return $res;
 }
 
 /**
- * Scales the image to 16x16 and averages the luminance of the pixels that are
- * actually painted. Transparent pixels are skipped: an icon is dark because
- * its ink is dark, not because most of its canvas is empty.
+ * Scales the image to 16x16 for luminance (unchanged from before) and to
+ * 24x24 for colour, and answers both together. Returns [-1, ''] on failure.
  */
-function luminanceOf($body) {
-    if (!$body || strlen($body) > 4194304) return -1;
+function toneOf($body) {
+    if (!$body || strlen($body) > 4194304) return [-1, ''];
+    // An SVG is text that opens with a tag; a raster opens with its magic
+    // bytes. Searching the head for "<svg" instead matched a PNG that carried
+    // an SVG inside its metadata chunk and read that as the whole icon.
+    $head = ltrim(substr($body, 0, 64), "\xEF\xBB\xBF \t\r\n");
+    if ($head !== '' && $head[0] === '<') return svgTone($body);
     $im = @imagecreatefromstring($body);
-    if (!$im) return -1;
+    if (!$im) return [-1, ''];
     if (!imageistruecolor($im)) @imagepalettetotruecolor($im);
-    $small = @imagescale($im, 16, 16);
-    if ($small) { imagedestroy($im); $im = $small; }
+
+    $lumSrc = @imagescale($im, 16, 16);
+    if (!$lumSrc) $lumSrc = $im;
     $sum = 0.0; $n = 0;
-    $w = imagesx($im); $h = imagesy($im);
+    $w = imagesx($lumSrc); $h = imagesy($lumSrc);
     for ($y = 0; $y < $h; $y++) {
         for ($x = 0; $x < $w; $x++) {
-            $p = imagecolorat($im, $x, $y);
+            $p = imagecolorat($lumSrc, $x, $y);
             if ((($p >> 24) & 0x7F) > 96) continue;   // all but transparent
             $sum += 0.2126 * (($p >> 16) & 0xFF) + 0.7152 * (($p >> 8) & 0xFF) + 0.0722 * ($p & 0xFF);
             $n++;
         }
     }
+    $lum = $n ? (int)round($sum / $n) : -1;
+    if ($lumSrc !== $im) imagedestroy($lumSrc);
+
+    $colSrc = @imagescale($im, 48, 48);
+    if (!$colSrc) $colSrc = $im;
+    $colour = colourOf($colSrc);
+    if ($colSrc !== $im) imagedestroy($colSrc);
+
     imagedestroy($im);
-    if (!$n) return -1;
-    return (int)round($sum / $n);
+    return [$lum, $colour];
+}
+
+/**
+ * GD cannot rasterise an SVG and Unraid ships nothing that can, so an SVG
+ * icon is read as text instead: every fill, stroke and stop colour it names,
+ * each weighted by its chroma squared and by how often it is named. That is
+ * the same vote as the pixel pass, cast by shapes rather than by area, and it
+ * is right for the icons the catalog actually has, which are a plate, a mark
+ * and a highlight. The luminance is the plain mean of the same colours.
+ */
+function svgTone($body) {
+    static $named = [
+        'white' => 'ffffff', 'black' => '000000', 'red' => 'ff0000', 'green' => '008000',
+        'lime' => '00ff00', 'blue' => '0000ff', 'navy' => '000080', 'orange' => 'ffa500',
+        'yellow' => 'ffff00', 'gold' => 'ffd700', 'purple' => '800080', 'violet' => 'ee82ee',
+        'magenta' => 'ff00ff', 'cyan' => '00ffff', 'teal' => '008080', 'pink' => 'ffc0cb',
+        'brown' => 'a52a2a', 'gray' => '808080', 'grey' => '808080', 'silver' => 'c0c0c0',
+        'maroon' => '800000', 'olive' => '808000', 'aqua' => '00ffff', 'crimson' => 'dc143c',
+        'tomato' => 'ff6347', 'coral' => 'ff7f50', 'salmon' => 'fa8072', 'indigo' => '4b0082',
+        'turquoise' => '40e0d0', 'skyblue' => '87ceeb', 'steelblue' => '4682b4', 'dodgerblue' => '1e90ff',
+        'royalblue' => '4169e1', 'limegreen' => '32cd32', 'forestgreen' => '228b22', 'seagreen' => '2e8b57',
+        'darkorange' => 'ff8c00', 'orangered' => 'ff4500', 'hotpink' => 'ff69b4', 'deeppink' => 'ff1493',
+    ];
+    $rgbs = [];
+    if (preg_match_all('/(?:fill|stroke|stop-color|color)\s*[:=]\s*["\']?\s*([^;"\'\s>]+)/i', $body, $m)) {
+        foreach ($m[1] as $v) {
+            $v = strtolower(trim($v));
+            if (preg_match('/^#([0-9a-f]{6})/', $v, $h))      $hex = $h[1];
+            elseif (preg_match('/^#([0-9a-f]{3})$/', $v, $h)) $hex = $h[1][0].$h[1][0].$h[1][1].$h[1][1].$h[1][2].$h[1][2];
+            elseif (preg_match('/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/', $v, $h)) $hex = sprintf('%02x%02x%02x', min(255, $h[1]), min(255, $h[2]), min(255, $h[3]));
+            elseif (isset($named[$v])) $hex = $named[$v];
+            else continue;
+            $rgbs[] = [hexdec(substr($hex, 0, 2)), hexdec(substr($hex, 2, 2)), hexdec(substr($hex, 4, 2))];
+        }
+    }
+    if (!$rgbs) return [-1, ''];
+    $lum = 0.0; $bestW = 0.0; $best = null;
+    $votes = [];
+    foreach ($rgbs as $c) {
+        list($r, $g, $b) = $c;
+        $lum += 0.2126 * $r + 0.7152 * $g + 0.0722 * $b;
+        $k = $r . ',' . $g . ',' . $b;
+        $ch = (max($r, $g, $b) - min($r, $g, $b)) / 255;
+        $votes[$k] = ($votes[$k] ?? 0) + $ch * $ch;
+        if ($votes[$k] > $bestW) { $bestW = $votes[$k]; $best = $c; }
+    }
+    $lum = (int)round($lum / count($rgbs));
+    if ($bestW < 0.02) return [$lum, ''];
+    list($hh, $ss, $ll) = rgbToHsl($best[0], $best[1], $best[2]);
+    list($nr, $ng, $nb) = hslToRgb($hh, max($ss, 0.6), 0.55);
+    return [$lum, sprintf('%02x%02x%02x', $nr, $ng, $nb)];
+}
+
+/**
+ * A representative colour of an already-scaled icon. Each pixel is weighted
+ * by its chroma squared, so a colourful mark outvotes a dark plate, a drop
+ * shadow or a white background however many pixels those cover; the weight is
+ * bucketed into 24 hue bins and the winning bin, plus its two neighbours,
+ * gives the final mean. Below a weight floor there is no colour worth taking
+ * and this answers ''.
+ *
+ * The mean is then pushed to a fixed saturation and lightness before it is
+ * handed back: a muddy mean drawn at a quarter alpha reads as dirt on the
+ * tile, while a vivid version of the same hue reads as the icon.
+ */
+function colourOf($im) {
+    $w = imagesx($im); $h = imagesy($im);
+    $binW = array_fill(0, 24, 0.0);
+    $binR = array_fill(0, 24, 0.0);
+    $binG = array_fill(0, 24, 0.0);
+    $binB = array_fill(0, 24, 0.0);
+    $n = 0;
+    for ($y = 0; $y < $h; $y++) {
+        for ($x = 0; $x < $w; $x++) {
+            $p = imagecolorat($im, $x, $y);
+            if ((($p >> 24) & 0x7F) > 96) continue;   // all but transparent
+            $n++;
+            $r = ($p >> 16) & 0xFF; $g = ($p >> 8) & 0xFF; $b = $p & 0xFF;
+            $max = max($r, $g, $b); $min = min($r, $g, $b);
+            // Chroma, not saturation. Saturation is chroma over the brightest
+            // channel, so a near-black navy (10,20,60) scores 0.83 and a
+            // plate of it outvotes the gold mark drawn on top; its chroma is
+            // 0.2, and squared it is a twentieth of the mark's.
+            $c = ($max - $min) / 255;
+            $wgt = $c * $c;
+            if ($wgt < 0.01) continue;
+            $delta = $max - $min;
+            if ($max === $r)      $hue = 60 * fmod((($g - $b) / $delta), 6);
+            elseif ($max === $g)  $hue = 60 * ((($b - $r) / $delta) + 2);
+            else                  $hue = 60 * ((($r - $g) / $delta) + 4);
+            if ($hue < 0) $hue += 360;
+            $bin = ((int)floor($hue / 15)) % 24;
+            $binW[$bin] += $wgt;
+            $binR[$bin] += $wgt * $r;
+            $binG[$bin] += $wgt * $g;
+            $binB[$bin] += $wgt * $b;
+        }
+    }
+    if (!$n) return '';
+
+    $best = 0; $bestW = -1;
+    for ($i = 0; $i < 24; $i++) if ($binW[$i] > $bestW) { $bestW = $binW[$i]; $best = $i; }
+    $lo = ($best + 23) % 24; $hi = ($best + 1) % 24;
+    $totalW = $binW[$lo] + $binW[$best] + $binW[$hi];
+    // The floor is half a percent of the pixels, not four: a mark drawn as a
+    // thin coloured line on a dark plate (an outline, a lettermark, a ring)
+    // is a few dozen saturated pixels of a 48x48 field, and at four percent
+    // every one of those answered '' and wore the fallback tint. Below half a
+    // percent the icon is greyscale in fact, not just in outline.
+    if ($totalW < 0.005 * $n) return '';
+
+    $r = ($binR[$lo] + $binR[$best] + $binR[$hi]) / $totalW;
+    $g = ($binG[$lo] + $binG[$best] + $binG[$hi]) / $totalW;
+    $b = ($binB[$lo] + $binB[$best] + $binB[$hi]) / $totalW;
+
+    list($hh, $ss, $ll) = rgbToHsl($r, $g, $b);
+    list($nr, $ng, $nb) = hslToRgb($hh, max($ss, 0.6), 0.55);
+    return sprintf('%02x%02x%02x', $nr, $ng, $nb);
+}
+
+function rgbToHsl($r, $g, $b) {
+    $r /= 255; $g /= 255; $b /= 255;
+    $max = max($r, $g, $b); $min = min($r, $g, $b);
+    $l = ($max + $min) / 2;
+    if ($max == $min) return [0, 0, $l];
+    $d = $max - $min;
+    $s = $l > 0.5 ? $d / (2 - $max - $min) : $d / ($max + $min);
+    if ($max == $r)      $h = ($g - $b) / $d + ($g < $b ? 6 : 0);
+    elseif ($max == $g)  $h = ($b - $r) / $d + 2;
+    else                 $h = ($r - $g) / $d + 4;
+    return [$h / 6, $s, $l];
+}
+
+function hslToRgb($h, $s, $l) {
+    if ($s == 0) { $r = $g = $b = $l; }
+    else {
+        $q = $l < 0.5 ? $l * (1 + $s) : $l + $s - $l * $s;
+        $p = 2 * $l - $q;
+        $r = hueToRgb($p, $q, $h + 1 / 3);
+        $g = hueToRgb($p, $q, $h);
+        $b = hueToRgb($p, $q, $h - 1 / 3);
+    }
+    return [(int)round($r * 255), (int)round($g * 255), (int)round($b * 255)];
+}
+
+function hueToRgb($p, $q, $t) {
+    if ($t < 0) $t += 1;
+    if ($t > 1) $t -= 1;
+    if ($t < 1 / 6) return $p + ($q - $p) * 6 * $t;
+    if ($t < 1 / 2) return $q;
+    if ($t < 2 / 3) return $p + ($q - $p) * (2 / 3 - $t) * 6;
+    return $p;
 }
 ]]>
 </INLINE>
@@ -3650,7 +3857,6 @@ echo json_encode(['error' => 'method not allowed']);
     // the whole drawing by an exact amount and cannot introduce an arithmetic
     // slip across a dozen coordinates. Verified with getBBox() afterwards:
     // every icon's ink centre reads 12.
-    var PRIV_ICON = '<svg class="asga-ficon" viewBox="0 -0.5 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v5.5c0 4.2-2.9 7.6-7 8.5-4.1-.9-7-4.3-7-8.5V6z"/><path d="M12 9v3"/><path d="M12 15v.01"/></svg>';
     // The footer's star and download figures used to be literal text glyphs
     // (a ★ and a ⤓), which render at the font's own size and sit on the text
     // baseline, so they could never match the two fixed 12px SVG date icons
@@ -3670,27 +3876,12 @@ echo json_encode(['error' => 'method not allowed']);
     // interactive everywhere else on this card, and this icon states a fact
     // about the app rather than offering to do anything.
     var PLUGIN_ICON = '<svg class="asga-ficon asga-ficon-lg asga-kind-plugin" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" role="img" aria-label="This is a plugin application"><title>This is a plugin application</title><path d="M9 2v6M15 2v6"/><path d="M6 8h12v3a6 6 0 0 1-6 6 6 6 0 0 1-6-6V8z"/><path d="M12 17v5"/></svg>';
-    // The button row used to be six words in six pills. A mark in front of each
-    // lets the row be read at a glance rather than word by word. They are 10px
-    // rather than the 12px a footer glyph gets, because six buttons and their
-    // labels have to fit one line of a 340px column and the marks are what that
-    // line can least afford to spend on.
-    var INFO_ICON    = '<svg class="asga-bicon" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><path d="M12 7.5v.01"/></svg>';
-    var PIN_ICON     = '<svg class="asga-bicon" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4h6l-1 6 4 3v2H6v-2l4-3z"/><path d="M12 15v5"/></svg>';
-    var PROJECT_ICON = '<svg class="asga-bicon" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>';
-    var SUPPORT_ICON = '<svg class="asga-bicon" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.6"/><path d="M14.6 9.4 18 6M9.4 9.4 6 6M14.6 14.6 18 18M9.4 14.6 6 18"/></svg>';
-    var REPO_ICON    = '<svg class="asga-bicon" viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 8-4 4 4 4"/><path d="m15 8 4 4-4 4"/></svg>';
-    var INSTALL_ICON = '<svg class="asga-bicon" viewBox="0 -0.5 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg>';
     // The maintainer's own picture goes beside their name; this stands in for
     // the 511 of CA's 1182 maintainers who have published none.
     var PERSON_ICON  = '<svg class="asga-bicon asga-bicon-line" viewBox="3.3 3.6 17.4 17.4" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.4"/><path d="M5 20a7 7 0 0 1 14 0"/></svg>';
     // A tag rather than the folder Project wears: the two sit on the same card
     // and a category is a label attached to the app, not a place its files live.
     var TAG_ICON     = '<svg class="asga-bicon asga-bicon-line" viewBox="2 1.5 20 20" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12.5V5a2 2 0 0 1 2-2h7.5L21 11.5 12.5 20z"/><circle cx="7.6" cy="7.6" r="1.4"/></svg>';
-    // The two figures in the card's stat column, at the size a boxed mark needs
-    // rather than the 12px a footer glyph gets away with.
-    var STAR_MARK = '<svg class="asga-smark" viewBox="0 0 24 24" width="13" height="13" fill="currentColor" aria-hidden="true"><path d="M12 3l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.8 6.2 20.9l1.1-6.5L2.6 9.8l6.5-.9z"/></svg>';
-    var DL_MARK   = '<svg class="asga-smark" viewBox="0 -0.5 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12"/><path d="M7 11l5 5 5-5"/><path d="M4 20h16"/></svg>';
     // Exclamation-in-a-circle for the About panel's "Report an issue" header
     // button (see makeDrawer's headerAction and ensureAboutPanel below). No
     // asga-ficon class: that class forces its own 12px/16px sizing, and this
@@ -3813,7 +4004,9 @@ echo json_encode(['error' => 'method not allowed']);
     // which sends no CORS header, so drawing one to a canvas taints it and the
     // pixels cannot be read back; icontone.php reads them server side instead.
     // Every answer is held in localStorage, so a second visit asks for nothing.
-    var TONE_KEY = 'asga_icontone_v1';
+    // Each answer now also carries a representative colour of the icon, which
+    // paintTone hands to the tile's strip.
+    var TONE_KEY = 'asga_icontone_v5';
     var TONE_DARK = 78;   // 0-255 mean luminance; below this needs a plate
     var toneMap = {};
     try { toneMap = JSON.parse(localStorage.getItem(TONE_KEY) || '{}') || {}; } catch (e) { toneMap = {}; }
@@ -3822,9 +4015,21 @@ echo json_encode(['error' => 'method not allowed']);
     if (Object.keys(toneMap).length > 2500) toneMap = {};
     var tonePending = {};
     var toneTimer = null;
-    function paintTone(img, lum) {
-      if (lum == null || lum < 0) return;
-      img.dataset.tone = (lum < TONE_DARK) ? 'dark' : 'lit';
+    function paintTone(img, val) {
+      if (val == null || val === -1) return;
+      var lum = Array.isArray(val) ? val[0] : val;
+      var col = Array.isArray(val) ? val[1] : '';
+      if (lum >= 0) img.dataset.tone = (lum < TONE_DARK) ? 'dark' : 'lit';
+      // the strip wears the icon's own colour, so the card's top reads as the
+      // app rather than as its kind
+      if (col && /^[0-9a-f]{6}$/i.test(col)) {
+        var tile = img.closest && img.closest('.asga-tile');
+        var strip = tile && tile.querySelector('.asga-tile-strip');
+        if (strip) {
+          strip.style.setProperty('--asga-strip-rgb',
+            parseInt(col.slice(0, 2), 16) + ', ' + parseInt(col.slice(2, 4), 16) + ', ' + parseInt(col.slice(4, 6), 16));
+        }
+      }
     }
     // Bound on load rather than on creation, because a card swaps in the
     // maintainer's GitHub avatar when a template's own icon 404s and the tone
@@ -3847,10 +4052,15 @@ echo json_encode(['error' => 'method not allowed']);
       var urls = Object.keys(tonePending);
       if (!urls.length) return;
       var batch = urls.slice(0, 80);
+      // form-encoded with the csrf token riding along, because the webGui
+      // answers a token-less POST with an empty 200 rather than an error
+      var toneParams = new URLSearchParams();
+      toneParams.set('u', JSON.stringify(batch));
       fetch(PREFIX + 'icontone.php', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ u: batch })
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        credentials: 'same-origin',
+        body: csrfBody(toneParams)
       }).then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) {
           batch.forEach(function (u) {
@@ -3859,6 +4069,8 @@ echo json_encode(['error' => 'method not allowed']);
             (tonePending[u] || []).forEach(function (im) { paintTone(im, lum); });
             delete tonePending[u];
           });
+          // lum here still holds whatever icontone.php answered: -1 on
+          // failure, or the [luminance, colour] pair, both handled by paintTone
           try { localStorage.setItem(TONE_KEY, JSON.stringify(toneMap)); } catch (e) {}
           if (Object.keys(tonePending).length && !toneTimer) toneTimer = setTimeout(flushTone, 200);
         })
@@ -4099,7 +4311,8 @@ echo json_encode(['error' => 'method not allowed']);
       if (!repo) return;
       var key = repo + '&' + name;
       var willPin = btn.textContent !== 'Unpin';
-      btn.textContent = willPin ? 'Unpin' : 'Pin App';
+      var lab = btn.querySelector('.asga-btn-label') || btn;
+      lab.textContent = willPin ? 'Unpin' : 'Pin';
       btn.classList.toggle('asga-pinned', willPin);
       if (pinnedSet) { if (willPin) pinnedSet.add(key); else pinnedSet.delete(key); }
       try {
@@ -5402,8 +5615,8 @@ echo json_encode(['error' => 'method not allowed']);
       if (!fresh) { if (old) old.remove(); return; }
       if (old) old.replaceWith(fresh);
       else {
-        var dates = tile.querySelector('.asga-tile-dates');
-        if (dates) dates.insertBefore(fresh, dates.firstChild);
+        var facts = tile.querySelector('.asga-tile-facts');
+        if (facts) facts.appendChild(fresh);
       }
     }
 
@@ -5556,38 +5769,68 @@ echo json_encode(['error' => 'method not allowed']);
       if (a.po && a.po.length) tile.setAttribute('data-ports', a.po.join(','));
       tile.title = a.n;
 
-      // header: icon + name/author/category
+      // header: a tinted strip carrying the flags and the kind glyph, the icon
+      // overlapping its bottom edge, then the name and one byline row of
+      // maintainer and category. Four pieces, one band.
       var head = document.createElement('div');
       head.className = 'asga-tile-head';
+
+      // The strip names the kind by colour before the glyph at its end spells
+      // it out, and gives the flags and the kind glyph a row of their own so
+      // they never have to compete with the name or the byline for space.
+      var strip = document.createElement('div');
+      strip.className = 'asga-tile-strip';
+      var marks = document.createElement('span');
+      marks.className = 'asga-tile-marks';
+      var kind = document.createElement('span');
+      kind.className = 'asga-tile-kind';
+      kind.insertAdjacentHTML('beforeend', (a.ty === 'plugin') ? PLUGIN_ICON : DOCKER_ICON);
+      marks.appendChild(kind);
+      strip.appendChild(marks);
+      head.appendChild(strip);
 
       var iconWrap = document.createElement('div');
       iconWrap.className = 'asga-tile-icon';
       iconWrap.appendChild(appIcon(a, ''));
       head.appendChild(iconWrap);
 
-
-      var htext = document.createElement('div');
-      htext.className = 'asga-tile-htext';
-      var nameRow = document.createElement('div');
-      nameRow.className = 'asga-tile-namerow';
+      // The name gets the whole width of the card, on a band of its own above
+      // the icon row, rather than the slot beside the icon that the stat rail
+      // and the icon between them left 250px wide at four columns. 202 of the
+      // catalog's 3,862 names did not fit that slot and lost their tail to an
+      // ellipsis, and for 78 of them the tail was the only part that told two
+      // apps apart. Across the full card the plain stylesheet size fits all
+      // but a handful, and fitTitles() shrinks those few down to the width
+      // they have (never below the floor it sets, which the longest name in
+      // the catalog clears at the narrowest card this grid draws), so every
+      // card prints its whole name on one line and no card's header is ever
+      // taller than its neighbour's.
+      var title = document.createElement('div');
+      title.className = 'asga-tile-title';
       var name = document.createElement('div');
       name.className = 'asga-tile-name';
       name.textContent = a.n;
-      // The name is one line now and ellipsises rather than wrapping, so the
-      // hover has to be able to give back what the line could not fit. Set on
-      // the name itself rather than relying on the card's own title, the same
-      // way the category line below answers for the categories it clipped.
-      name.title = a.n;
-      nameRow.appendChild(name);
-      // The catalog carries several competing templates for some apps, and
-      // official is the one fact that separates them, so it belongs where the
-      // eye already is, beside the name, rather than in a drawer nobody opens
-      // to compare two cards. 394 apps are official and 211 are pre-release.
-      if (a.of) nameRow.appendChild(mkFlag('Official', 'asga-flag-official',
+      title.appendChild(name);
+      // The flags sit beside the name, since they are facts about this app
+      // and read as its qualifiers; the strip's corner keeps only the kind
+      // glyph. fitTitles() takes their width off the room the name gets.
+      var flags = document.createElement('span');
+      flags.className = 'asga-tile-flags';
+      if (a.lt) flags.appendChild(mkFlag('Unraid', 'asga-flag-unraid', 'Published by Unraid'));
+      if (a.of) flags.appendChild(mkFlag('Official', 'asga-flag-official',
         'Published by the people who make this software, rather than repackaged by a third party'));
-      if (a.bt) nameRow.appendChild(mkFlag('Beta', 'asga-flag-beta',
+      if (a.bt) flags.appendChild(mkFlag('Beta', 'asga-flag-beta',
         'The maintainer marks this template as pre-release'));
-      htext.appendChild(nameRow);
+      if (a.pv) flags.appendChild(mkFlag('Privileged', 'asga-flag-priv',
+        'This container runs privileged, with elevated access to the host'));
+      if (flags.firstChild) title.appendChild(flags);
+      head.appendChild(title);
+
+      // Maintainer and category now share one line rather than two, separated
+      // by a middle dot, since the flags and the kind glyph moved up into the
+      // strip and freed the row they used to sit under.
+      var byline = document.createElement('div');
+      byline.className = 'asga-tile-byline';
       // The maintainer wears their own face. CA publishes an icon for 671 of
       // its 1182 repositories and the rest fall back to a person glyph, which
       // is the shape this line always had; the picture is simply better at
@@ -5620,7 +5863,11 @@ echo json_encode(['error' => 'method not allowed']);
         aun.className = 'asga-tile-authorname';
         aun.textContent = a.au;
         au.appendChild(aun);
-        htext.appendChild(au);
+        byline.appendChild(au);
+        var sep = document.createElement('span');
+        sep.className = 'asga-tile-sep';
+        sep.textContent = '·';
+        byline.appendChild(sep);
       }
       // CA files a category as "Parent: Child, Child". The parent is the part
       // worth reading first, so it carries the weight and the children trail
@@ -5629,12 +5876,20 @@ echo json_encode(['error' => 'method not allowed']);
       cat.className = 'asga-tile-cat';
       cat.insertAdjacentHTML('afterbegin', TAG_ICON);
       var raw = a.ct || '';
-      // The line the card prints is a label applist.php already shortened, so a
-      // card filed under five categories reads "and 2 more" and the tooltip,
-      // asked the same question, answered "and 2 more" as well. The tooltip is
-      // built from cf instead, CA's own untouched category string, which is
-      // never clipped: every category the app is filed under, in full.
+      // The tooltip is built from cf, CA's own untouched category string:
+      // every category the app is filed under, in full.
       if (a.cf || raw) cat.title = allCategories(a.cf) || raw;
+      // The line itself prints as many of those as the card has room for,
+      // and "and N more" only for the ones it has not. applist.php's ct
+      // shows two and folds the rest, the way CA's own cards do, which on a
+      // card this wide left "and 1 more" standing where the word it stood
+      // for would have fit. cf is the list; fitCats() below picks the count
+      // once the byline is laid out and knows its width. ct is the fallback
+      // for the apps whose feed entry names no category, where it comes from
+      // the stored template and is already a finished label.
+      var cats = a.cf ? allCategories(a.cf).split(', ') : [];
+      if (!cats.length && raw) cats = [raw];
+      cat.__cats = cats;
       // The two halves live in ONE text run, separated by a real space, rather
       // than being two flex items with a margin between them. They are one
       // sentence, and as separate items each carried its own box that the
@@ -5648,42 +5903,11 @@ echo json_encode(['error' => 'method not allowed']);
       // without anything here having to say so.
       var txt = document.createElement('span');
       txt.className = 'asga-tile-cattext';
-      var colon = raw.indexOf(':');
-      if (colon > 0) {
-        var lead = document.createElement('span');
-        lead.className = 'asga-tile-catlead';
-        lead.textContent = raw.slice(0, colon + 1);
-        var rest = document.createElement('span');
-        rest.className = 'asga-tile-catrest';
-        rest.textContent = raw.slice(colon + 1);
-        txt.appendChild(lead);
-        txt.appendChild(document.createTextNode(' '));
-        txt.appendChild(rest);
-      } else {
-        var only = document.createElement('span');
-        only.className = 'asga-tile-catrest';
-        only.textContent = raw;
-        txt.appendChild(only);
-      }
+      writeCat(txt, catLabel(cats, cats.length));
       cat.appendChild(txt);
-      htext.appendChild(cat);
-      head.appendChild(htext);
-
-      // The two figures move out of the corner badge they used to float in and
-      // into a column of their own, ruled off from the text. A badge had room
-      // for an abbreviated number and nothing else, so a card could show "22k"
-      // without ever saying 22 thousand what; given a column, each figure gets
-      // the word underneath it.
-      var stats = document.createElement('div');
-      stats.className = 'asga-tile-stats';
-      stats.appendChild(statTile('asga-tile-stat-stars', STAR_MARK, a.s, 'Stars', starTitle(a.s)));
-      stats.appendChild(statTile('asga-tile-stat-dl', DL_MARK, a.dl, a.ty === 'plugin' ? 'Installs' : 'Downloads', downloadTitle(a.dl, a.ty, a.dz)));
+      byline.appendChild(cat);
+      head.appendChild(byline);
       tile.appendChild(head);
-      // Appended to the card rather than to the header: the stylesheet places
-      // it in a column of the card that spans both the header and the
-      // description, which is what lets the rule beside it run the full height
-      // of the two rather than stopping at the header's own bottom edge.
-      tile.appendChild(stats);
 
       // description (verbiage)
       // Always appended, even empty. The card is a four-band subgrid and each
@@ -5718,10 +5942,10 @@ echo json_encode(['error' => 'method not allowed']);
       // direct links, no submenu)
       var btns = document.createElement('div');
       btns.className = 'asga-tile-btns';
-      btns.appendChild(mkBtn('Info', 'asga-info', INFO_ICON));
+      btns.appendChild(mkBtn('Info', 'asga-info'));
       if (a.ri) {
         var isPinned = pinnedSet && pinnedSet.has(a.ri + '&' + (a.pn || ''));
-        var pb = mkBtn(isPinned ? 'Unpin' : 'Pin App', 'asga-pin', PIN_ICON);
+        var pb = mkBtn(isPinned ? 'Unpin' : 'Pin', 'asga-pin');
         if (isPinned) pb.classList.add('asga-pinned');
         btns.appendChild(pb);
       }
@@ -5731,7 +5955,7 @@ echo json_encode(['error' => 'method not allowed']);
       // in the feed have no Project URL at all: their template simply never
       // declared one, which CA answers by leaving the entry out of its own
       // Support menu entirely.
-      var prBtn = mkBtn('Project', 'asga-project', PROJECT_ICON);
+      var prBtn = mkBtn('Project', 'asga-project');
       if (!a.pr) {
         prBtn.classList.add('asga-btn-off');
         prBtn.title = 'This app\'s template does not list a project page';
@@ -5739,7 +5963,7 @@ echo json_encode(['error' => 'method not allowed']);
       btns.appendChild(prBtn);
       // Support gets the same treatment for the same reason, on the 198 apps
       // whose template names no support thread.
-      var suBtn = mkBtn('Support', 'asga-support', SUPPORT_ICON);
+      var suBtn = mkBtn('Support', 'asga-support');
       if (!a.su) {
         suBtn.classList.add('asga-btn-off');
         suBtn.title = 'This app\'s template does not list a support thread';
@@ -5749,7 +5973,7 @@ echo json_encode(['error' => 'method not allowed']);
       // Profile button opens. Labelled Repo rather than Maintainer because the
       // drawer it opens is titled "<name>'s Repository" and the word has to fit
       // a card pill beside five others.
-      var mtBtn = mkBtn('Repo', 'asga-maint', REPO_ICON);
+      var mtBtn = mkBtn('Repo', 'asga-maint');
       if (a.rn) {
         mtBtn.title = 'Open ' + a.rn;
       } else {
@@ -5762,11 +5986,11 @@ echo json_encode(['error' => 'method not allowed']);
       // handler's button branches, which is what leaves a click on it falling
       // through to the Info/Install drawer like the rest of the card.
       if (a.ri && installedSet && installedSet.has(stripTag(a.ri))) {
-        var instBtn = mkBtn('Installed', 'asga-btn-installed', INSTALL_ICON);
+        var instBtn = mkBtn('Installed', 'asga-btn-installed');
         instBtn.title = 'Already installed on this server';
         btns.appendChild(instBtn);
       } else {
-        var ib = mkBtn('Install', 'asga-install', INSTALL_ICON);
+        var ib = mkBtn('Install', 'asga-install');
         // Docker down: the card still lists the app and still opens its Info
         // drawer, only Install is off, exactly as CA behaves.
         if (blocked(a)) {
@@ -5776,46 +6000,29 @@ echo json_encode(['error' => 'method not allowed']);
         btns.appendChild(ib);
       }
 
-      // when CA's feed first saw this app, and when the app itself last shipped.
-      // These used to print as full sentences ("Added Jun 21, 2025 (14 months
-      // ago)"), which no longer fits across a 340px card; now it's an icon plus
-      // the age, and the exact date (with time of day) moves to the tooltip.
-      // Both halves are appended even when their date is unknown, so a card
-      // that knows only one of the two reserves the same footer line as its
-      // neighbours and every button row in a grid row still bottom-aligns.
-      var dates = document.createElement('div');
-      dates.className = 'asga-tile-dates';
-      // The card's actual footer now: two dates and what kind of app this is,
-      // left aligned, directly under the buttons. Stars and downloads used to
-      // ride here too, as a run of four facts, which is why this band once had
-      // to fit that many; they moved up into the header's own stat column, so
-      // the footer only ever has to hold the two dates and the kind icon.
-      // Added leads and Updated follows: when an app arrived is the more stable
-      // of the two facts and the one the eye should land on first. A date the
-      // catalog holds nothing at all for still takes no room rather than
-      // printing a word where a date belongs.
+      // One line of standing facts: stars, then downloads or installs, then
+      // when the app last shipped, then when CA's feed first saw it. All four
+      // used to be split across a header stat column and a footer dates row;
+      // one line does the same job in less height, and the noun each figure
+      // needs (star, pull, install) rides the tooltip since the row has no
+      // room to spell it out.
+      var facts = document.createElement('div');
+      facts.className = 'asga-tile-facts';
+      facts.appendChild(statSpan('asga-stat-stars', STAR_ICON, a.s, 'star', starTitle(a.s)));
+      facts.appendChild(statSpan('asga-stat-dl', DL_ICON, a.dl, a.ty === 'plugin' ? 'install' : 'pull', downloadTitle(a.dl, a.ty, a.dz)));
+      // Always, even with no date to give. An app the feed holds no update
+      // date for used to have no clock at all, so one card in a row carried
+      // two facts and the next carried one, and the missing one read as a
+      // hole rather than as an unknown. It prints "unknown" dimmed, the same
+      // way a missing count does, and fillMissingDates() replaces it in place
+      // once the registry that hosts the image has answered.
+      facts.appendChild(dateSpan('asga-tile-updated', CLOCK_ICON, 'Updated', a.lu, a.lk !== 'r', a.lk === 'r'));
+      // Added is last and only when known: a date the catalog holds nothing
+      // for still takes no room rather than printing a word where one belongs.
       var added = addedSpan(a);
-      if (added) dates.appendChild(added);
-      if (a.lu) dates.appendChild(dateSpan('asga-tile-updated', CLOCK_ICON, 'Updated', a.lu, a.lk !== 'r', a.lk === 'r'));
-      // What kind of app this is, at the far end of the same row the two date
-      // icons sit on, so every icon along the card's bottom shares one line.
-      var kind = document.createElement('span');
-      kind.className = 'asga-tile-kind';
-      kind.insertAdjacentHTML('beforeend', (a.ty === 'plugin') ? PLUGIN_ICON : DOCKER_ICON);
-      if (a.pv) {
-        var priv = document.createElement('span');
-        priv.className = 'asga-tile-priv';
-        priv.title = 'This container runs privileged, with elevated access to the host';
-        priv.insertAdjacentHTML('beforeend', PRIV_ICON);
-        dates.appendChild(priv);
-      }
-      dates.appendChild(kind);
-      // Buttons directly under the description, dates last along the bottom
-      // left. The 10px row-gap that used to separate the dates from the buttons
-      // now separates the description from them, unchanged, because the gap
-      // belongs to the grid rather than to either band.
+      if (added) facts.appendChild(added);
+      tile.appendChild(facts);
       tile.appendChild(btns);
-      tile.appendChild(dates);
       return tile;
     }
     // The absolute form. CA's FirstSeen is a unix timestamp, and it floors
@@ -5943,41 +6150,6 @@ echo json_encode(['error' => 'method not allowed']);
       }
       return s;
     }
-    // One figure in the card's stat column: a boxed mark, the abbreviated
-    // number, and the word for what is being counted under it. The exact figure
-    // stays in the tooltip, as it does everywhere else in this file. A figure
-    // nothing is known about keeps its slot and dims, for the same reason the
-    // footer's do: a missing box on one card and not the next is what makes a
-    // wall of cards read as ragged.
-    //
-    // This card used to print the number nought for a figure nobody had
-    // measured, on 998 cards for downloads and 1,689 for stars, where only 4
-    // and 164 respectively were real zeros. A zero is a claim. The word is
-    // not, so a null count now prints as "n/a" in place of the figure. Unlike
-    // the seven character word "unknown" this replaced, "n/a" fits the same
-    // slot a four character figure like 1.2M was sized for, so the shrink
-    // this element's class used to trigger is gone from inject.css; the
-    // class name itself stays put here as the hook, just with nothing left
-    // to shrink it now.
-    function statTile(cls, mark, n, word, title) {
-      var s = document.createElement('div');
-      var known = (n != null);
-      s.className = 'asga-tile-stat ' + cls + (known && n > 0 ? '' : ' asga-stat-none');
-      s.title = title;
-      var box = document.createElement('span');
-      box.className = 'asga-tile-statbox';
-      box.insertAdjacentHTML('afterbegin', mark);
-      var num = document.createElement('span');
-      num.className = 'asga-tile-statnum' + (known ? '' : ' asga-tile-statnum-none');
-      num.textContent = known ? fmt(n) : 'n/a';
-      var lab = document.createElement('span');
-      lab.className = 'asga-tile-statlabel';
-      lab.textContent = word;
-      s.appendChild(box);
-      s.appendChild(num);
-      s.appendChild(lab);
-      return s;
-    }
     function starTitle(s) {
       if (s == null) return 'This app has not been matched to a GitHub repository yet';
       if (s === 0) return 'This app\'s source repository has no stars yet';
@@ -6023,10 +6195,9 @@ echo json_encode(['error' => 'method not allowed']);
     // The label rides in its own span because the row is nowrap and the span is
     // what ellipsises when a column gets narrow, rather than the button growing
     // and pushing Install off the card.
-    function mkBtn(label, cls, icon) {
+    function mkBtn(label, cls) {
       var b = document.createElement('span');
       b.className = 'asga-btn ' + cls;
-      if (icon) b.insertAdjacentHTML('afterbegin', icon);
       var t = document.createElement('span');
       t.className = 'asga-btn-label';
       t.textContent = label;
@@ -6100,6 +6271,114 @@ echo json_encode(['error' => 'method not allowed']);
     }
     function blocked(a) { return !!blockReason(a); }
 
+    // Every name on one line, at the stylesheet's size where it fits and
+    // smaller where it does not. Measured on a canvas rather than by laying
+    // the text out, so the pass costs no reflow per card, and against the
+    // title band's own width, so it follows the column count and the window.
+    // The size is reset before measuring so a pass after the window widens
+    // measures the stylesheet's size and restores it, rather than shrinking
+    // a name that an earlier, narrower pass had already shrunk.
+    // 10px is the floor. The longest name in the catalog (49 characters,
+    // 510px at the four-column size) fits a 272px band at 10.7px, and 272px
+    // is the band a 300px phone gives it, so nothing in the catalog reaches
+    // the floor at any width this grid draws.
+    var fitCanvas = null;
+    // The label for the first `shown` of a card's categories, the rest folded
+    // into "and N more". With every one shown there is nothing to fold.
+    function catLabel(cats, shown) {
+      var out = cats.slice(0, shown).join(', ');
+      if (cats.length > shown) out += ' and ' + (cats.length - shown) + ' more';
+      return out;
+    }
+    // Writes a category label as one text run: the part up to the first colon
+    // at full strength, a word space, then the rest muted.
+    function writeCat(txt, label) {
+      while (txt.firstChild) txt.removeChild(txt.firstChild);
+      var colon = label.indexOf(':');
+      if (colon > 0) {
+        var lead = document.createElement('span');
+        lead.className = 'asga-tile-catlead';
+        lead.textContent = label.slice(0, colon + 1);
+        var rest = document.createElement('span');
+        rest.className = 'asga-tile-catrest';
+        rest.textContent = label.slice(colon + 1);
+        txt.appendChild(lead);
+        txt.appendChild(document.createTextNode(' '));
+        txt.appendChild(rest);
+      } else {
+        var only = document.createElement('span');
+        only.className = 'asga-tile-catrest';
+        only.textContent = label;
+        txt.appendChild(only);
+      }
+    }
+    // How many of a card's categories its byline can print whole. The
+    // maintainer's name never shrinks (see .asga-tile-author), so the box
+    // the category lands in is exactly the room left on the line, and the
+    // widest label that fits it is the one printed. A label of one category
+    // is printed whatever its width, and ellipsises like any other text.
+    function fitCats() {
+      var cats = document.querySelectorAll('#asga-grid .asga-tile-cat');
+      if (!cats.length) return;
+      if (!fitCanvas) fitCanvas = document.createElement('canvas');
+      var ctx = fitCanvas.getContext('2d');
+      var font = '';
+      for (var i = 0; i < cats.length; i++) {
+        var cat = cats[i], list = cat.__cats, txt = cat.lastChild;
+        if (!list || list.length < 2 || !txt) continue;
+        var mark = cat.firstChild;
+        var avail = cat.clientWidth - (mark && mark !== txt ? mark.getBoundingClientRect().width + 6 : 0);
+        if (avail <= 0) continue;
+        if (!font) { font = getComputedStyle(txt).font; ctx.font = font; }
+        var shown = list.length;
+        while (shown > 1 && ctx.measureText(catLabel(list, shown)).width > avail) shown--;
+        var label = catLabel(list, shown);
+        if (txt.textContent !== label) writeCat(txt, label);
+      }
+    }
+    function fitTitles() {
+      fitCats();
+      var names = document.querySelectorAll('#asga-grid .asga-tile-name');
+      if (!names.length) return;
+      for (var i = 0; i < names.length; i++) names[i].style.fontSize = '';
+      var cs = getComputedStyle(names[0]);
+      var base = parseFloat(cs.fontSize);
+      var band = names[0].parentNode.clientWidth;
+      // 0 means the grid is not laid out (display: none, or not painted yet);
+      // measuring against that would shrink every name to the floor, so the
+      // pass is abandoned rather than any name touched on bad data.
+      if (!base || !band) return;
+      if (!fitCanvas) fitCanvas = document.createElement('canvas');
+      var ctx = fitCanvas.getContext('2d');
+      ctx.font = cs.font;
+      var gap = parseFloat(getComputedStyle(names[0].parentNode).columnGap) || 0;
+      for (var k = 0; k < names.length; k++) {
+        var el = names[k];
+        // The flags beside a name take their width off the band's; a card
+        // with none keeps the whole line.
+        var flags = el.nextSibling;
+        var avail = band - (flags ? flags.getBoundingClientRect().width + gap : 0);
+        var w = ctx.measureText(el.textContent).width;
+        if (w <= avail) continue;
+        el.style.fontSize = Math.max(10, Math.floor(base * avail / w * 10) / 10) + 'px';
+      }
+    }
+    // A resize fires continuously while a window is dragged, and the band's
+    // width follows the column count, so the names genuinely have to be refit
+    // as the window moves, just not on every frame of the drag. The fonts
+    // hook covers the first paint landing before clear-sans has loaded, when
+    // the canvas would have measured the fallback face.
+    function wireTitleFit() {
+      if (document.body.__asgaTitleFit) return;
+      document.body.__asgaTitleFit = true;
+      var t = null;
+      window.addEventListener('resize', function () {
+        clearTimeout(t);
+        t = setTimeout(fitTitles, 120);
+      });
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitTitles);
+    }
+
     function render() {
       if (!isOn() || caSpecial) return;
       renderGen++;
@@ -6159,6 +6438,7 @@ echo json_encode(['error' => 'method not allowed']);
       queueScan();
       try { window.scrollTo(0, 0); } catch (e) {}
       fillMissingDates();
+      fitTitles();
     }
 
     // 1,164 of the 4,251 docker apps in CA's feed carry no LastUpdate at all,
@@ -6299,15 +6579,12 @@ echo json_encode(['error' => 'method not allowed']);
         var p = t.getAttribute('data-apppath');
         var v = stars[p];
         if (v == null) continue;
-        // The stat lives in the header's own column now, not a footer badge, so
-        // a star count arriving after the page painted just rewrites that box's
-        // number rather than rebuilding an element that no longer exists.
-        var row = t.querySelector('.asga-tile-stat-stars');
-        if (!row) continue;
-        var num = row.querySelector('.asga-tile-statnum');
-        if (num) num.textContent = fmt(v);
-        row.title = starTitle(v);
-        row.classList.toggle('asga-stat-none', !(v > 0));
+        // The figure lives on the facts line now and is rebuilt through the
+        // same helper the first paint used, so a count that arrives late gets
+        // the same icon, class and tooltip.
+        var old = t.querySelector('.asga-tile-facts .asga-stat-stars');
+        if (!old) continue;
+        old.replaceWith(statSpan('asga-stat-stars', STAR_ICON, v, 'star', starTitle(v)));
       }
     }
 
@@ -6527,19 +6804,30 @@ echo json_encode(['error' => 'method not allowed']);
         // The button is as wide as the widest entry, measured in its own
         // font, so changing the selection never resizes it and the open
         // list can share its exact box.
-        var probe = document.createElement('span');
-        probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;';
-        wrap.appendChild(probe);
-        probe.style.font = getComputedStyle(btn).font;
-        var maxW = 0;
-        for (var i = 0; i < sel.options.length; i++) {
-          probe.textContent = sel.options[i].text;
-          maxW = Math.max(maxW, probe.getBoundingClientRect().width);
+        // Measured on a canvas rather than with a probe span laid out in the
+        // page. The toolbar is built while CA's search row is still hidden
+        // (html.asga-pre without .asga-ready keeps it display: none until the
+        // first render lands), and a span inside a hidden row has no layout,
+        // so the probe measured every label at 0 and the button was set to
+        // its padding alone, 48px. A canvas measures text without any layout
+        // at all, and the computed font is available on a hidden element.
+        // Measured again once the fonts have loaded, since the first pass
+        // can run before clear-sans is in and would size the box for the
+        // fallback face.
+        function fitWidth() {
+          var ctx = document.createElement('canvas').getContext('2d');
+          ctx.font = getComputedStyle(btn).font;
+          var maxW = 0;
+          for (var i = 0; i < sel.options.length; i++) {
+            maxW = Math.max(maxW, ctx.measureText(sel.options[i].text).width);
+          }
+          if (!maxW) return;
+          // 14px left padding plus 30px right padding, and a little slack so
+          // a fractional measurement never wraps the longest label
+          btn.style.width = Math.ceil(maxW + 44 + 4) + 'px';
         }
-        wrap.removeChild(probe);
-        // 14px left padding plus 30px right padding, and a little slack so a
-        // fractional measurement never wraps the longest label
-        btn.style.width = Math.ceil(maxW + 44 + 4) + 'px';
+        fitWidth();
+        if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitWidth);
       }
 
       btn.addEventListener('click', function (e) {
@@ -7666,6 +7954,7 @@ echo json_encode(['error' => 'method not allowed']);
       addSortBar();
       wireSearch();
       wireCategories();
+      wireTitleFit();
       wireLightbox();
       wireDescriptionTidy();
       wireDrawerDetails();
@@ -8229,11 +8518,11 @@ body.dark .asga-settings-select { color-scheme: dark; }
    rather than relocating it.
    row-gap doubles as the spacing between bands, since a card's four rows are
    the parent's rows. */
-/* Four cards to a row, and the grid is the container every card measures
+/* Three cards to a row, and the grid is the container every card measures
    itself against. The card cannot be its own container: container-type cancels
    the subgrid below, which is the only thing keeping the four bands of every
    card in a row on one line. Measuring off the grid instead means one column
-   is a quarter of the grid less three gaps, and --cw below turns that back
+   is a third of the grid less two gaps, and --cw below turns that back
    into the width of a single card, which every size on the card is then a
    fraction of. Fixed pixels were the bug this replaces: they were correct at
    one column width and 20% too small at the width the column actually grew to. */
@@ -8243,10 +8532,12 @@ body.dark .asga-settings-select { color-scheme: dark; }
 .asga-grid {
   container-type: inline-size;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   column-gap: 14px; row-gap: 10px;
 }
-/* Four across is the layout, and the ladder below it steps one column at a
+/* Three across is the layout, at every width from 1048px of grid up: a
+   fourth column bought nothing but smaller type, since every size on the
+   card is a fraction of the column. The ladder below steps one column at a
    time. It used to jump straight from four to two, which is why a single notch
    of browser zoom halved the grid: at 110% a 1560px view measures 1418 CSS
    pixels and fell through the four-column test to land on two, with cards
@@ -8257,10 +8548,12 @@ body.dark .asga-settings-select { color-scheme: dark; }
    fraction of the card's own width now, so a wider card carries proportionally
    larger type and the run keeps filling the same share of it.
    Each threshold is the width at which a card can no longer hold all six
-   buttons, labelled, on one line: the run needs about 330px of a band's inner
-   width, so a card has to clear 358px, and a column has to clear that plus its
-   share of the gaps. A label is never dropped to buy width, since a bare mark
-   tells the reader less than the word it replaced. */
+   buttons, labelled, on one line: the run needs about 432px of a band's inner
+   width at its 12px size, so a card has to clear about 460px, and a column
+   has to clear that plus its share of the gaps. Below that, the button row
+   never wraps: the font clamp on .asga-btn shrinks the labels instead, so a
+   card at 447px still fits the row at a smaller size rather than growing
+   taller than its neighbours. */
 /* --cw has to follow the column count, not just the grid width. It is the width
    of one card, and one card is the grid less its gaps divided by however many
    columns there are, so a ladder that changes the count without restating it
@@ -8272,24 +8565,22 @@ body.dark .asga-settings-select { color-scheme: dark; }
    declares --cw sits further down this file at the same specificity, and a
    container query adds none of its own, so an equally weighted override placed
    above it would simply lose. */
-@container asga-view (max-width: 1473px) {
-  .asga-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .asga-grid > .asga-tile { --cw: calc(33.3333cqw - 9.3333px); }
-}
-@container asga-view (max-width: 1101px) {
+/* The steps are where three and two 340px cards plus their 14px gaps stop
+   fitting. 340px is the narrowest card the button row prints whole at. */
+@container asga-view (max-width: 1047px) {
   .asga-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .asga-grid > .asga-tile { --cw: calc(50cqw - 7px); }
 }
-@container asga-view (max-width: 729px) {
+@container asga-view (max-width: 693px) {
   .asga-grid { grid-template-columns: minmax(0, 1fr); }
   .asga-grid > .asga-tile { --cw: 100cqw; }
 }
 .asga-tile {
   position: relative;
-  /* One column of the grid, which is a quarter of it less its three gaps.
+  /* One column of the grid, which is a third of it less its two gaps.
      Every size on this card is a fraction of this figure, taken from the
      reference design as a percentage of its card's width. */
-  --cw: calc(25cqw - 10.5px);
+  --cw: calc(33.3333cqw - 9.3333px);
   /* A card is lit from the top. The gradient runs from a grey a shade above the
      page down to the page's own colour, so a card reads as a raised surface
      rather than a rectangle drawn on the background, and the run is built from
@@ -8297,12 +8588,12 @@ body.dark .asga-settings-select { color-scheme: dark; }
      than a second palette. */
   background: linear-gradient(180deg, rgba(127, 127, 127, 0.16) 0%, rgba(127, 127, 127, 0.05) 55%, rgba(127, 127, 127, 0) 100%), var(--background-color, #1d1b1b);
   border: 1px solid rgba(127, 127, 127, 0.22);
-  border-radius: 8px;
+  border-radius: 12px;
   /* No padding here: a subgrid item's own padding offsets its tracks from the
      parent's, which is exactly the alignment this is meant to guarantee. Each
      band carries the inset instead (see .asga-tile > * below). */
   display: grid; grid-template-rows: subgrid; grid-row: span 4;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   transition: border-color 0.15s ease;
   cursor: pointer;
   /* Templates come from a public feed: names, authors and categories can be
@@ -8312,7 +8603,7 @@ body.dark .asga-settings-select { color-scheme: dark; }
   overflow-wrap: break-word;
   word-break: break-word;
 }
-.asga-tile > *, .asga-tile-head > *, .asga-tile-htext > * { min-width: 0; max-width: 100%; }
+.asga-tile > *, .asga-tile-head > *, .asga-tile-byline > * { min-width: 0; max-width: 100%; }
 .asga-tile:hover { border-color: #ff8c2f; }
 /* The card the reader just asked for. It flashes three times and then holds a
    quiet outline, because a search for an app's name can return a dozen cards
@@ -8343,42 +8634,76 @@ body.dark .asga-settings-select { color-scheme: dark; }
    subgrid exists for, so the four bands each carry the side inset and the
    first and last carry the top and bottom. */
 .asga-tile > * { padding-left: 14px; padding-right: 14px; }
-.asga-tile > .asga-tile-head { padding-top: 14px; }
-.asga-tile > .asga-tile-dates { padding-bottom: 12px; }
-/* The rail is a column of the CARD, not of the header, so the rule dividing it
-   from the text runs past the description the way the reference draws it. The
-   button row and the footer span both columns underneath it. */
-.asga-tile > .asga-tile-head  { grid-column: 1; grid-row: 1; }
-/* The description spans both columns and the rail stops at the header, so the
-   rule beside the figures is only as long as the thing it divides. Running it
-   down past the last figure bought nothing: there is no second column to
-   separate down there, and the description was being held to two thirds of the
-   card for the sake of a line guarding empty space. */
-.asga-tile > .asga-tile-desc  { grid-column: 1 / -1; grid-row: 2; }
-.asga-tile > .asga-tile-stats { grid-column: 2; grid-row: 1; }
-.asga-tile > .asga-tile-btns  { grid-column: 1 / -1; grid-row: 3; }
-.asga-tile > .asga-tile-dates { grid-column: 1 / -1; grid-row: 4; }
+.asga-tile > .asga-tile-head { padding-top: 0; }
+.asga-tile > .asga-tile-btns { padding-bottom: 14px; padding-top: 3px; }
+.asga-tile > .asga-tile-desc { padding-top: 1px; }
+/* The row gap is one figure, but the bands do not meet it with the same
+   edge: two text lines face each other across the first two gaps, while the
+   button row faces the facts with a drawn border, which reads as closer than
+   type at the same distance. Measured ink to ink the three gaps ran 11, 12
+   and 10px; these two paddings bring them to 12, 12 and 13. */
+/* Four bands, one row track apiece. The strip touches the card's own top
+   edge (its inset is the strip's own negative margin, not this padding) and
+   the button row carries the card's bottom inset, so each outer edge belongs
+   to the band that sits against it. */
+.asga-tile > .asga-tile-head  { grid-row: 1; }
+.asga-tile > .asga-tile-desc  { grid-row: 2; }
+.asga-tile > .asga-tile-facts { grid-row: 3; }
+.asga-tile > .asga-tile-btns  { grid-row: 4; }
 
-/* Two columns now that the figures have moved out to the card: the icon, and
-   everything written about the app. */
+/* A plain stack, not a grid: the tinted strip, the icon overlapping its
+   bottom edge, the name, then one byline row of maintainer and category.
+   Four pieces in reading order, top to bottom, rather than the icon-row grid
+   this used to be, since the flags and the kind glyph moved up into the
+   strip and no longer need a column of their own beside the icon. */
 .asga-tile-head {
-  display: grid; grid-template-columns: auto minmax(0, 1fr);
-  gap: calc(var(--cw) * 0.032); align-items: start;
-  --asga-icon-side: clamp(44px, calc(var(--cw) * 0.171), 104px);
+  display: block;
+  --asga-icon-side: clamp(48px, calc(var(--cw) * 0.128), 64px);
+}
+/* The line box is set in pixels on the band, not as a ratio on the name, so a
+   name fitTitles() has had to shrink keeps the band exactly as tall as one
+   the stylesheet's size fills: a shorter name sits centred in the same line.
+   Every header in a row is then the same height whatever its name runs to. */
+.asga-tile-title {
+  margin-top: clamp(6px, calc(var(--cw) * 0.017), 8px); min-width: 0;
+  --asga-name-size: clamp(14px, calc(var(--cw) * 0.038), 20px);
+  font-size: var(--asga-name-size);
+  line-height: calc(var(--asga-name-size) * 1.25);
+  /* The name and its flags on one line: the name gives ground first (its
+     size, by fitTitles(), never its tail) and the flags keep their width. */
+  display: flex; align-items: center; column-gap: 8px;
+}
+.asga-tile-title > .asga-tile-name { flex: 0 1 auto; }
+.asga-tile-flags { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+/* No ellipsis, and nothing to clip: fitTitles() sizes the text to the band,
+   so the overflow rule is a guard against a name longer than any the catalog
+   holds, not something a card in the catalog ever meets. */
+.asga-tile-name {
+  display: block; font-weight: 700;
+  color: var(--text-color, inherit);
+  white-space: nowrap; overflow: hidden;
 }
 .asga-tile-icon {
-  position: relative; align-self: flex-start;
+  position: relative; z-index: 1;
+  --asga-icon-plate: color-mix(in srgb, var(--background-color, #1d1b1b) 90%, var(--text-color, #f2f2f2));
   width: var(--asga-icon-side); height: var(--asga-icon-side);
-  flex: 0 0 var(--asga-icon-side);
+  /* Pulled up over the strip's bottom edge rather than sitting under it, so
+     the icon reads as the thing the strip is naming rather than as a second,
+     unrelated row. */
+  margin-top: calc(var(--asga-icon-side) * -0.4);
+  border-radius: 12px;
+  /* A soft drop shadow lifts the icon off the strip; no ring around it. */
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
 }
-/* the card and the drawer show the same app and must not disagree about how
-   its icon looks, so this matches body.asga-active .popupIcon img further
-   down this file: tinted plate, border, radius, at the card's own 64px. The
-   literal rgba values stand in for --asga-control and --asga-cardline, which
-   are declared on .sidenav and do not reach the grid. */
+/* No border and no ring: a frame inside a frame read as clip art rather than
+   as the app's own artwork. The plate is opaque, a step above the page in the
+   page's own colour, because the icon sits on the strip's bottom edge and a
+   see-through plate let the tint run on behind the artwork, which made the
+   icon look printed on the strip instead of resting on it. The shadow above
+   does the rest of the separating. */
 .asga-tile-icon img {
-  width: 100%; height: 100%; object-fit: contain; border-radius: 10px; box-sizing: border-box;
-  background: rgba(127, 127, 127, 0.08); border: 1px solid rgba(127, 127, 127, 0.22); padding: 4px;
+  width: 100%; height: 100%; object-fit: contain; border-radius: 12px; box-sizing: border-box;
+  background: var(--asga-icon-plate); border: 0; padding: 5px;
 }
 /* An app whose template names no picture but does name a FontAwesome glyph
    (117 apps have no icon and 59 of those carry one; see appIcon in inject.js).
@@ -8389,8 +8714,8 @@ body.dark .asga-settings-select { color-scheme: dark; }
    card exactly as an image in the same box does. */
 .asga-tile-icon .asga-icon-fa {
   display: flex; align-items: center; justify-content: center;
-  width: 100%; height: 100%; box-sizing: border-box; border-radius: 10px;
-  background: rgba(127, 127, 127, 0.08); border: 1px solid rgba(127, 127, 127, 0.22);
+  width: 100%; height: 100%; box-sizing: border-box; border-radius: 12px;
+  background: var(--asga-icon-plate); border: 0;
   font-size: calc(var(--asga-icon-side) * 0.44); line-height: 1;
   color: color-mix(in srgb, var(--text-color, #f2f2f2) 66%, transparent);
 }
@@ -8408,12 +8733,61 @@ body.dark .asga-settings-select { color-scheme: dark; }
 .asga-tile-icon img[data-tone="dark"],
 body.asga-active .popupIcon img[data-tone="dark"],
 body.asga-active .asga-repo-app-icon[data-tone="dark"] {
-  background: rgba(238, 238, 242, 0.94);
+  background: #eeeef2;
   border-color: rgba(255, 255, 255, 0.3);
 }
-/* The maintainer's picture sits where a person glyph used to, at the size of
-   the line it shares rather than the size of an avatar, so the author line
-   keeps its own height. */
+/* The strip that opens the card: full bleed past the band's own side inset,
+   so its tint reaches the card's rounded corners rather than stopping short
+   of them. The colour is the icon's own once icontone.php has measured it;
+   the kind's blue or Unraid's orange stands in until that answer arrives, and
+   stays for good on a greyscale icon that never gets one. It fades to nothing
+   along the right, where the flags and the kind glyph sit, and down the
+   bottom, where the icon overlaps, so neither can ever land on its own
+   colour. Drawn on ::before rather than the strip itself, because the strip's
+   own mask would fade the flags' backgrounds too: they are children of it. */
+.asga-tile-strip {
+  position: relative;
+  margin: 0 -14px;
+  /* .asga-tile-head > * caps every child at 100% of the head's own inner
+     width, which is 28px narrower than the strip's negative margin reaches,
+     so the right edge stopped short of the card. This overrides that cap. */
+  max-width: none;
+  height: clamp(36px, calc(var(--cw) * 0.094), 48px);
+  display: flex; justify-content: flex-end; align-items: center;
+  gap: clamp(4px, calc(var(--cw) * 0.013), 8px);
+  padding: 0 clamp(10px, calc(var(--cw) * 0.026), 14px);
+  box-sizing: border-box;
+  /* Neutral until the icon answers, and neutral for good when the icon is
+     greyscale: the tint is the icon's own colour or it is no colour, never a
+     blue that every card without an answer would then share. */
+  --asga-strip-rgb: 168, 170, 180;
+}
+.asga-tile-strip::before {
+  content: ''; position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  background: linear-gradient(to right,
+    rgba(var(--asga-strip-rgb), 0.34) 0%,
+    rgba(var(--asga-strip-rgb), 0.28) 36%,
+    rgba(var(--asga-strip-rgb), 0.08) 68%,
+    rgba(var(--asga-strip-rgb), 0) 86%);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 42%, rgba(0, 0, 0, 0.4) 74%, rgba(0, 0, 0, 0) 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 42%, rgba(0, 0, 0, 0.4) 74%, rgba(0, 0, 0, 0) 100%);
+}
+.asga-tile-marks { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: inherit; }
+.asga-tile-strip .asga-tile-kind .asga-ficon-lg {
+  width: clamp(16px, calc(var(--cw) * 0.043), 22px); height: clamp(16px, calc(var(--cw) * 0.043), 22px);
+}
+.asga-tile-kind { display: inline-flex; align-items: center; margin-left: clamp(2px, calc(var(--cw) * 0.009), 6px); }
+/* Maintainer and category now share one line, a middle dot between the two,
+   rather than the two lines of their own they used to need: the flags and
+   the kind glyph that used to crowd this row moved up into the strip, which
+   is what frees the room. */
+.asga-tile-byline {
+  margin-top: 2px; display: flex; align-items: center;
+  gap: clamp(4px, calc(var(--cw) * 0.013), 6px);
+  min-width: 0; white-space: nowrap; overflow: hidden;
+  font-size: clamp(11px, calc(var(--cw) * 0.028), 14px); line-height: 1.4;
+  color: color-mix(in srgb, var(--text-color, #f2f2f2) 72%, var(--background-color, #1d1b1b));
+}
 /* The gap sits between the mark and its text, and nowhere else. A flex gap
    applies between EVERY child, so on the category row it also pushed the two
    words apart: measured off the rendered pixels, the icon sat 5px from
@@ -8423,8 +8797,22 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    what made the line read as out of true. The mark takes a margin instead,
    and the second half of the category takes a word space, which is what the
    space between two words should be. */
-.asga-tile-author, .asga-tile-cat { display: flex; align-items: center; gap: 0; min-width: 0; }
-.asga-tile-author > :first-child, .asga-tile-cat > :first-child { margin-right: 6px; }
+.asga-tile-author { display: flex; align-items: center; gap: 0; min-width: 0; flex: 0 0 auto; max-width: 55%; }
+/* The name keeps its width and the category takes what is left: fitCats() in
+   inject.js reads the category box's width to decide how many categories to
+   print, and that is only a real figure if the name beside it is not also
+   giving ground. A name past 55% of the line ellipsises; none of the 1182
+   maintainers in the catalog is that long at any column width. */
+.asga-tile-author > :first-child { margin-right: 6px; }
+.asga-tile-sep {
+  flex: 0 0 auto;
+  color: color-mix(in srgb, var(--text-color, #f2f2f2) 40%, var(--background-color, #1d1b1b));
+}
+.asga-tile-cat {
+  display: flex; align-items: center; gap: 0; min-width: 0; flex: 1 1 auto;
+  margin-top: 0; cursor: inherit; overflow: hidden;
+}
+.asga-tile-cat > :first-child { margin-right: 6px; }
 
 .asga-tile-authorname, .asga-tile-cattext { min-width: 0; }
 /* The category is one text run in one box: the two halves are spans inside
@@ -8435,150 +8823,65 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 .asga-tile-authorname, .asga-tile-cattext {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.asga-tile-catlead { font-weight: 600; }
-.asga-tile-catrest { color: color-mix(in srgb, var(--text-color, #f2f2f2) 62%, var(--background-color, #1d1b1b)); }
-/* The maintainer's picture and the category's mark are the same size as the two
-   marks in the stat rail. They sit on the same card at the same rank, so a
-   smaller figure for one of them read as an accident rather than a hierarchy. */
+/* The parent category is full strength, regular weight, since it now shares
+   a line with the maintainer's name rather than heading a line of its own. */
+.asga-tile-catlead { font-weight: 400; color: var(--text-color, inherit); }
+/* The maintainer's picture and the category's mark share one size, sitting
+   on the same line at the same rank. */
 .asga-tile-avatar {
-  width: clamp(11px, calc(var(--cw) * 0.032), 22px); height: clamp(11px, calc(var(--cw) * 0.032), 22px);
-  flex: 0 0 clamp(11px, calc(var(--cw) * 0.032), 22px); border-radius: 5px;
-  object-fit: contain; background: rgba(127, 127, 127, 0.12);
+  width: clamp(14px, calc(var(--cw) * 0.034), 18px); height: clamp(14px, calc(var(--cw) * 0.034), 18px);
+  flex: 0 0 auto; border-radius: 50%;
+  object-fit: cover; background: rgba(127, 127, 127, 0.12);
 }
 .asga-bicon { flex: 0 0 auto; }
 .asga-bicon-line { width: clamp(11px, calc(var(--cw) * 0.032), 22px); height: clamp(11px, calc(var(--cw) * 0.032), 22px); opacity: 0.7; }
+/* The person glyph and the tag mark read smaller here, sized to the byline's
+   own text rather than to the avatar-sized rhythm the rest of the card's
+   marks keep. */
+.asga-tile-byline .asga-bicon-line {
+  width: clamp(12px, calc(var(--cw) * 0.028), 14px); height: clamp(12px, calc(var(--cw) * 0.028), 14px);
+  opacity: 0.6;
+}
 
-/* The stat column, ruled off from the text. The rule is the only line inside a
-   card, which is what makes it read as a division of the card rather than as
-   another border. */
-.asga-tile-stats {
-  display: flex; flex-direction: column; justify-content: flex-start;
-  gap: calc(var(--cw) * 0.028);
-  width: clamp(64px, calc(var(--cw) * 0.20), 132px);
-  padding-left: calc(var(--cw) * 0.030);
-  position: relative;
-  padding-top: 14px;
-}
-/* The rule dividing the rail from the text, drawn rather than bordered. A
-   border is the same weight from end to end, so it announced exactly where the
-   rail's box stopped: hard against the top of the header and hard again in the
-   empty space below the last figure. Fading it out at both ends means the line
-   states the division where the division is legible and dissolves where there
-   is nothing left to divide. */
-.asga-tile-stats::before {
-  content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 1px;
-  background: linear-gradient(
-    to bottom,
-    rgba(127, 127, 127, 0) 0%,
-    rgba(127, 127, 127, 0.20) 18%,
-    rgba(127, 127, 127, 0.20) 62%,
-    rgba(127, 127, 127, 0) 100%
-  );
-  pointer-events: none;
-}
-/* The first track is pinned to the mark's own width rather than sized to
-   content. An auto track took up the rail's slack instead, and it took a
-   different amount of it depending on whether the row's word was "Stars" or
-   "Installs", which put the two rows' columns of text out of line with each
-   other. This is the same expression .asga-tile-statbox uses for its own
-   width, so the track can only ever be exactly the box's width. */
-.asga-tile-stat {
-  display: grid; grid-template-columns: clamp(19px, calc(var(--cw) * 0.054), 37px) minmax(0, 1fr); column-gap: calc(var(--cw) * 0.022);
-  align-items: center; cursor: inherit;
-}
-.asga-tile-statbox {
-  grid-row: 1 / span 2; display: inline-flex; align-items: center; justify-content: center;
-  width: clamp(19px, calc(var(--cw) * 0.054), 37px); height: clamp(19px, calc(var(--cw) * 0.054), 37px);
-  border-radius: calc(var(--cw) * 0.015); flex: 0 0 auto;
-  background: rgba(127, 127, 127, 0.10); border: 1px solid rgba(127, 127, 127, 0.20);
-}
-.asga-tile-statnum { font-size: clamp(11px, calc(var(--cw) * 0.031), 20px); font-weight: 700; line-height: 1.1; }
-/* A reduction rule used to live here for a figure nobody measured: the word
-   "unknown" ran to seven characters against a slot this size was measured
-   for a four character figure like "1.2M", so it had to shrink to fit, and a
-   stat that renders at a different size from the one beside it is exactly
-   the raggedness this card fights everywhere else. "n/a" is three characters
-   and fits this slot at full size, so the two figures in the rail now stay
-   on one rhythm and nothing here needs to shrink for it. */
-.asga-tile-statlabel {
-  /* the track above is fixed, so a word longer than it clips rather than
-     forcing the column wider and undoing the alignment it exists for */
-  font-size: clamp(9px, calc(var(--cw) * 0.024), 15px); line-height: 1.2;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
-  color: color-mix(in srgb, var(--text-color, #f2f2f2) 62%, var(--background-color, #1d1b1b));
-}
-.asga-tile-statbox .asga-smark {
-  width: clamp(11px, calc(var(--cw) * 0.032), 22px);
-  height: clamp(11px, calc(var(--cw) * 0.032), 22px);
-}
-.asga-tile-stat-stars .asga-smark { color: #f0a500; }
-.asga-tile-stat-dl .asga-smark { color: #4ab8c9; }
-/* Only the figure dims when there is nothing to report. The mark keeps its
-   colour: it names which figure this is, and that is still true of an app with
-   no stars, so draining it made the row look broken rather than empty. */
-.asga-tile-stat.asga-stat-none .asga-tile-statnum {
-  color: color-mix(in srgb, var(--text-color, #f2f2f2) 42%, var(--background-color, #1d1b1b));
-}
-.asga-tile-htext { min-width: 0; flex: 1; }
-/* Name+icon and author+category are each one row, a left text column that
-   shrinks and a right-hand column that never does, replacing the old
-   three-line stack. The old text pill spelling out "Docker" or "Plugin" cost
-   that stack a whole line on its own; sharing the name's and author's lines
-   buys the line back for the description below. */
-.asga-tile-namerow { display: flex; min-width: 0; align-items: flex-start; gap: 8px; }
-/* One line, always. Two were reserved whether a title needed them or not,
-   which put a blank line under every short name and pushed the maintainer and
-   the category down the card for no reason. The name now takes the line it
-   needs and the two lines under it move up.
-
-   text-overflow rather than the two line clamp this used to carry, and the
-   difference matters beyond the line count: -webkit-line-clamp cuts at the box
-   edge and can clip its own ellipsis down to a couple of stray dots, which
-   reads as a typo rather than as a truncation. text-overflow reserves the
-   ellipsis's width before it decides where to cut, so the mark can never be
-   the thing that gets cut off. The full name is on the element's own title,
-   the way the category line beneath it already answers on hover.
-
-   min-width: 0 is what lets it shrink at all. A flex item defaults to its
-   content's minimum width, so without it a long name pushes the stat rail
-   sideways instead of ellipsising short of the rule that divides them. */
-.asga-tile-name {
-  font-size: clamp(12px, calc(var(--cw) * 0.04), 24px);
-  font-weight: 700; line-height: 1.2;
-  color: var(--text-color, inherit);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  flex: 1 1 auto; min-width: 0;
-}
-/* Official and Beta flags, sitting in the name row right after the app name.
-   394 of the 3,873 displayable apps in the catalog are vendor-official and
-   211 are marked pre-release, and the catalog carries several competing
-   templates for some apps besides, so this is the one fact that tells them
-   apart and it belongs beside the name rather than buried in the drawer. A
-   small corner radius rather than the full pill this file gives its buttons,
-   since a pill here would read as another control to press and this states a
-   fact instead. Green and amber are the two state colours this file already
-   keeps for exactly that job (the pinned button's fill, the scan progress
-   label), not a third hue invented for the occasion, and the accent is left
-   out on purpose: in this design the accent means something the reader can
-   click, and neither flag is. */
+/* Official, Beta and Privileged flags, right-aligned in the strip with the
+   kind glyph. 394 of the 3,873 displayable apps in the catalog are
+   vendor-official and 211 are marked pre-release, and the catalog carries
+   several competing templates for some apps besides, so this is the one fact
+   that tells them apart and it stays on the card rather than buried in the
+   drawer. A small corner radius rather than the full pill this file gives its
+   buttons, since a pill here would read as another control to press and this
+   states a fact instead. Green and amber are the two state colours this file
+   already keeps for exactly that job (the pinned button's fill, the scan
+   progress label), not a third hue invented for the occasion, and the accent
+   is left out on purpose: in this design the accent means something the
+   reader can click, and none of the three flags is. The word prints as
+   written rather than in caps, since the strip's tint already marks this row
+   as a label rather than prose. */
 .asga-flag {
   display: inline-flex; align-items: center; flex: 0 0 auto;
-  font-size: 0.9rem; font-weight: 700; line-height: 1;
-  text-transform: uppercase; letter-spacing: 0.06em;
-  padding: 2px 6px; border-radius: 4px; border: 1px solid transparent;
+  font-size: clamp(9px, calc(var(--cw) * 0.024), 11px); font-weight: 600; line-height: 1;
+  letter-spacing: 0.04em;
+  padding: 4px 7px; border-radius: 6px; border: 1px solid transparent;
   white-space: nowrap;
 }
 .asga-flag-official {
   color: #6ac47f; background: rgba(106, 196, 127, 0.14); border-color: rgba(106, 196, 127, 0.35);
 }
+/* Unraid's own orange, the one place the accent names a fact rather than a
+   control, because the brand colour is what says Unraid. */
+.asga-flag-unraid {
+  color: #ff8c2f; background: rgba(255, 140, 47, 0.14); border-color: rgba(255, 140, 47, 0.35);
+}
 .asga-flag-beta {
   color: #f0a500; background: rgba(240, 165, 0, 0.14); border-color: rgba(240, 165, 0, 0.35);
 }
-.asga-tile-author {
-  font-size: clamp(9px, calc(var(--cw) * 0.0255), 15px); line-height: 1.35;
-  color: color-mix(in srgb, var(--text-color, #f2f2f2) 76%, var(--background-color, #1d1b1b));
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  flex: 1 1 auto; min-width: 0;
+/* 114 apps hand their container elevated access to the host, and Community
+   Applications carries a moderator comment on only 273 templates out of the
+   whole catalog, so most of those 114 said nothing about it anywhere the
+   reader would see before landing here. Same amber as Beta: both are a
+   caution about the template rather than a fact about the app's identity. */
+.asga-flag-priv {
+  color: #f0a500; background: rgba(240, 165, 0, 0.14); border-color: rgba(240, 165, 0, 0.35);
 }
 /* Docker's own brand blue, which is why it is allowed to sit alongside this
    card's own palette: it names a real external mark, not a second in-house
@@ -8592,23 +8895,6 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    what a plugin IS on this platform. The icon is not clickable, so nothing is
    lost by the overlap. */
 .asga-kind-plugin { color: #ff8c2f; }
-/* the category shrinks too, but only down to this floor, so a long category
-   never crowds the author to nothing and never disappears outright either */
-/* its own line under the author, sharing that column's left edge, rather than
-   opposite it on one row */
-.asga-tile-cat {
-  margin-top: 2px; font-size: clamp(9px, calc(var(--cw) * 0.0255), 15px); line-height: 1.35;
-  color: color-mix(in srgb, var(--text-color, #f2f2f2) 66%, var(--background-color, #1d1b1b));
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  min-width: 0;
-}
-/* The line carries the whole of itself in a tooltip, because it routinely says
-   less than it knows. It behaves exactly as the two figures in the rail do,
-   which also answer on hover: the same inherited cursor, no mark of its own,
-   and a click that falls through to the card like a click anywhere else on it.
-   A help cursor here was worse than no affordance at all, since it promised a
-   control that was not there and then opened the drawer when pressed. */
-.asga-tile-cat { cursor: inherit; }
 
 /* A description showing WHY an app matched, rather than what the app is. The
    search reads an app's whole overview and the card prints only its opening,
@@ -8626,56 +8912,34 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    card's description occupies exactly two lines, which is what keeps the
    button rows aligned without leaving a hole under a short one. */
 .asga-tile-desc {
-  font-size: clamp(10px, calc(var(--cw) * 0.028), 17px); line-height: 1.4; color: color-mix(in srgb, var(--text-color, #f2f2f2) 92%, var(--background-color, #1d1b1b)); margin: 0;
+  font-size: clamp(11px, calc(var(--cw) * 0.028), 14px); line-height: 1.5; color: color-mix(in srgb, var(--text-color, #f2f2f2) 92%, var(--background-color, #1d1b1b)); margin: 0;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
 }
 
-/* Added and Updated share one line at the foot of the card, Added pinned to
-   the left edge and the last-updated date to the right. Pushing them to
-   opposite edges is what keeps them from colliding on a narrow card, and it
-   lines the right-hand dates of every card in a grid row up with each other. */
-/* Both dates sit together at the right edge rather than at opposite ends of
-   the row, updated on the left of the pair and added at the far right. Pinned
-   to opposite edges they read as two unrelated facts with a card's worth of
-   space between them; together they read as one line about the app's age, and
-   the left of the footer is left free for anything that needs it later. */
-/* A deeper band, at the same type size. The footer was the shortest thing on
-   the card and read as an afterthought stuck to the bottom edge rather than as
-   the band it is; the height it gains is all air around the same words. */
-.asga-tile-dates {
-  /* One left-aligned run, not two clumps at opposite edges. Everything starts
-     from the same edge on every card, so there is no middle void whose width
-     depends on how long an app's numbers happen to be. */
-  display: flex; justify-content: flex-start; align-items: center; gap: 14px;
-  flex-wrap: wrap; row-gap: 4px;
-  margin: 0; font-size: clamp(9px, calc(var(--cw) * 0.024), 15px); line-height: 1.5;
-  position: relative;
-  padding-top: 13px; margin-top: 2px;
-  /* Opacity used to sit here at 0.55, dimming the whole row. Opacity on a
-     container multiplies every colour painted inside it, so it was quietly
-     desaturating the gold, teal and blue icon/stat colours below along with
-     the text they were never meant to touch. Each piece now carries its own
-     strength instead: .asga-datetext dims itself, everything else stays full
-     strength in its own colour. */
+/* One line of standing facts: stars, downloads or installs, when the app was
+   last updated, and when CA's feed first saw it. All four used to be split
+   across a header stat column and a footer dates row; one line does the same
+   job in less height. Everything past what fits ellipsises rather than
+   wrapping, since a second line here would put one card's button row a whole
+   line lower than its neighbours. */
+.asga-tile-facts {
+  display: flex; align-items: center; gap: clamp(10px, calc(var(--cw) * 0.03), 14px);
+  white-space: nowrap; overflow: hidden; min-width: 0;
+  font-size: clamp(10px, calc(var(--cw) * 0.026), 12px); line-height: 1.4;
+  color: color-mix(in srgb, var(--text-color, #f2f2f2) 72%, var(--background-color, #1d1b1b));
 }
-/* The footer's rule, drawn the same way and for the same reason. It spans the
-   card's full width rather than the band's inset, because the band it closes is
-   the card's own bottom edge, and it fades at both ends so it reads as a seam
-   rather than as a second border inside a bordered card. */
-.asga-tile-dates::before {
-  content: ''; position: absolute; left: 0; right: 0; top: 0; height: 1px;
-  background: linear-gradient(
-    to right,
-    rgba(127, 127, 127, 0) 0%,
-    rgba(127, 127, 127, 0.18) 10%,
-    rgba(127, 127, 127, 0.18) 90%,
-    rgba(127, 127, 127, 0) 100%
-  );
-  pointer-events: none;
+.asga-tile-facts .asga-ficon {
+  width: clamp(11px, calc(var(--cw) * 0.028), 14px);
+  height: clamp(11px, calc(var(--cw) * 0.028), 14px);
 }
-/* one rule is what guarantees all four footer items (two dates, two stats)
-   share a centre line: the same icon-then-text flex box for every one of
-   them, whichever kind of figure follows the icon */
+/* The noun (star, pull, install) rides the tooltip instead: the row has no
+   width to spell it out beside three other facts, and the figure alone reads
+   fine once it is not competing with a header stat box for room. */
+.asga-tile-facts .asga-stat-noun { display: none; }
+.asga-tile-facts .asga-stat { font-weight: 600; }
+/* one rule is what guarantees every item on this line shares a centre line:
+   the same icon-then-text flex box for every one of them, whichever kind of
+   figure follows the icon */
 .asga-tile-added, .asga-tile-updated, .asga-stat {
   display: inline-flex; align-items: center; gap: 5px; white-space: nowrap;
 }
@@ -8690,17 +8954,11 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    Dimmed, so a card that does know its numbers still wins the eye. */
 .asga-stat-none { color: color-mix(in srgb, var(--text-color, #f2f2f2) 48%, var(--background-color, #1d1b1b)); }
 .asga-stat-none .asga-ficon { color: inherit; }
-/* shared by all four footer icons (two dates, two stats), so they can never
+/* shared by every icon this file draws at this scale, so they can never
    drift apart in size again; each takes its colour from the rules below
    rather than carrying one of its own, since every SVG draws with
    stroke="currentColor" */
 .asga-ficon { width: 12px; height: 12px; flex: 0 0 auto; }
-/* Every mark along the footer is one size, dates and kind icon alike, so the
-   row reads as a single run rather than as two glyph sizes sharing a line. */
-.asga-tile-dates .asga-ficon {
-  width: clamp(15px, calc(var(--cw) * 0.042), 28px);
-  height: clamp(15px, calc(var(--cw) * 0.042), 28px);
-}
 /* the text is the part that actually ellipsises; the icon never should */
 .asga-datetext {
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0;
@@ -8723,73 +8981,45 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    unrelated treatments side by side on the same line and made a card look like
    it was flagging something it was not. */
 .asga-datetext { font-weight: 400; line-height: 1.5; }
-/* No margin-top:auto any more: the buttons sit in their own subgrid track, so
-   they are bottom-aligned across the row by the grid rather than by being
-   pushed down inside each card. */
-/* space-between, so the run spans the same width the description above it does
-   rather than stopping 82px short of the card's right edge. */
-/* The row sits 2px lower so the space above it matches the space below. The
-   space below was 14px against the 10px above, because the footer band carries
-   a margin of its own on top of the grid's row gap, and a button run that is
-   nearer one neighbour than the other reads as having drifted. */
-/* The run starts at the card's left edge and Install is pushed to the right,
-   rather than the six of them being spread to fill whatever width the card
-   happens to have. Spread, they read as six unrelated controls at a wide card
-   and as a row only by accident at a narrow one; started from one edge they
-   read as a run at every width, and the one button that matters still lands in
-   the corner the eye goes to. */
+/* Six equal cells on one line at every width. The row never wraps, which is
+   what keeps every card in a row the same height, and the cells never differ,
+   so the six pills read as one control strip rather than six pills of six
+   widths. The labels carry no glyphs: a glyph beside a word costs 18px per
+   cell, and six cells of a 447px card are 65px each, which is not enough for
+   a glyph and "Support" at any size worth reading. */
 .asga-tile-btns {
-  display: flex; flex-wrap: nowrap; align-items: center;
-  justify-content: flex-start; gap: calc(var(--cw) * 0.007); position: relative;
-  margin-top: 8px;
+  display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px;
+  align-items: center; position: relative;
+  margin-top: 0;
 }
-/* Taller, and the label larger with it. The row had been sized down to whatever
-   would guarantee six labelled pills on one line, which left the buttons
-   shorter than anything else on the card and their text the smallest type in
-   the plugin. The vertical padding is what grows; the horizontal padding comes
-   in slightly to pay for it, so the run still fits one line. */
+/* The type follows the cell. A cell is a sixth of the band less the five gaps,
+   and the widest label a cell can hold is "Installed", 4.17 times the font
+   size wide in Clear Sans: a 447px card gives 12px, a 390px phone gives 9.5px
+   and the floor is 8.5px, which is what "Installed" needs at the 340px card
+   the column ladder bottoms out on (a 36.7px cell against a 35.7px word).
+   The label still ellipsises past the floor, but no width the grid produces
+   reaches it. */
 .asga-btn {
-  display: inline-flex; align-items: center; justify-content: center; gap: calc(var(--cw) * 0.010);
+  display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer; user-select: none; white-space: nowrap;
-  font-size: clamp(8px, calc(var(--cw) * 0.024), 15px);
-  padding: calc(var(--cw) * 0.0155) calc(var(--cw) * 0.0145); border-radius: 20px;
-  border: 1px solid rgba(127,127,127,0.4); color: var(--text-color, inherit);
-  background: rgba(127,127,127,0.08);
-  /* nowrap and shrinkable: at the narrowest column the labels ellipsise rather
-     than the row wrapping to a second line and making every card in the grid
-     taller. */
-  flex: 0 1 auto; min-width: 0;
+  font-size: clamp(8.5px, calc(var(--cw) / 25 - 5.3px), 12px);
+  padding: 7px 5px; border-radius: 8px;
+  border: 1px solid rgba(127, 127, 127, 0.3);
+  color: color-mix(in srgb, var(--text-color, #f2f2f2) 88%, var(--background-color, #1d1b1b));
+  background: rgba(127, 127, 127, 0.10);
+  min-width: 0;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
-/* The row fills its band rather than ending wherever six buttons happen to
-   stop. Laid out from the left with a fixed gap, the slack collected as one
-   space after Install, so the gap to the card's right edge read wider than the
-   gap to its left. Growing the buttons instead spends that slack on all six at
-   once, in proportion to the width each already had, which keeps their relative
-   sizes and the equal gaps between them while landing the run on the same inset
-   the row starts from. Install never shrinks: a truncated Install is worse than
-   a truncated Support. */
-.asga-tile-btns > .asga-btn { flex: 1 1 auto; }
-/* No auto margin. Pushing Install to the far edge handed it every pixel of the
-   row's slack as one gap, so the space before it read wider than the five gaps
-   between the buttons behind it. The run is evenly spaced and Install simply
-   ends it. */
 .asga-btn:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.14); }
 .asga-btn-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
-.asga-btn .asga-bicon {
-  width: clamp(9px, calc(var(--cw) * 0.027), 17px);
-  height: clamp(9px, calc(var(--cw) * 0.027), 17px);
-}
 /* Install is the one thing a card is for, so it is the one button that is
    filled rather than outlined. The fill is the accent this project already
-   uses for every interactive surface, not a second primary colour. It never
-   shrinks: a truncated Install is worse than a truncated Support. */
-.asga-btn.asga-install, .asga-btn.asga-btn-installed { flex: 1 0 auto; }
+   uses for every interactive surface, not a second primary colour. */
 .asga-btn.asga-install {
-  border-color: #ff8c2f; background: rgba(255, 140, 47, 0.9);
+  border-color: #ff8c2f; background: #ff8c2f;
   color: #17140f; font-weight: 700;
 }
-.asga-btn.asga-install:hover { background: #ff8c2f; border-color: #ff8c2f; }
+.asga-btn.asga-install:hover { background: #ffa057; border-color: #ffa057; }
 /* #6ac47f is this project's one positive semantic colour. It means a state the
    server is already in, which is why both of the buttons below wear it: the app
    is installed, or the app is pinned. It is the only hue besides the accent
@@ -8819,34 +9049,9 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 .asga-suplink { display: block; padding: 7px 12px; font-size: 1rem; color: var(--text-color, inherit); text-decoration: none; }
 .asga-suplink:hover { background: rgba(255,140,47,0.16); }
 
-/* The privileged marker, sitting right before the kind glyph so the two hug
-   the footer's right edge together. 114 apps hand their container elevated
-   access to the host, and Community Applications carries a moderator comment
-   on only 273 templates out of the whole catalog, so most of those 114 said
-   nothing about it anywhere the reader would see before landing here. Amber
-   rather than the neutral grey the two date icons beside it use, because this
-   one is a caution and they are not. Same shape as .asga-tile-kind below,
-   right down to the auto margin, since it is what pulls this one to the right
-   edge first and lets the kind glyph simply follow it there. */
-.asga-tile-priv { display: inline-flex; align-items: center; margin-left: auto; flex: 0 0 auto; }
-.asga-tile-priv .asga-ficon { color: #f0a500; }
-/* Two auto margins in one flex row share the free space between them rather
-   than the second one collapsing to nothing, so with the shield and the kind
-   glyph both carrying one the shield came to rest halfway along the footer and
-   only the glyph reached the right edge. The shield keeps its auto margin,
-   since it now leads that pair, and the glyph behind it gives its own up: with
-   no margin of its own it falls back on the row's 14px column gap, which is
-   the same distance every other pair of items along that footer sits at. A
-   margin here instead measured 22px and made this one pair looser than the
-   rest of the line. Written as a sibling selector so the 3,738 cards with no
-   shield leave the kind glyph's own rule doing exactly what it did before. */
-.asga-tile-priv + .asga-tile-kind { margin-left: 0; }
-/* the type icon closes the date row, so the icons along the card's bottom read
-   as one line: updated, added, and what kind of app it is */
-.asga-tile-kind { display: inline-flex; align-items: center; margin-left: auto; flex: 0 0 auto; }
 /* .asga-stat's own box (display/align-items/gap/white-space) is declared with
-   the date spans above, so all four footer items share one shape; font-weight
-   is the one property that sets stats apart from dates. */
+   the date spans above; font-weight is the one property that sets stats apart
+   from dates. */
 .asga-stat-stars { color: #f0a500; }
 .asga-stat-dl { color: #4ab8c9; }
 
@@ -9030,6 +9235,103 @@ html:not(.Theme--legacyOS) body.asga-active .searchSubmit {
   padding: 0; cursor: pointer;
 }
 html:not(.Theme--legacyOS) body.asga-active .searchSubmit:hover { border-color: #ff8c2f; background: rgba(255, 140, 47, 0.14); }
+/* The four right-hand controls above are pinned to the holder with absolute
+   offsets measured for the wide layout, and the search box, sort control,
+   refresh button and stamp sit in flow to their left. The row needs about
+   1,190px of window for the two not to meet: below that the stamp ran under
+   the toggle, and below 1024, where CA changes the band itself (clamps the
+   holder to 4rem, pads it 2rem, and at 768 drops the menu column and shows
+   its own menu button in the row), the pinned controls landed on top of the
+   search box once the row wrapped. Here they rejoin the row as ordinary flex
+   items: the toggle pushes itself to the right edge with an auto margin and
+   the three boxes follow it at the same 8px they keep when pinned, so when
+   the row still fits on one line nothing is in a different place, and when
+   it does not the cluster takes the next line, right-aligned, instead of
+   covering anything. Every selector that pins them is repeated, including
+   the has-update pair, so the override wins on order at equal specificity. */
+@media (max-width: 1200px) {
+  html:not(.Theme--legacyOS) body.asga-active .searchAreaHolder { height: auto; padding-left: 0; }
+  html:not(.Theme--legacyOS) .asga-toggle,
+  html:not(.Theme--legacyOS) .asga-help,
+  html:not(.Theme--legacyOS) .asga-update,
+  html:not(.Theme--legacyOS) .asga-settings,
+  html:not(.Theme--legacyOS) .asga-bar.asga-has-update .asga-toggle,
+  html:not(.Theme--legacyOS) .asga-bar.asga-has-update .asga-help {
+    position: static; right: auto; top: auto; transform: none;
+  }
+  /* In the markup the toggle precedes the sort control, which is right for
+     the pinned layout, where markup order does not show. In flow it put the
+     toggle first on the line with the sort control jammed against it and the
+     three boxes after that. The sort control keeps the left of its line and
+     the toggle leads the right-hand cluster, the same left-to-right order the
+     wide layout reads in. */
+  html:not(.Theme--legacyOS) body.asga-active .asga-toggle { margin-left: auto; order: 1; }
+  html:not(.Theme--legacyOS) body.asga-active .asga-help,
+  html:not(.Theme--legacyOS) body.asga-active .asga-update,
+  html:not(.Theme--legacyOS) body.asga-active .asga-settings { margin-left: 8px; order: 2; }
+  /* The bar is a row of its own rather than dissolved into the search line
+     (display: contents above), so its five controls move as one: either the
+     whole row fits beside the search box, or the whole row takes the next
+     line, with the sort control on the left and the cluster on the right.
+     Dissolved, the toggle could finish the sort line with the three buttons
+     starting a ragged third one, and the "updated" stamp ran into the
+     toggle with no gap. The search button carries the 14px the bar's own
+     left margin used to, so the bar lands flush when it wraps. */
+  html:not(.Theme--legacyOS) body.asga-active .asga-bar {
+    display: flex; flex-wrap: wrap; align-items: center; row-gap: 10px; column-gap: 0;
+    flex: 1 1 auto; min-width: 0; margin-left: 0;
+  }
+  html:not(.Theme--legacyOS) body.asga-active #searchFilter .searchSubmit { margin-right: 14px; }
+}
+/* Below 960 the toolbar is three lines: the search box across the whole
+   row, then the sort control alone on the line under it, then the toggle on
+   the left and the round help/update/settings buttons on the right of a
+   third line. 960 is where the sort control, the toggle and the three
+   buttons stop fitting one line beside Unraid's 207px sidebar: below it
+   the wide layout broke the cluster in two, with the toggle finishing the
+   sort line and the three buttons starting a ragged third one on the left. */
+@media (max-width: 960px) {
+  html:not(.Theme--legacyOS) body.asga-active #searchFilter .awesomplete { flex: 1 1 calc(100% - 40px); min-width: 0; }
+  /* The bar always wraps here, so the search button has nothing to keep
+     its distance from; the 14px it carries above pushed it onto a line of
+     its own under the box. */
+  html:not(.Theme--legacyOS) body.asga-active #searchFilter .searchSubmit { margin-right: 0; }
+  html:not(.Theme--legacyOS) body.asga-active #searchBox { width: 100%; }
+  /* The sort control always takes the whole second line, so the toggle and
+     the round buttons always have the third to themselves rather than
+     landing wherever the sort control leaves room. */
+  html:not(.Theme--legacyOS) body.asga-active .asga-sortwrap { flex: 0 0 100%; margin-left: 0; }
+  html:not(.Theme--legacyOS) body.asga-active .asga-toggle { margin-left: 0; }
+  /* Help leads the right-hand cluster and takes the auto margin; the update
+     button, when drawn, and the gear follow it at 8px. Help comes first in
+     the markup, so giving the update button the auto margin as well split
+     the cluster, with help stranded in the middle of the line. */
+  html:not(.Theme--legacyOS) body.asga-active .asga-help { margin-left: auto; }
+  html:not(.Theme--legacyOS) body.asga-active .asga-update { margin-left: 8px; }
+  html:not(.Theme--legacyOS) body.asga-active .asga-settings { margin-left: 8px; }
+}
+/* Below 768 CA's own menu button leads the search line. */
+@media (max-width: 768px) {
+  /* The row's left edge is where the cards start (Unraid's 12px page inset,
+     CA's 1rem of .mainArea padding, the grid's own 10px margin) less the
+     footprint of CA's own menu button, which leads the row here: its 2rem
+     glyph is 1.1rem wide and carries 1rem of margin plus the row's 0.5rem
+     gap, so the search box lands on the cards' edge and the button sits in
+     the gutter to its left. */
+  html:not(.Theme--legacyOS) body.asga-active .searchArea { margin-left: calc(12px + 1rem + 10px - 2.6rem) !important; }
+  /* .searchArea is already a flex row from CA's own stylesheet, centred by
+     the rule further up this file; centring stretched CA's menu button to
+     the middle of all three lines instead of the search box's own line. */
+  html:not(.Theme--legacyOS) body.asga-active .searchArea { align-items: flex-start; }
+  /* Nudges the 2rem glyph down onto the 36px search box's centre line rather
+     than the row's own top edge. */
+  html:not(.Theme--legacyOS) body.asga-active .mobileMenuButton { margin-top: 8px; }
+}
+/* The sort line has no room for the "updated" stamp on a phone; the refresh
+   button beside it still does the job. */
+@media (max-width: 480px) {
+  html:not(.Theme--legacyOS) body.asga-active .asga-updated { display: none; }
+}
 /* same floor and ceiling as the base rule above, on the themed box this one
    draws for the non-legacy toolbar */
 html:not(.Theme--legacyOS) body.asga-active .asga-sortsel {

@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.09.02}"
+VERSION="${1:-2026.09.02a}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -57,6 +57,37 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- The app card is redesigned. A strip across the top of every card is tinted in
+  that app's own icon colour, read off the icon on the server: the strongest
+  hue by chroma, so a gold compass on a navy plate gives gold, an outline mark
+  gives its outline, and an SVG icon gives the colour its shapes are filled
+  with. A greyscale icon gets a neutral strip rather than borrowing a colour.
+  The strip fades to the right and downward so the icon, which sits on its
+  bottom edge on an opaque plate, and the kind glyph in its corner never fight
+  it.
+- The name has the whole width of the card and always prints whole, with the
+  Official, Beta, Privileged and Unraid flags beside it as words. Under it the
+  maintainer and the categories share one line, and the line prints as many
+  categories as it has room for rather than always two: "and 1 more" no longer
+  stands where the word it stood for would have fit. Stars, pulls, updated and
+  added sit on one facts line.
+- The six buttons are six equal cells on one row at every width, every label
+  whole, Install filled in orange on the right. The type steps down with the
+  card, to 8.5px on a phone, and never ellipsises.
+- Three cards to a row, never four: a fourth column bought nothing but smaller
+  type, since every size on the card scales with its column. Two columns below
+  1048px of grid, one below 694px.
+- Apps published by Unraid wear an Unraid flag, from the feed's LTOfficial
+  mark.
+- The toolbar no longer breaks apart between 768 and 1200px: the sort control,
+  the view toggle and the three buttons move as one row, beside the search box
+  when they fit and on the line under it when they do not, with the buttons
+  right-aligned at their usual 8px. Below 960 the search box takes the whole
+  row and the toggle leads a line of its own with the buttons on the right.
+- The icon colour cache moved to a new file and a new browser key, so the
+  first load after updating asks the server for every icon again.
+
+##2026.09.02
 - The About panel gains a Check for Updates button in its header, beside the
   report-an-issue and close icons. It asks right now rather than waiting on the
   cached check that only re-runs every six hours, spins while it works, and says

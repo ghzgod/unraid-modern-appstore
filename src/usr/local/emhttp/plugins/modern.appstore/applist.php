@@ -43,6 +43,7 @@
  *   td = CA's trendDelta value, change in that growth percent (null if absent)
  *   tc = count of CA's weekly trend samples (0 if absent), for CA's ranking floor
  *   xc = 1 when CA marks the app incompatible with this server (36 apps), 0 otherwise
+ *   lt = 1 when Unraid itself publishes the app (CA's LTOfficial)
  *   of = 1 when the template is vendor-official (394 apps)
  *   bt = 1 when the template is marked pre-release (211 apps)
  *   pv = 1 when the container runs privileged (114 apps)
@@ -599,6 +600,8 @@ foreach ($tmpl as $t) {
         'tc'  => count((array)($t['trends'] ?? [])),
         'rq'  => install_notice($t),
         'po'  => template_ports($t),
+        // Unraid's own apps, 32 of them, read from CA's LTOfficial flag.
+        'lt'  => flag_true($t['LTOfficial'] ?? '') ? 1 : 0,
         // Vendor-official templates, 394 of them. Worth saying on a card, because
         // the catalog carries five competing templates for some apps and this is
         // the one fact that separates them.
