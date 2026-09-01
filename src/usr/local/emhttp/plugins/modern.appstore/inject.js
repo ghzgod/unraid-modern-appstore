@@ -192,6 +192,13 @@
     // one needs to stay the 14px it's built at, sitting in the same 28px box
     // the close button uses.
     var ISSUE_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><path d="M12 16.5v.01"/></svg>';
+    // A circular arrow is the mark every interface uses for "look again",
+    // which is what this button does. Deliberately not the download tray the
+    // toolbar uses to say "an update is waiting": those are two different
+    // statements, one an offer to check and the other news of a result.
+    // Built to the same 14px/28px shape as ISSUE_ICON just above, so the two
+    // sit as a matched pair in the About panel's header cluster.
+    var UPDATE_CHECK_ICON = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.5 12a8.5 8.5 0 1 1-2.49-6.01"/><path d="M20.5 4.2v4.8h-4.8"/></svg>';
     // /issues/new/choose rather than /issues/new, so GitHub offers this
     // repo's own issue templates instead of a blank form. No query string:
     // nothing about the server this loads on (version, hostname, IP) belongs
@@ -3202,9 +3209,14 @@
 
     // headerAction is optional and only the About panel passes one (see
     // ensureAboutPanel): { icon, title, onClick } for a button that sits left
-    // of Close. An argument rather than a second method keeps every drawer
-    // built through this one call; Settings passes nothing, so its header
-    // keeps the single close button it always had.
+    // of Close. The About panel now carries two of these, a check-for-updates
+    // action and the report-an-issue action it always had, so this also
+    // accepts an ARRAY of that same shape and builds one button per entry, in
+    // order, each to the left of the one after it and all of them left of
+    // Close. A single object is still accepted, since that is what every
+    // other caller passes. An argument rather than a second method keeps
+    // every drawer built through this one call; Settings passes nothing, so
+    // its header keeps the single close button it always had.
     function makeDrawer(id, titleText, headerAction) {
       var d = {};
       var backdrop = document.createElement('div');
@@ -3226,23 +3238,28 @@
       title.className = 'asga-drawer-title';
       title.textContent = titleText;
 
-      // Close (and the optional action beside it) sit in their own cluster
-      // rather than as direct children of the header, so the header always
-      // has exactly two flex children (title, cluster). That keeps the
-      // header's own justify-content:space-between doing the same job it
+      // Close (and whatever header actions come before it) sit in their own
+      // cluster rather than as direct children of the header, so the header
+      // always has exactly two flex children (title, cluster). That keeps
+      // the header's own justify-content:space-between doing the same job it
       // always did, title flush left and the cluster flush right, instead of
       // centering a third top-level child in the gap between title and Close.
       var actions = document.createElement('div');
       actions.className = 'asga-drawer-actions';
       if (headerAction) {
-        var actionBtn = document.createElement('button');
-        actionBtn.type = 'button';
-        actionBtn.className = 'asga-drawer-action';
-        actionBtn.title = headerAction.title;
-        actionBtn.setAttribute('aria-label', headerAction.title);
-        actionBtn.innerHTML = headerAction.icon;
-        actionBtn.addEventListener('click', headerAction.onClick);
-        actions.appendChild(actionBtn);
+        var headerActions = Array.isArray(headerAction) ? headerAction : [headerAction];
+        for (var hi = 0; hi < headerActions.length; hi++) {
+          var entry = headerActions[hi];
+          var actionBtn = document.createElement('button');
+          actionBtn.type = 'button';
+          actionBtn.className = 'asga-drawer-action';
+          if (entry.id) actionBtn.id = entry.id;
+          actionBtn.title = entry.title;
+          actionBtn.setAttribute('aria-label', entry.title);
+          actionBtn.innerHTML = entry.icon;
+          actionBtn.addEventListener('click', entry.onClick);
+          actions.appendChild(actionBtn);
+        }
       }
       var closeBtn = document.createElement('button');
       closeBtn.type = 'button';
@@ -3303,6 +3320,11 @@
     var aboutData = null;    // about.php's answer, or the string 'error' after a failed fetch; null means "not fetched yet"
     var aboutPanel = null;   // the drawer object, built lazily by ensureAboutPanel()
     var updateInfo = null;   // latest.php's answer, set once checkForUpdate()'s fetch lands; null means "not answered yet"
+    // The sentence runUpdateCheck leaves behind ("Checking...", "You are
+    // running the latest version...", a failure). The header button that
+    // starts a check has nothing of its own to say once the check is done,
+    // so this is where the result lives until the next repaint prints it.
+    var checkStatusText = '';
 
     // Confirms before leaving the page: reuses attentionModal, this plugin's
     // own confirm dialog, rather than a second one. Confirming opens the
@@ -3318,11 +3340,12 @@
 
     function ensureAboutPanel() {
       if (aboutPanel) return aboutPanel;
-      aboutPanel = makeDrawer('asga-about-panel', 'Unraid Modern App Store', {
-        icon: ISSUE_ICON,
-        title: 'Report an issue',
-        onClick: reportIssue
-      });
+      // Check first, so it sits leftmost of the two, closest to the title and
+      // furthest from Close.
+      aboutPanel = makeDrawer('asga-about-panel', 'Unraid Modern App Store', [
+        { id: 'asga-about-checkbtn', icon: UPDATE_CHECK_ICON, title: 'Check for updates', onClick: runUpdateCheck },
+        { icon: ISSUE_ICON, title: 'Report an issue', onClick: reportIssue }
+      ]);
       return aboutPanel;
     }
 
@@ -3382,6 +3405,17 @@
         upLine.className = 'asga-about-update';
         upLine.textContent = 'Version ' + updateInfo.latest + ' is available. Update it from the Plugins page.';
         body.appendChild(upLine);
+      }
+
+      // Whatever the header's check button last had to say ("Checking...",
+      // an up-to-date confirmation, a failure) reads as a third line under
+      // the two above, in the same rhythm, rather than living beside a
+      // button that no longer exists in the body.
+      if (checkStatusText) {
+        var st = document.createElement('p');
+        st.className = 'asga-about-checkstatus';
+        st.textContent = checkStatusText;
+        body.appendChild(st);
       }
 
       appendAboutSection(body, 'What this does', [
@@ -3768,6 +3802,110 @@
         // same silent-no-op contract as every other fetch in this file: a
         // dead endpoint just means the glyph stays hidden, never a broken page
         .catch(function () {});
+    }
+
+    // Records whatever runUpdateCheck or promptUpdate has to say and repaints
+    // the panel body so it shows up as the status line renderAboutBody
+    // appends beneath the version. Every message either of them shows goes
+    // through here rather than writing into an element directly, since the
+    // header button that starts a check lives outside the body renderAboutBody
+    // rebuilds and has nowhere of its own to hold text.
+    function setCheckStatus(text) {
+      checkStatusText = text || '';
+      if (aboutPanel) renderAboutBody();
+    }
+
+    // Guards runUpdateCheck against a second click landing while the first
+    // one is still waiting on caPluginUpdateCheck's callback.
+    var updateCheckRunning = false;
+
+    // checkForUpdate() above runs once per page load and its answer is
+    // cached server side for up to six hours, so it can only ever say what
+    // was true earlier, never what is true right now. This is the button
+    // that actually asks: it calls Community Applications' own
+    // caPluginUpdateCheck with the literal plugin filename, the same
+    // function the Apps page toolbar's own update glyph relies on, so this
+    // plugin never has to know how to talk to GitHub or to Unraid's plugin
+    // installer itself.
+    // The button this drives now lives in the panel's header, built once by
+    // ensureAboutPanel and never touched by renderAboutBody's rebuilds, so a
+    // reference taken here at the start stays valid for the whole run. That
+    // is simpler than the old body-row version of this button, which had to
+    // be re-found after every repaint because renderAboutBody threw the old
+    // one away and built a new one each time.
+    function runUpdateCheck() {
+      var btn = document.getElementById('asga-about-checkbtn');
+      if (!btn) return;
+      if (updateCheckRunning) return;
+      updateCheckRunning = true;
+      btn.classList.add('asga-spinning');
+      btn.disabled = true;
+      setCheckStatus('Checking...');
+      // caPluginUpdateCheck belongs to Community Applications, loaded onto
+      // the Apps page alongside this plugin rather than shipped inside it,
+      // and this plugin must never assume another plugin's internals are
+      // present: CA disabled, an older CA build, or a future rewrite that
+      // renames the function should tell the reader the check could not run
+      // rather than throw partway through a click.
+      if (typeof window.caPluginUpdateCheck !== 'function') {
+        updateCheckRunning = false;
+        btn.classList.remove('asga-spinning');
+        btn.disabled = false;
+        setCheckStatus('The update check is not available on this server.');
+        return;
+      }
+      window.caPluginUpdateCheck('modern.appstore.plg', { dontShow: true, element: false }, function (json) {
+        updateCheckRunning = false;
+        btn.classList.remove('asga-spinning');
+        btn.disabled = false;
+        var r;
+        try { r = JSON.parse(json); } catch (e) { r = null; }
+        if (!r) {
+          setCheckStatus('The update check could not be completed.');
+          return;
+        }
+        // Same shape latest.php already answers with, recorded here too so
+        // the toolbar glyph and this panel's own version line agree with
+        // what was just learned instead of waiting on the next page load.
+        // Set before any setCheckStatus call below, since setCheckStatus is
+        // what triggers the repaint and the repaint has to see this.
+        updateInfo = { installed: r.installedVersion, latest: r.version, updateAvailable: !!r.updateAvailable };
+        var bar = document.getElementById('asga-bar');
+        if (bar) {
+          if (updateInfo.updateAvailable) bar.classList.add('asga-has-update');
+          else bar.classList.remove('asga-has-update');
+        }
+        if (!updateInfo.updateAvailable) {
+          setCheckStatus('You are running the latest version, ' + r.version + '.');
+          return;
+        }
+        setCheckStatus('');
+        promptUpdate(r);
+      });
+    }
+
+    // The confirm is this plugin's own dialog, so it reads like every other
+    // prompt in this panel, but the update itself is handed to Unraid's own
+    // ca_pluginUpdateInstall, which runs the same `plugin update` command the
+    // Plugins page runs and shows Unraid's own progress window while it does.
+    // Nothing here reimplements installing a plugin. promptUpdate is also
+    // only ever reached from inside a check that just completed (see
+    // runUpdateCheck above), which is what leaves the new package staged in
+    // /tmp/plugins for that command to find; calling it on its own, without a
+    // check having just run, is what Unraid's own install command reports as
+    // "not installed".
+    function promptUpdate(r) {
+      if (typeof window.ca_pluginUpdateInstall !== 'function') {
+        setCheckStatus('Version ' + r.version + ' is available. Update it from the Plugins page.');
+        return;
+      }
+      attentionModal(
+        'Version ' + r.version + ' is available. This server has ' + r.installedVersion + '.\n\n' +
+        'Updating installs the new version now and replaces the plugin\'s files. Unraid shows its own progress window while it runs, and the Apps page reloads when it finishes.',
+        function () {
+          try { window.ca_pluginUpdateInstall('modern.appstore.plg'); } catch (e) {}
+        }
+      );
     }
 
     // GitHub view on/off, persisted. When off, we un-hide CA's own grid and let

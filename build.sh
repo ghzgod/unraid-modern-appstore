@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.09.01}"
+VERSION="${1:-2026.09.02}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -57,6 +57,18 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- The About panel gains a Check for Updates button in its header, beside the
+  report-an-issue and close icons. It asks right now rather than waiting on the
+  cached check that only re-runs every six hours, spins while it works, and says
+  which version you are on when there is nothing to do. When there is an update
+  it names both versions and installs it through Unraid's own plugin updater,
+  with Unraid's own progress window.
+- Updating no longer tells you to set a GitHub token you have already set. That
+  line was printed at the end of every install, so an update on a server
+  configured months ago read as though the update had wiped it. It now prints
+  only when no token is configured, and an ordinary update just says so.
+
+##2026.09.01
 - Show All Apps on a maintainer used to filter the grid through a hidden mode
   that left the search box empty, so there was no way back to the full catalog
   short of reloading. It writes a qualifier into the search box now,
@@ -795,10 +807,23 @@ esac
 cp -f "$APPDATA/stars.json"  /usr/local/emhttp/plugins/modern.appstore/ 2>/dev/null
 cp -f "$APPDATA/apps.json"   /usr/local/emhttp/plugins/modern.appstore/ 2>/dev/null
 cp -f "$APPDATA/status.json" /usr/local/emhttp/plugins/modern.appstore/ 2>/dev/null
-echo "----------------------------------------------------"
-echo " Unraid Modern App Store installed."
-echo " Set your GitHub token: Settings -> Utilities -> Unraid Modern App Store"
-echo "----------------------------------------------------"
+# What the installer says depends on whether there is anything left to do.
+# The token line was printed unconditionally, so every update told a server
+# that had a token configured months ago to go and configure one, which reads
+# as the update having wiped it. The config lives on the flash at $CFG and
+# survives an update untouched, so it can simply be asked. Any non-empty TOKEN
+# counts: this is a prompt, not a validity check, and the settings page is
+# where a bad token gets reported.
+if grep -q '^TOKEN="..*"' "$CFG" 2>/dev/null; then
+  echo "----------------------------------------------------"
+  echo " Unraid Modern App Store updated."
+  echo "----------------------------------------------------"
+else
+  echo "----------------------------------------------------"
+  echo " Unraid Modern App Store installed."
+  echo " Set your GitHub token: Settings -> Utilities -> Unraid Modern App Store"
+  echo "----------------------------------------------------"
+fi
 ]]>
 </INLINE>
 </FILE>

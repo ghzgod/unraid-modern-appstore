@@ -264,6 +264,7 @@ body.asga-drawer-open { overflow: hidden; }
    motion, since the destination and the content are identical either way */
 @media (prefers-reduced-motion: reduce) {
   .asga-drawer-backdrop, .asga-drawer-panel { transition: none; }
+  .asga-drawer-action.asga-spinning svg { animation: none; }
 }
 .asga-drawer-header {
   position: sticky; top: 0; z-index: 1; flex: 0 0 auto;
@@ -273,15 +274,16 @@ body.asga-drawer-open { overflow: hidden; }
   background: inherit;
 }
 .asga-drawer-title { margin: 0; font-size: 1.6rem; font-weight: 700; }
-/* Close, and the optional header action beside it (see makeDrawer's
-   headerAction in inject.js), sit in this cluster rather than as direct
-   children of the header, so the header keeps exactly two flex children and
+/* Close, and whatever header actions come before it (see makeDrawer's
+   headerAction in inject.js, which now takes either one of these or an
+   array), sit in this cluster rather than as direct children of the header,
+   so the header keeps exactly two flex children and
    justify-content:space-between still puts title flush left and this
    cluster flush right. */
 .asga-drawer-actions { display: flex; align-items: center; gap: 4px; }
 /* Unraid styles every <button> as a form button: 86px min-width, uppercase,
    8px padding and a 10px/12px margin. On a panel header that renders the close
-   (and the report-an-issue action beside it) as a wide labelled box instead of
+   (and the header actions beside it) as a wide labelled box instead of
    an icon, so every one of those is reset here rather than fought with later. */
 .asga-drawer-close,
 .asga-drawer-action {
@@ -300,6 +302,13 @@ body.asga-drawer-open { overflow: hidden; }
 .asga-drawer-action:hover { opacity: 1; border-color: #ff8c2f; background: rgba(255, 140, 47, 0.14); }
 .asga-drawer-close:focus-visible,
 .asga-drawer-action:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 1px; }
+/* The check-for-updates header button spins its icon while runUpdateCheck()
+   (inject.js) is waiting on an answer. It is the only thing on screen that
+   moves while the check runs, so it has to be the thing that says the check
+   is running. Reuses the same asga-rotate keyframes the catalog's loading
+   wheel and the toolbar's refresh icon already turn with, rather than a
+   second spin animation of its own. */
+.asga-drawer-action.asga-spinning svg { animation: asga-rotate 0.8s linear infinite; }
 .asga-drawer-body { flex: 1 1 auto; overflow-y: auto; padding: 4px 20px 24px; }
 
 /* ---- About panel content: everything below is specific to what the About
@@ -312,6 +321,12 @@ body.asga-drawer-open { overflow: hidden; }
    at rest while its muted neighbours wait for a hover. The 6px top margin
    keeps it reading as this panel's second line rather than a new block. */
 .asga-about-update { font-size: 1.2rem; color: #ff8c2f; margin: 6px 0 0; }
+/* What runUpdateCheck's header button left behind ("Checking...", an
+   up-to-date confirmation, a failure), reading as a plain line under the
+   version rather than the inline span it used to be beside a button that no
+   longer exists here. Same size as the version line above it, muted the same
+   way, and the same 6px rhythm .asga-about-update keeps beside it. */
+.asga-about-checkstatus { font-size: 1.2rem; opacity: 0.65; margin: 6px 0 0; }
 .asga-about-section { margin-top: 22px; }
 .asga-about-heading {
   margin: 0 0 8px; font-size: 1.1rem; font-weight: 700;
