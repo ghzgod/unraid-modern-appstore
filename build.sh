@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.08.31}"
+VERSION="${1:-2026.09.01}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -57,6 +57,38 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Show All Apps on a maintainer used to filter the grid through a hidden mode
+  that left the search box empty, so there was no way back to the full catalog
+  short of reloading. It writes a qualifier into the search box now,
+  maintainer:atribe, or the quoted form when a name carries a space, so the
+  filter is something you can see, edit and clear. It combines with ordinary
+  search terms too: maintainer:Unraid nvidia narrows within that maintainer.
+  The match is exact rather than a text search, which matters more than it
+  sounds: searching a maintainer's name as plain text returns 1,789 apps for
+  one who has published 1, because the search reads descriptions and hidden
+  keywords as well as names.
+- The category line under an app's name sat crooked at some browser zoom levels
+  and straight at others. Its two halves were separate boxes, and a flex row
+  centres each box on its own centre rather than aligning their baselines, so
+  the two rounded to device pixels independently and drifted apart at 100 per
+  cent while landing true at 90. They are one run of text now, which shares a
+  baseline by definition.
+- Seven of the card's icons were not centred inside their own artwork, so a tag
+  or a shield sat half a pixel high and the download arrow sat half a pixel low
+  against the text beside them. Each is corrected at the source. The tag beside
+  a category and the person mark beside a maintainer are also cropped to their
+  own drawing, so they line up with the maintainer's photograph in the row above
+  rather than starting two pixels to its right.
+- The maintainer profile drawer puts its statistics under the header and its app
+  list below that, so the list grows downward as a maintainer publishes more
+  instead of leaving a band of empty drawer between the two. Its heading spacing
+  is even now as well.
+- The Favourite button reads Favorite, and no longer grows two pixels wider than
+  the button beside it when it is switched on.
+- The update indicator's slot in the toolbar closes up when there is no update,
+  rather than leaving a gap where the icon would have been.
+
+##2026.08.31
 - Every section of the info drawer now sits in the same card. Additional
   Requirements, the Trends chart, the change log, Template Errors and the
   maintainer profile's Statistics all rendered as a bare heading with loose
