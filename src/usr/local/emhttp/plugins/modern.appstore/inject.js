@@ -648,7 +648,11 @@
       } catch (e) {}
     }
 
-    function openExt(url) { if (url) try { window.open(url, '_blank', 'noopener'); } catch (e) {} }
+    // The last guard against CA's doubled scheme ("https://https://github.com/x",
+    // which its redirector hands out for seven catalog links): the server
+    // repairs what it stores, and this repairs whatever still reaches a click.
+    function fixUrl(url) { return String(url || '').replace(/^https?:\/\/(https?)(?::\/{0,2}|\/{1,2})(?=[a-z0-9])/i, '$1://'); }
+    function openExt(url) { if (url) try { window.open(fixUrl(url), '_blank', 'noopener'); } catch (e) {} }
 
     // Blank until finished. Set the moment a drawer is asked for, cleared by
     // drawerReady() once CA's own render has landed and this file's own fixups

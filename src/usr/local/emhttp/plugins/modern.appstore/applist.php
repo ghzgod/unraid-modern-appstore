@@ -403,6 +403,22 @@ function icon_fa($t) {
 
 // our own catalog (already has name/path/icon/category/stars/trends for every app)
 $ours = read_json_ro("$dataDir/apps.json");
+// The scan's map from CA's https://ca.unraid.net/cdn/<blob> redirectors to
+// where they land. A stored copy written before 2026.09.04g still carries the
+// redirector itself as the Project link, so both stored and template links
+// go through link_out() here rather than waiting for the next scan. The two
+// helpers mirror fetch_stars.php's, which writes what this reads.
+$cdnLinks = read_json_ro("$dataDir/cdn_links.json") ?: [];
+function repair_url($url) {
+    $url = trim((string)$url);
+    return preg_replace('~^https?://(https?)(?::/{0,2}|/{1,2})(?=[A-Za-z0-9])~i', '$1://', $url) ?? $url;
+}
+function link_out($url, $cdnLinks) {
+    $url = (string)$url;
+    if ($url === '') return '';
+    if (strncmp($url, 'https://ca.unraid.net/cdn/', 26) === 0 && !empty($cdnLinks[$url])) $url = $cdnLinks[$url];
+    return repair_url($url);
+}
 $byPath = [];
 foreach (($ours['apps'] ?? []) as $a) {
     if (!empty($a['p'])) $byPath[$a['p']] = $a;
@@ -577,8 +593,8 @@ foreach ($tmpl as $t) {
         'mi'  => $repoMeta[(string)($t['RepoName'] ?? $t['Repo'] ?? '')]['icon'] ?? '',
         'de'  => $desc,
         'sx'  => $sx,
-        'pr'  => $mine['pr'] ?? ($t['Project'] ?? ''),
-        'su'  => $mine['su'] ?? ($t['Support'] ?? ''),
+        'pr'  => link_out($mine['pr'] ?? ($t['Project'] ?? ''), $cdnLinks),
+        'su'  => link_out($mine['su'] ?? ($t['Support'] ?? ''), $cdnLinks),
         'ri'  => $t['Repository'] ?? '',                     // image ref, CA's pin key part 1
         'pn'  => $t['SortName'] ?? $name,                    // exact SortName, CA's pin key part 2
         'rp'  => $mine['rp'] ?? '',                          // owner/repo, for the icon fallback

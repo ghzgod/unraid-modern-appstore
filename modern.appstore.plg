@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.09.04f">
+<!ENTITY version "2026.09.04g">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
@@ -14,6 +14,21 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" support="&support;">
 
 <CHANGES>
+##2026.09.04g
+- Project and Support open the page itself. Both used to open CA's
+  https://ca.unraid.net/cdn/ redirector, and for seven apps (binhex-paseo,
+  code-server, Crafty, Deluge, Emby, get_iplayer, Overseerr) that redirector
+  answers with a doubled scheme, https://https://github.com/..., which no
+  browser can open. The scan now resolves every Project and Support link once
+  and stores where it lands, repairing a doubled scheme on the way; the page
+  repairs stored links written before this release; and a click repairs
+  whatever still reaches it.
+- One plate behind every icon: a mid grey mixed from the theme, on the card,
+  in the drawer and in the repo list. Dark artwork used to get a near-white
+  plate of its own, so a row of cards showed two kinds of icon box.
+- A missing count in the strip reads N/A in capitals. Lower-case n/a sat
+  visibly low beside the figures next to it.
+
 ##2026.09.04f
 - The five groups in the strip (four facts and the docker or plugin glyph)
   sit at one gap. The glyph used to stand a few pixels further from the added
@@ -1057,6 +1072,25 @@ const CDN_PREFIX = 'https://ca.unraid.net/cdn/';
 
 function is_cdn_link(string $url): bool { return strncmp($url, CDN_PREFIX, strlen(CDN_PREFIX)) === 0; }
 
+// A template author who wrote "https//github.com/x" (no colon) gets a scheme
+// prepended by CA, and its redirector then answers with
+// "https://https://github.com/x". Seven Project links in the catalog land
+// there. Collapse the doubled scheme to the inner one so the link opens.
+function repair_url(string $url): string {
+    $url = trim($url);
+    return preg_replace('~^https?://(https?)(?::/{0,2}|/{1,2})(?=[A-Za-z0-9])~i', '$1://', $url) ?? $url;
+}
+
+// The link a card should open: the redirector's cached destination when the
+// scan has resolved it, the raw link otherwise, repaired either way. Cards
+// then open github.com straight off rather than bouncing through ca.unraid.net
+// and inheriting whatever its Location header says.
+function link_out(string $url, array $cdnCache): string {
+    if ($url === '') return '';
+    if (is_cdn_link($url) && !empty($cdnCache[$url])) $url = $cdnCache[$url];
+    return repair_url($url);
+}
+
 // HEAD each link, following redirects, and record where it lands. Failures are
 // deliberately NOT cached, so a transient outage retries on the next scan.
 function resolve_cdn_links(array $urls, int $concurrency, ?callable $onProgress = null): array {
@@ -1096,7 +1130,7 @@ function resolve_cdn_links(array $urls, int $concurrency, ?callable $onProgress 
                 // redirect still told us where the link points, and a dead repo
                 // is better recorded than re-resolved on every scan. Only a
                 // transport failure (code 0) is left uncached, to retry later.
-                if ($final !== '' && $final !== $meta['url'] && $code > 0) $out[$meta['url']] = $final;
+                if ($final !== '' && $final !== $meta['url'] && $code > 0) $out[$meta['url']] = repair_url($final);
                 unset($active[(int)$ch]);
             }
             curl_multi_remove_handle($mh, $ch);
@@ -1171,12 +1205,18 @@ function app_wanted(array $app, ?array $wantedPaths): bool {
 $cdnPath  = $dataDir . '/cdn_links.json';
 $cdnCache = @json_decode((string)@file_get_contents($cdnPath), true);
 if (!is_array($cdnCache)) $cdnCache = [];
+// Destinations cached before repair_url existed are repaired on the way in
+// and written back with the next batch, so the seven bad ones heal themselves.
+$cdnCache = array_map('repair_url', $cdnCache);
 $pending = [];
 foreach ($apps as $app) {
     if (!is_array($app)) continue;
     if (!app_wanted($app, $wantedPaths)) continue;
-    $u = $app['Project'] ?? '';
-    if ($u && is_cdn_link($u) && !isset($cdnCache[$u])) $pending[$u] = $u;
+    // Support links are resolved too since 2026.09.04g, so a card's Support
+    // button opens the thread itself rather than trusting the redirector.
+    foreach ([$app['Project'] ?? '', $app['Support'] ?? ''] as $u) {
+        if ($u && is_cdn_link($u) && !isset($cdnCache[$u])) $pending[$u] = $u;
+    }
 }
 if ($pending && !$trendsOnly) {
     fwrite(STDERR, 'fetch_stars: resolving ' . count($pending) . " CA cdn links...\n");
@@ -1503,8 +1543,8 @@ foreach ($apps as $idx => $app) {
         'au' => display_author($app, $full),
         'ct' => $cat,
         'de' => $desc,
-        'pr' => $app['Project'] ?? '',
-        'su' => $app['Support'] ?? '',
+        'pr' => link_out($app['Project'] ?? '', $cdnCache),
+        'su' => link_out($app['Support'] ?? '', $cdnCache),
         'rp' => $full,
         's'  => $stars,
         'dl' => (int)($app['downloads'] ?? 0),
@@ -2114,6 +2154,22 @@ function icon_fa($t) {
 
 // our own catalog (already has name/path/icon/category/stars/trends for every app)
 $ours = read_json_ro("$dataDir/apps.json");
+// The scan's map from CA's https://ca.unraid.net/cdn/<blob> redirectors to
+// where they land. A stored copy written before 2026.09.04g still carries the
+// redirector itself as the Project link, so both stored and template links
+// go through link_out() here rather than waiting for the next scan. The two
+// helpers mirror fetch_stars.php's, which writes what this reads.
+$cdnLinks = read_json_ro("$dataDir/cdn_links.json") ?: [];
+function repair_url($url) {
+    $url = trim((string)$url);
+    return preg_replace('~^https?://(https?)(?::/{0,2}|/{1,2})(?=[A-Za-z0-9])~i', '$1://', $url) ?? $url;
+}
+function link_out($url, $cdnLinks) {
+    $url = (string)$url;
+    if ($url === '') return '';
+    if (strncmp($url, 'https://ca.unraid.net/cdn/', 26) === 0 && !empty($cdnLinks[$url])) $url = $cdnLinks[$url];
+    return repair_url($url);
+}
 $byPath = [];
 foreach (($ours['apps'] ?? []) as $a) {
     if (!empty($a['p'])) $byPath[$a['p']] = $a;
@@ -2288,8 +2344,8 @@ foreach ($tmpl as $t) {
         'mi'  => $repoMeta[(string)($t['RepoName'] ?? $t['Repo'] ?? '')]['icon'] ?? '',
         'de'  => $desc,
         'sx'  => $sx,
-        'pr'  => $mine['pr'] ?? ($t['Project'] ?? ''),
-        'su'  => $mine['su'] ?? ($t['Support'] ?? ''),
+        'pr'  => link_out($mine['pr'] ?? ($t['Project'] ?? ''), $cdnLinks),
+        'su'  => link_out($mine['su'] ?? ($t['Support'] ?? ''), $cdnLinks),
         'ri'  => $t['Repository'] ?? '',                     // image ref, CA's pin key part 1
         'pn'  => $t['SortName'] ?? $name,                    // exact SortName, CA's pin key part 2
         'rp'  => $mine['rp'] ?? '',                          // owner/repo, for the icon fallback
@@ -4467,7 +4523,11 @@ echo json_encode(['error' => 'method not allowed']);
       } catch (e) {}
     }
 
-    function openExt(url) { if (url) try { window.open(url, '_blank', 'noopener'); } catch (e) {} }
+    // The last guard against CA's doubled scheme ("https://https://github.com/x",
+    // which its redirector hands out for seven catalog links): the server
+    // repairs what it stores, and this repairs whatever still reaches a click.
+    function fixUrl(url) { return String(url || '').replace(/^https?:\/\/(https?)(?::\/{0,2}|\/{1,2})(?=[a-z0-9])/i, '$1://'); }
+    function openExt(url) { if (url) try { window.open(fixUrl(url), '_blank', 'noopener'); } catch (e) {} }
 
     // Blank until finished. Set the moment a drawer is asked for, cleared by
     // drawerReady() once CA's own render has landed and this file's own fixups
@@ -8926,9 +8986,17 @@ body.dark .asga-settings-select { color-scheme: dark; }
   color: var(--text-color, inherit);
   white-space: nowrap; overflow: hidden;
 }
+/* One plate behind every icon, on the card, in the drawer and in the repo
+   list: a mid grey mixed from the theme, 62% page to 38% text (about #6e6c6c
+   on the dark theme, #9c9c9c on the white). Mid, because it has to carry both
+   the white-on-transparent artwork most apps ship and the dark artwork about
+   a fifth of them ship; until 2026.09.04g the dark ones got a near-white plate
+   of their own, and two plates in one row read as two kinds of card. */
+body.asga-active {
+  --asga-icon-plate: color-mix(in srgb, var(--background-color, #1d1b1b) 62%, var(--text-color, #f2f2f2));
+}
 .asga-tile-icon {
   position: relative; z-index: 1;
-  --asga-icon-plate: color-mix(in srgb, var(--background-color, #1d1b1b) 90%, var(--text-color, #f2f2f2));
   width: var(--asga-icon-side); height: var(--asga-icon-side);
   /* Pulled up over the strip's bottom edge rather than sitting under it, so
      the icon reads as the thing the strip is naming rather than as a second,
@@ -8961,23 +9029,6 @@ body.dark .asga-settings-select { color-scheme: dark; }
   background: var(--asga-icon-plate); border: 0;
   font-size: calc(var(--asga-icon-side) * 0.44); line-height: 1;
   color: color-mix(in srgb, var(--text-color, #f2f2f2) 66%, transparent);
-}
-/* What sits behind an icon answers the icon, not the theme. Roughly a fifth of
-   the catalog's icons are dark artwork drawn for a light page, and the plate
-   above is near-black, so those arrived with nothing to see: an icon averaging
-   a quarter brightness on a plate of the same brightness is a blank square.
-   icontone.php measures each icon and inject.js writes the verdict onto the
-   image, so a bright icon keeps the quiet tile it already had and only a dark
-   one is lifted. The lighter border is for the dark icons that are opaque
-   squares rather than transparent artwork: those cover whatever is painted
-   behind them, so their own edge is the only thing that can separate them from
-   the card. All three selectors are named rather than one bare img rule,
-   because each has to outrank the plate it is replacing on its own terms. */
-.asga-tile-icon img[data-tone="dark"],
-body.asga-active .popupIcon img[data-tone="dark"],
-body.asga-active .asga-repo-app-icon[data-tone="dark"] {
-  background: #eeeef2;
-  border-color: rgba(255, 255, 255, 0.3);
 }
 /* The strip that opens the card: full bleed past the band's own side inset,
    so its tint reaches the card's rounded corners rather than stopping short
@@ -9222,6 +9273,10 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    Dimmed, so a card that does know its numbers still wins the eye. */
 .asga-stat-none { color: color-mix(in srgb, var(--text-color, #f2f2f2) 48%, var(--background-color, #1d1b1b)); }
 .asga-stat-none .asga-ficon { color: inherit; }
+/* Capitals in the strip: "n/a" is all x-height letters and sat visibly low
+   beside the lining figures of its neighbours. "N/A" stands as tall as a
+   digit, so the four figures share one top edge whether known or not. */
+.asga-tile-facts .asga-stat.asga-stat-none { text-transform: uppercase; }
 /* shared by every icon this file draws at this scale, so they can never
    drift apart in size again; each takes its colour from the rules below
    rather than carrying one of its own, since every SVG draws with
@@ -9992,7 +10047,7 @@ body.asga-active .popupIcon img {
      icon column 76px tall and sat the avatar high inside it. */
   display: block;
   width: 72px; height: 72px; box-sizing: border-box; margin: 0; padding: 0; object-fit: contain;
-  border-radius: 10px; background: var(--asga-control); border: 1px solid var(--asga-cardline);
+  border-radius: 10px; background: var(--asga-icon-plate); border: 1px solid var(--asga-cardline);
 }
 body.asga-active .popupIcon i { padding: 0; font-size: 6.4rem; }
 /* One square, the same square on every app.
@@ -10768,7 +10823,7 @@ body.asga-active .asga-repo-app-icon {
   grid-column: 1; grid-row: 1 / span 2; align-self: start;
   width: 40px; height: 40px; box-sizing: border-box;
   object-fit: contain; border-radius: 8px; padding: 3px;
-  background: var(--asga-control); border: 1px solid var(--asga-cardline);
+  background: var(--asga-icon-plate); border: 1px solid var(--asga-cardline);
 }
 /* the glyph form of the same tile, for the apps that carry one instead of a
    picture; the rule above already gave it the plate, so only the mark inside

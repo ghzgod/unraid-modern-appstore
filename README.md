@@ -61,7 +61,7 @@ Two limits worth knowing: the stargazer list holds only *current* stargazers, so
 
 Stars come from the public GitHub API, keyed to each app's project repository. They are fetched for **the apps currently on screen**, so browsing fills the catalog in gradually; an app is only re-checked if it has never been tried or its last attempt is over a week old. The refresh icon offers a rescan of the current page, or a full catalog scan (limited to once every three days).
 
-Community Applications publishes most project links as `ca.unraid.net/cdn/...` redirectors, so the plugin resolves each one to its real destination and caches the result. Apps whose project link is a plain homepage rather than a repository have no star count, because there is no repository to count.
+Community Applications publishes most project and support links as `ca.unraid.net/cdn/...` redirectors, so the plugin resolves each one to its real destination and caches the result. The card's Project and Support buttons open that destination directly, and a link whose redirector answers with a doubled scheme (`https://https://github.com/...`, which a handful do) is repaired before it opens. Apps whose project link is a plain homepage rather than a repository have no star count, because there is no repository to count.
 
 ## What it writes
 

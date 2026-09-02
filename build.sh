@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.09.04f}"
+VERSION="${1:-2026.09.04g}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -57,6 +57,21 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Project and Support open the page itself. Both used to open CA's
+  https://ca.unraid.net/cdn/ redirector, and for seven apps (binhex-paseo,
+  code-server, Crafty, Deluge, Emby, get_iplayer, Overseerr) that redirector
+  answers with a doubled scheme, https://https://github.com/..., which no
+  browser can open. The scan now resolves every Project and Support link once
+  and stores where it lands, repairing a doubled scheme on the way; the page
+  repairs stored links written before this release; and a click repairs
+  whatever still reaches it.
+- One plate behind every icon: a mid grey mixed from the theme, on the card,
+  in the drawer and in the repo list. Dark artwork used to get a near-white
+  plate of its own, so a row of cards showed two kinds of icon box.
+- A missing count in the strip reads N/A in capitals. Lower-case n/a sat
+  visibly low beside the figures next to it.
+
+##2026.09.04f
 - The five groups in the strip (four facts and the docker or plugin glyph)
   sit at one gap. The glyph used to stand a few pixels further from the added
   date than the facts stood from each other.
