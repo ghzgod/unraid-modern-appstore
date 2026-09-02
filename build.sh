@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.09.04c}"
+VERSION="${1:-2026.09.04d}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -57,6 +57,14 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Installed is grey. An app whose exact Docker repository or plugin is already
+  on the server gets a dimmed Installed pill in place of Install, rather than
+  the green the pinned button wears.
+- The first paint waits for the installed and pinned sets as well as the
+  catalog, so a card can no longer be drawn with Install while the server was
+  still saying which apps it has.
+
+##2026.09.04c
 - The four facts in the strip sit on one line: the two dates carried a taller
   line box and a lighter weight than the two counts beside them, so their
   text sat a pixel off next to icons that were level.

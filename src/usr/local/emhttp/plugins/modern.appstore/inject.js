@@ -4427,8 +4427,16 @@
       // or does not occur.
       setTimeout(markReady, 15000);
       triggerNewScan();
-      loadViews();   // pin/installed membership, so tiles show correct pin state
-      loadApps(function () {
+      // Both answers before the first paint. The pin and installed sets used
+      // to be fetched without waiting, so a card could be painted with Install
+      // while the Installed set was still on the wire, and it stayed that way
+      // until something else forced a render. The two requests still run side
+      // by side; only the paint waits for the second of them.
+      var need = 2;
+      var go = function () { if (--need > 0) return; firstPaint(); };
+      loadViews(go);
+      loadApps(go);
+      function firstPaint() {
         // has to run after loadApps() lands: that's what carries the configured
         // default this falls back to, and it must run before attachUI()/render()
         // paint the sort menu and the first page
@@ -4446,7 +4454,7 @@
         });
         mo.observe(main, { childList: true, subtree: true });
         startPolling();
-      });
+      }
     }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', start);
     else start();

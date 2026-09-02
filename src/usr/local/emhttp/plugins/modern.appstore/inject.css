@@ -1002,23 +1002,33 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 }
 .asga-btn.asga-install:hover { background: #ffa057; border-color: #ffa057; }
 /* #6ac47f is this project's one positive semantic colour. It means a state the
-   server is already in, which is why both of the buttons below wear it: the app
-   is installed, or the app is pinned. It is the only hue besides the accent
-   that carries meaning, and it never competes with the accent because the
-   accent means "this does something" and this means "this is already true".
-   The pinned button used to be accent, which made the one already-pinned card
-   in a row look like the one card asking to be clicked. */
-.asga-btn.asga-pinned,
-.asga-btn.asga-btn-installed {
+   server is already in, and the pinned button wears it. It is the only hue
+   besides the accent that carries meaning, and it never competes with the
+   accent because the accent means "this does something" and this means "this
+   is already true". The pinned button used to be accent, which made the one
+   already-pinned card in a row look like the one card asking to be clicked. */
+.asga-btn.asga-pinned {
   color: #6ac47f; background: rgba(106, 196, 127, 0.15); border-color: rgba(106, 196, 127, 0.4);
+  font-weight: 600; cursor: pointer;
+}
+/* Installed is the one button on the card with nothing to do, so it is the
+   one drawn grey: the plain pill dimmed, no accent on hover. It used to share
+   the pinned green, which made the one card a reader cannot install look like
+   the one card reporting good news. The click still falls through to the
+   drawer, so the cursor stays. */
+.asga-btn.asga-btn-installed {
+  color: color-mix(in srgb, var(--text-color, #f2f2f2) 55%, var(--background-color, #1d1b1b));
+  background: rgba(127, 127, 127, 0.06); border-color: rgba(127, 127, 127, 0.22);
   font-weight: 600; cursor: pointer;
 }
 /* two classes beats the generic hover above at one, so these win the cascade
    without relying on source order. They only lift the same fill: a button that
    reports state must never turn accent the way the plain pills do. */
-.asga-btn.asga-pinned:hover,
-.asga-btn.asga-btn-installed:hover {
+.asga-btn.asga-pinned:hover {
   background: rgba(106, 196, 127, 0.22); border-color: rgba(106, 196, 127, 0.55);
+}
+.asga-btn.asga-btn-installed:hover {
+  background: rgba(127, 127, 127, 0.10); border-color: rgba(127, 127, 127, 0.3);
 }
 
 /* support dropdown */
