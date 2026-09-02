@@ -25,7 +25,8 @@ if ($_POST) {
         $datadir       = $_POST['DATA_DIR'] ?? '';
         $scandays      = $_POST['SCAN_DAYS'] ?? '1';
         $defsort       = $_POST['DEFAULT_SORT'] ?? 'new';
-        gas_write_cfg($gas_cfg, $token, $service, $notifications, $datadir, $scandays, $defsort);
+        $cardsperrow   = $_POST['CARDS_PER_ROW'] ?? '3';
+        gas_write_cfg($gas_cfg, $token, $service, $notifications, $datadir, $scandays, $defsort, $cardsperrow);
         gas_write_cron($gas_cron, $scandays);
         $gas_msg = "Settings saved.";
         if (trim($token) === '') {
@@ -45,6 +46,7 @@ $notifications = $cfg['notifications'];
 $datadir       = $cfg['datadir'];
 $scandays      = $cfg['scandays'];
 $defsort       = $cfg['defaultsort'];
+$cardsperrow   = $cfg['cardsperrow'];
 
 $status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/modern.appstore/status.json"), true) ?: [];
 ?>
@@ -126,6 +128,17 @@ _(Default sort order)_:
   </select>
 
 > The order the Apps page opens in. The page remembers whichever sort you picked last for 20 minutes, so paging back and forth keeps your place; past that window it opens back on this one.
+
+_(Cards per row)_:
+: <select name="CARDS_PER_ROW" size="1">
+    <?= mk_option($cardsperrow, "2", "2") ?>
+    <?= mk_option($cardsperrow, "3", "3") ?>
+    <?= mk_option($cardsperrow, "4", "4") ?>
+    <?= mk_option($cardsperrow, "5", "5") ?>
+    <?= mk_option($cardsperrow, "6", "6") ?>
+  </select>
+
+> How many cards the Apps page lays across a row on a window wide enough to hold them. A narrower window shows as many as fit, never squeezing a card under 340px. Three is the default: every size on a card scales with its width, so more columns means smaller type.
 
 _(Database directory)_:
 : <input type="text" name="DATA_DIR" value="<?= htmlspecialchars($datadir) ?>" style="width:520px;max-width:90%;" spellcheck="false">

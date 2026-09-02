@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.09.02a}"
+VERSION="${1:-2026.09.03}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -57,6 +57,13 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- New setting, Cards per row (2 to 6, default 3), in the settings panel and on
+  the plugin's settings page. It is the count on a window wide enough to hold
+  it; a narrower window shows as many as fit, never squeezing a card under
+  340px. Stored in the plugin's own config, so it survives updates.
+- Screenshots in the repository, and the README describes the current card.
+
+##2026.09.02a
 - The app card is redesigned. A strip across the top of every card is tinted in
   that app's own icon colour, read off the icon on the server: the strongest
   hue by chroma, so a gold compass on a navy plate gives gold, an outline mark

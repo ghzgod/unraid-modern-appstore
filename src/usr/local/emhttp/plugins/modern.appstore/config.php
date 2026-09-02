@@ -40,7 +40,16 @@ function gas_default_sort($v) {
     return in_array($v, $valid, true) ? $v : 'new';
 }
 
-function gas_write_cfg($path, $token, $service, $notifications, $datadir, $scanDays, $defaultSort) {
+// Two to six covers every window this plugin is likely to meet: two for
+// people who want big cards, six for an ultrawide, three as the default so
+// the type stays large. The grid still drops columns on a window too narrow
+// to hold that many 340px cards, so a high number is safe on a laptop.
+function gas_cards_per_row($v) {
+    $v = (int)$v;
+    return ($v >= 2 && $v <= 6) ? $v : 3;
+}
+
+function gas_write_cfg($path, $token, $service, $notifications, $datadir, $scanDays, $defaultSort, $cardsPerRow = 3) {
     $token   = str_replace(["\"", "\n", "\r"], "", $token);
     $datadir = rtrim(str_replace(["\"", "\n", "\r"], "", $datadir), '/');
     if ($datadir === '') $datadir = '/boot/config/plugins/modern.appstore';
@@ -48,7 +57,8 @@ function gas_write_cfg($path, $token, $service, $notifications, $datadir, $scanD
     $notifications = ($notifications === 'disabled') ? 'disabled' : 'enabled';
     $scanDays = gas_scan_days($scanDays);
     $defaultSort = gas_default_sort($defaultSort);
-    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nNOTIFICATIONS=\"$notifications\"\nDATA_DIR=\"$datadir\"\nSCAN_DAYS=\"$scanDays\"\nDEFAULT_SORT=\"$defaultSort\"\n";
+    $cardsPerRow = gas_cards_per_row($cardsPerRow);
+    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nNOTIFICATIONS=\"$notifications\"\nDATA_DIR=\"$datadir\"\nSCAN_DAYS=\"$scanDays\"\nDEFAULT_SORT=\"$defaultSort\"\nCARDS_PER_ROW=\"$cardsPerRow\"\n";
     file_put_contents($path, $out);
     @chmod($path, 0600);
     @mkdir($datadir, 0755, true);
@@ -104,6 +114,10 @@ function gas_mask_token($token) {
 function gas_read_cfg($path) {
     $cfg = is_file($path) ? @parse_ini_file($path) : [];
     if (!is_array($cfg)) $cfg = [];
+    // A cfg written before this setting existed has no CARDS_PER_ROW line
+    // and lands on 3, the grid's fixed count before the setting existed, so
+    // an update changes nothing until the user asks.
+    $cardsPerRow = gas_cards_per_row($cfg['CARDS_PER_ROW'] ?? 3);
     return [
         'token'         => $cfg['TOKEN'] ?? '',
         'service'       => $cfg['SERVICE'] ?? 'enabled',
@@ -111,6 +125,7 @@ function gas_read_cfg($path) {
         'datadir'       => $cfg['DATA_DIR'] ?? '/boot/config/plugins/modern.appstore',
         'scandays'      => (string)gas_scan_days($cfg['SCAN_DAYS'] ?? 1),
         'defaultsort'   => gas_default_sort($cfg['DEFAULT_SORT'] ?? 'new'),
+        'cardsperrow'   => (string)$cardsPerRow,
     ];
 }
 

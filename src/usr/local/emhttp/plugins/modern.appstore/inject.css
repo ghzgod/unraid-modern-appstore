@@ -504,69 +504,34 @@ body.dark .asga-settings-select { color-scheme: dark; }
    rather than relocating it.
    row-gap doubles as the spacing between bands, since a card's four rows are
    the parent's rows. */
-/* Three cards to a row, and the grid is the container every card measures
-   itself against. The card cannot be its own container: container-type cancels
-   the subgrid below, which is the only thing keeping the four bands of every
-   card in a row on one line. Measuring off the grid instead means one column
-   is a third of the grid less two gaps, and --cw below turns that back
-   into the width of a single card, which every size on the card is then a
-   fraction of. Fixed pixels were the bug this replaces: they were correct at
-   one column width and 20% too small at the width the column actually grew to. */
+/* The grid is the container every card measures itself against. The card
+   cannot be its own container: container-type cancels the subgrid below,
+   which is the only thing keeping the four bands of every card in a row on
+   one line. Measuring off the grid instead means one column is the grid
+   less its gaps, divided by however many columns there are, and --cw below
+   turns that back into the width of a single card, which every size on the
+   card is then a fraction of. Fixed pixels were the bug this replaces: they
+   were correct at one column width and wrong at any other. */
 /* The grid measures a card off itself, so it stays a container of its own; this
    one exists purely so the column count above has something to ask. */
 #asga-view { container: asga-view / inline-size; }
 .asga-grid {
   container-type: inline-size;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--asga-cols, 3), minmax(0, 1fr));
   column-gap: 14px; row-gap: 10px;
 }
-/* Three across is the layout, at every width from 1048px of grid up: a
-   fourth column bought nothing but smaller type, since every size on the
-   card is a fraction of the column. The ladder below steps one column at a
-   time. It used to jump straight from four to two, which is why a single notch
-   of browser zoom halved the grid: at 110% a 1560px view measures 1418 CSS
-   pixels and fell through the four-column test to land on two, with cards
-   nearly twice the width they had a moment earlier.
-   Three columns was banned for a while because a button row laid out with
-   space-between scattered its six buttons to the card's edges at that width.
-   That is no longer how the row is laid out, and every size on the card is a
-   fraction of the card's own width now, so a wider card carries proportionally
-   larger type and the run keeps filling the same share of it.
-   Each threshold is the width at which a card can no longer hold all six
-   buttons, labelled, on one line: the run needs about 432px of a band's inner
-   width at its 12px size, so a card has to clear about 460px, and a column
-   has to clear that plus its share of the gaps. Below that, the button row
-   never wraps: the font clamp on .asga-btn shrinks the labels instead, so a
-   card at 447px still fits the row at a smaller size rather than growing
-   taller than its neighbours. */
-/* --cw has to follow the column count, not just the grid width. It is the width
-   of one card, and one card is the grid less its gaps divided by however many
-   columns there are, so a ladder that changes the count without restating it
-   leaves every size on the card computed for a quarter of the grid while the
-   card is actually a third of it. That is what made a three column grid render
-   type sized for a 344px card inside a 463px one, and the button run fill only
-   72% of the row it sits in.
-   The selector carries the grid as well as the card because the base rule that
-   declares --cw sits further down this file at the same specificity, and a
-   container query adds none of its own, so an equally weighted override placed
-   above it would simply lose. */
-/* The steps are where three and two 340px cards plus their 14px gaps stop
-   fitting. 340px is the narrowest card the button row prints whole at. */
-@container asga-view (max-width: 1047px) {
-  .asga-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .asga-grid > .asga-tile { --cw: calc(50cqw - 7px); }
-}
-@container asga-view (max-width: 693px) {
-  .asga-grid { grid-template-columns: minmax(0, 1fr); }
-  .asga-grid > .asga-tile { --cw: 100cqw; }
-}
+/* The column count is no longer a width ladder in CSS. fitColumns() in
+   inject.js measures the grid, fits as many 340px cards as it can across
+   that width, clamps the result to the configured minimum and maximum, and
+   writes it onto the grid as --asga-cols. CSS never chooses the count; it
+   only turns whatever count it is handed into a card width. */
 .asga-tile {
   position: relative;
-  /* One column of the grid, which is a third of it less its two gaps.
-     Every size on this card is a fraction of this figure, taken from the
-     reference design as a percentage of its card's width. */
-  --cw: calc(33.3333cqw - 9.3333px);
+  /* One column of the grid, which is the grid less its gaps divided by the
+     column count. Every size on this card is a fraction of this figure,
+     taken from the reference design as a percentage of its card's width. */
+  --cw: calc((100cqw - 14px * (var(--asga-cols, 3) - 1)) / var(--asga-cols, 3));
   /* A card is lit from the top. The gradient runs from a grey a shade above the
      page down to the page's own colour, so a card reads as a raised surface
      rather than a rectangle drawn on the background, and the run is built from

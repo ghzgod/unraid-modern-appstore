@@ -43,6 +43,7 @@ function gas_settings_response($cfg, $extra = []) {
         'scanDays'      => $cfg['scandays'],
         'defaultSort'   => $cfg['defaultsort'],
         'dataDir'       => $cfg['datadir'],
+        'cardsPerRow'   => $cfg['cardsperrow'],
     ], $extra);
 }
 
@@ -72,6 +73,7 @@ if ($method === 'POST') {
     $datadir       = $_POST['DATA_DIR'] ?? $current['datadir'];
     $scandays      = $_POST['SCAN_DAYS'] ?? $current['scandays'];
     $defaultsort   = $_POST['DEFAULT_SORT'] ?? $current['defaultsort'];
+    $cardsperrow   = $_POST['CARDS_PER_ROW'] ?? $current['cardsperrow'];
 
     // TOKEN is the subtle one. The panel's password field always renders
     // blank, since a browser should never echo a saved secret back into a
@@ -87,7 +89,7 @@ if ($method === 'POST') {
         $token = $current['token'];
     }
 
-    gas_write_cfg($gas_cfg, $token, $service, $notifications, $datadir, $scandays, $defaultsort);
+    gas_write_cfg($gas_cfg, $token, $service, $notifications, $datadir, $scandays, $defaultsort, $cardsperrow);
     gas_write_cron($gas_cron, $scandays);
 
     echo json_encode(gas_settings_response(gas_read_cfg($gas_cfg), ['saved' => true]));

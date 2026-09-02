@@ -4,6 +4,12 @@ A modern front-end for the Unraid **Apps** page. It replaces Community Applicati
 
 It never modifies Community Applications. Everything is layered on top and scoped to this plugin's own markup, so switching the view off, or uninstalling, returns the Apps page to stock.
 
+## Screenshots
+
+![The Apps page](screenshots/apps-main-page.png)
+
+![The Info drawer](screenshots/app-drawer.png)
+
 ## Requirements
 
 - Unraid 6.12 or newer with the **Community Applications** plugin installed.
@@ -23,12 +29,13 @@ Then set your token at **Settings → Utilities → Unraid Modern App Store**.
 
 ## What you get
 
-- **A card grid** with the app icon, author, category, a Docker or Plugin tag, the description, and when the app was added to the store.
+- **A card grid** with the app icon, maintainer, categories, the description, and when the app was added to the store. The strip across the top of each card is tinted in the app's own icon colour, and Unraid, Official, Beta and Privileged apps are flagged beside the name.
 - **Badges** for GitHub stars and Docker pulls. Pull counts are dropped for apps built on an official base image (nginx, redis, postgres), where the figure belongs to the base image rather than the app.
 - **Sorting that works across the whole catalog**, with real pagination, search and category filtering.
 - **Pinned Apps** and **Installed Apps** rendered by the plugin.
 - **A restyled Info drawer**, with the description, details and maintainer as one column of cards, and a built-in screenshot lightbox.
 - **A Modern view toggle** in the toolbar to hand the page back to Community Applications at any time.
+- **Cards per row** is a setting (2 to 6, default 3). A narrower window shows as many as fit.
 
 ## How the trending windows work
 

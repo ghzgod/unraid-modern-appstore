@@ -32,6 +32,9 @@
     // server's real value; 'new' is only what's used before that response lands
     // or if the config on disk can't be read
     var defaultSort = 'new';
+    // the configured cards per row, from applist.php, overwritten again the
+    // moment a settings save answers with a new one
+    var cardsPerRow = 3;
     // initSort() must run exactly once per page load (see its own comment); this
     // is the guard, since loadApps() itself refires several times after start()
     var sortInited = false;
@@ -369,6 +372,14 @@
         });
     }
 
+    // Both settings.php and applist.php send cardsPerRow the same way, so
+    // this is the one place that turns whatever they sent into a number the
+    // grid can trust: an out-of-range or missing value falls back to dflt
+    // rather than handing fitColumns() something it has to re-validate.
+    function colsOr(v, dflt) {
+      var n = parseInt(v, 10);
+      return (n >= 2 && n <= 6) ? n : dflt;
+    }
     function loadApps(cb) {
       fetch(PREFIX + 'applist.php?_=' + Date.now())
         .then(function (r) { return r.ok ? r.json() : null; })
@@ -380,6 +391,10 @@
           // so a config value the grid doesn't recognise is silently ignored
           // rather than handed straight to view.sort
           if (j && j.defaultSort && optFor(j.defaultSort).v === j.defaultSort) defaultSort = j.defaultSort;
+          if (j) {
+            cardsPerRow = colsOr(j.cardsPerRow, 3);
+            fitColumns();
+          }
           if (j) { stamps.feed = j.feedAt || 0; stamps.scan = j.scanAt || 0; updateStamp(); }
           // no answer at all counts as not ready, so a failed request retries
           // rather than freezing the grid on an empty catalog
@@ -2600,6 +2615,25 @@
         txt.appendChild(only);
       }
     }
+    // How many 340px cards, plus their 14px gaps, fit across the grid right
+    // now. The configured cardsPerRow is the count on a window wide enough to
+    // hold it; fit is the cap a narrower window imposes, since a card never
+    // squeezes below 340px, so the grid shows the smaller of the two.
+    function fitColumns() {
+      var grid = document.getElementById('asga-grid');
+      if (!grid) return;
+      var w = grid.clientWidth;
+      // 0 means the grid is not laid out yet, same reasoning fitTitles uses.
+      if (!w) return;
+      var fit = Math.max(1, Math.floor((w + 14) / (340 + 14)));
+      var cols = Math.min(cardsPerRow, fit);
+      // Comparing against the current inline value before writing keeps a
+      // resize that lands on the same column count from touching styles at
+      // all, so it never fights fitTitles() over whether a repaint is due.
+      if (grid.style.getPropertyValue('--asga-cols') !== String(cols)) {
+        grid.style.setProperty('--asga-cols', cols);
+      }
+    }
     // How many of a card's categories its byline can print whole. The
     // maintainer's name never shrinks (see .asga-tile-author), so the box
     // the category lands in is exactly the room left on the line, and the
@@ -2662,9 +2696,9 @@
       var t = null;
       window.addEventListener('resize', function () {
         clearTimeout(t);
-        t = setTimeout(fitTitles, 120);
+        t = setTimeout(function () { fitColumns(); fitTitles(); }, 120);
       });
-      if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitTitles);
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { fitColumns(); fitTitles(); });
     }
 
     function render() {
@@ -2726,6 +2760,7 @@
       queueScan();
       try { window.scrollTo(0, 0); } catch (e) {}
       fillMissingDates();
+      fitColumns();
       fitTitles();
     }
 
@@ -3672,6 +3707,14 @@
       els.sort = addSettingsField(body, 'asga-set-sort', 'Default sort order', sortSel);
       themeSettingsSelect(els.sort);
 
+      // Two to six: two for big cards, six for an ultrawide. The grid still
+      // drops columns on a window too narrow for the chosen count, so a high
+      // number is safe to pick on a laptop.
+      var colsOpts = [];
+      for (var ci = 2; ci <= 6; ci++) colsOpts.push({ v: String(ci), label: String(ci) });
+      els.cols = addSettingsSelect(body, 'asga-set-cols', 'Cards per row', colsOpts);
+      themeSettingsSelect(els.cols);
+
       var dataDirInput = document.createElement('input');
       dataDirInput.type = 'text';
       dataDirInput.className = 'asga-settings-input';
@@ -3715,6 +3758,7 @@
       // value this select doesn't recognise leaves the field as it was
       // rather than selecting nothing
       if (j.defaultSort && optFor(j.defaultSort).v === j.defaultSort) els.sort.value = j.defaultSort;
+      els.cols.value = j.cardsPerRow ? String(j.cardsPerRow) : '3';
       els.dataDir.value = j.dataDir || '';
       // the token field is ALWAYS rendered empty: the endpoint never sends
       // the saved value back, and echoing whatever the user last typed here
@@ -3795,6 +3839,7 @@
       if (els.token.value) params.set('TOKEN', els.token.value);
       params.set('SCAN_DAYS', els.scanDays.value);
       params.set('DEFAULT_SORT', els.sort.value);
+      params.set('CARDS_PER_ROW', els.cols.value);
       params.set('DATA_DIR', els.dataDir.value);
       postSettingsForm(params, function (j) {
         // an empty or unparsable body lands here as j === null, same as any
@@ -3806,6 +3851,12 @@
         // immediately, without reloading the page or touching whatever sort
         // the user is currently looking at
         if (j.defaultSort && optFor(j.defaultSort).v === j.defaultSort) defaultSort = j.defaultSort;
+        // same immediate-effect contract for the column count: the grid
+        // re-lays out right now, on whatever page is open, rather than
+        // waiting for a reload to notice the save
+        cardsPerRow = colsOr(j.cardsPerRow, cardsPerRow);
+        fitColumns();
+        fitTitles();
         setSettingsStatus('Settings applied.');
       });
     }

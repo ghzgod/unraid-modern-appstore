@@ -14,6 +14,7 @@
  * It writes nothing, anywhere. All CA paths are opened read-only.
  *
  * Output: { "generated": <ts>, "feedReady": <bool>, "docker": {...}, "defaultSort": <string>,
+ *           "cardsPerRow": <int>,
  *           "historyDays": <int>,
  *           "apps": [ { p,n,sn,ic,fa,xc,ct,s,dl,fs,fx,fk,lu,lk,ca,sx,rn,mi,t1,t7,t30,t365,rd,dt,td,tc,of,bt,pv,rm } ] }
  *   p  = template path (passed to CA's showSidebarApp for Info/Install)
@@ -68,6 +69,12 @@ $gas_cfg = '/boot/config/plugins/modern.appstore/modern.appstore.cfg';
 $cfg = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
 $defaultSort = preg_replace('/[^a-z0-9_]/', '', strtolower((string)($cfg['DEFAULT_SORT'] ?? '')));
 $defaultSort = substr($defaultSort, 0, 20);
+
+// Same loose sanitising as $defaultSort above: no shared whitelist function,
+// just enough of a bound (an int from 2 to 6) that a hand-edited config
+// cannot hand the grid a column count it cannot lay out.
+$cardsPerRow = (int)($cfg['CARDS_PER_ROW'] ?? 3);
+$cardsPerRow = ($cardsPerRow >= 2 && $cardsPerRow <= 6) ? $cardsPerRow : 3;
 
 // Who the card names under an app, and it has to be the same person the
 // drawer names and the same person the picture beside it shows.
@@ -644,6 +651,7 @@ if (class_exists('SQLite3') && is_file("$dataDir/stars.db")) {
 echo json_encode(
     ['generated' => time(), 'count' => count($out), 'historyDays' => $historyDays,
      'feedReady' => $feedReady, 'docker' => docker_state(), 'defaultSort' => $defaultSort,
+     'cardsPerRow' => $cardsPerRow,
      // when CA last synced its feed (the store's own check for new and updated
      // apps) and when the last star scan ran, for the toolbar's Updated stamp
      'feedAt' => (int)@filemtime("$caTmp/templates_new.json"),

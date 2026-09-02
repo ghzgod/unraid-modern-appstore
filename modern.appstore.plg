@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.09.02a">
+<!ENTITY version "2026.09.03">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
@@ -14,6 +14,13 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" support="&support;">
 
 <CHANGES>
+##2026.09.03
+- New setting, Cards per row (2 to 6, default 3), in the settings panel and on
+  the plugin's settings page. It is the count on a window wide enough to hold
+  it; a narrower window shows as many as fit, never squeezing a card under
+  340px. Stored in the plugin's own config, so it survives updates.
+- Screenshots in the repository, and the README describes the current card.
+
 ##2026.09.02a
 - The app card is redesigned. A strip across the top of every card is tinted in
   that app's own icon colour, read off the icon on the server: the strongest
@@ -1660,6 +1667,7 @@ echo json_encode(['scanned' => count($valid), 'stars' => $out ?: (object)[]], JS
  * It writes nothing, anywhere. All CA paths are opened read-only.
  *
  * Output: { "generated": <ts>, "feedReady": <bool>, "docker": {...}, "defaultSort": <string>,
+ *           "cardsPerRow": <int>,
  *           "historyDays": <int>,
  *           "apps": [ { p,n,sn,ic,fa,xc,ct,s,dl,fs,fx,fk,lu,lk,ca,sx,rn,mi,t1,t7,t30,t365,rd,dt,td,tc,of,bt,pv,rm } ] }
  *   p  = template path (passed to CA's showSidebarApp for Info/Install)
@@ -1714,6 +1722,12 @@ $gas_cfg = '/boot/config/plugins/modern.appstore/modern.appstore.cfg';
 $cfg = is_file($gas_cfg) ? @parse_ini_file($gas_cfg) : [];
 $defaultSort = preg_replace('/[^a-z0-9_]/', '', strtolower((string)($cfg['DEFAULT_SORT'] ?? '')));
 $defaultSort = substr($defaultSort, 0, 20);
+
+// Same loose sanitising as $defaultSort above: no shared whitelist function,
+// just enough of a bound (an int from 2 to 6) that a hand-edited config
+// cannot hand the grid a column count it cannot lay out.
+$cardsPerRow = (int)($cfg['CARDS_PER_ROW'] ?? 3);
+$cardsPerRow = ($cardsPerRow >= 2 && $cardsPerRow <= 6) ? $cardsPerRow : 3;
 
 // Who the card names under an app, and it has to be the same person the
 // drawer names and the same person the picture beside it shows.
@@ -2290,6 +2304,7 @@ if (class_exists('SQLite3') && is_file("$dataDir/stars.db")) {
 echo json_encode(
     ['generated' => time(), 'count' => count($out), 'historyDays' => $historyDays,
      'feedReady' => $feedReady, 'docker' => docker_state(), 'defaultSort' => $defaultSort,
+     'cardsPerRow' => $cardsPerRow,
      // when CA last synced its feed (the store's own check for new and updated
      // apps) and when the last star scan ran, for the toolbar's Updated stamp
      'feedAt' => (int)@filemtime("$caTmp/templates_new.json"),
@@ -3523,7 +3538,16 @@ function gas_default_sort($v) {
     return in_array($v, $valid, true) ? $v : 'new';
 }
 
-function gas_write_cfg($path, $token, $service, $notifications, $datadir, $scanDays, $defaultSort) {
+// Two to six covers every window this plugin is likely to meet: two for
+// people who want big cards, six for an ultrawide, three as the default so
+// the type stays large. The grid still drops columns on a window too narrow
+// to hold that many 340px cards, so a high number is safe on a laptop.
+function gas_cards_per_row($v) {
+    $v = (int)$v;
+    return ($v >= 2 && $v <= 6) ? $v : 3;
+}
+
+function gas_write_cfg($path, $token, $service, $notifications, $datadir, $scanDays, $defaultSort, $cardsPerRow = 3) {
     $token   = str_replace(["\"", "\n", "\r"], "", $token);
     $datadir = rtrim(str_replace(["\"", "\n", "\r"], "", $datadir), '/');
     if ($datadir === '') $datadir = '/boot/config/plugins/modern.appstore';
@@ -3531,7 +3555,8 @@ function gas_write_cfg($path, $token, $service, $notifications, $datadir, $scanD
     $notifications = ($notifications === 'disabled') ? 'disabled' : 'enabled';
     $scanDays = gas_scan_days($scanDays);
     $defaultSort = gas_default_sort($defaultSort);
-    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nNOTIFICATIONS=\"$notifications\"\nDATA_DIR=\"$datadir\"\nSCAN_DAYS=\"$scanDays\"\nDEFAULT_SORT=\"$defaultSort\"\n";
+    $cardsPerRow = gas_cards_per_row($cardsPerRow);
+    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nNOTIFICATIONS=\"$notifications\"\nDATA_DIR=\"$datadir\"\nSCAN_DAYS=\"$scanDays\"\nDEFAULT_SORT=\"$defaultSort\"\nCARDS_PER_ROW=\"$cardsPerRow\"\n";
     file_put_contents($path, $out);
     @chmod($path, 0600);
     @mkdir($datadir, 0755, true);
@@ -3587,6 +3612,10 @@ function gas_mask_token($token) {
 function gas_read_cfg($path) {
     $cfg = is_file($path) ? @parse_ini_file($path) : [];
     if (!is_array($cfg)) $cfg = [];
+    // A cfg written before this setting existed has no CARDS_PER_ROW line
+    // and lands on 3, the grid's fixed count before the setting existed, so
+    // an update changes nothing until the user asks.
+    $cardsPerRow = gas_cards_per_row($cfg['CARDS_PER_ROW'] ?? 3);
     return [
         'token'         => $cfg['TOKEN'] ?? '',
         'service'       => $cfg['SERVICE'] ?? 'enabled',
@@ -3594,6 +3623,7 @@ function gas_read_cfg($path) {
         'datadir'       => $cfg['DATA_DIR'] ?? '/boot/config/plugins/modern.appstore',
         'scandays'      => (string)gas_scan_days($cfg['SCAN_DAYS'] ?? 1),
         'defaultsort'   => gas_default_sort($cfg['DEFAULT_SORT'] ?? 'new'),
+        'cardsperrow'   => (string)$cardsPerRow,
     ];
 }
 
@@ -3650,6 +3680,7 @@ function gas_settings_response($cfg, $extra = []) {
         'scanDays'      => $cfg['scandays'],
         'defaultSort'   => $cfg['defaultsort'],
         'dataDir'       => $cfg['datadir'],
+        'cardsPerRow'   => $cfg['cardsperrow'],
     ], $extra);
 }
 
@@ -3679,6 +3710,7 @@ if ($method === 'POST') {
     $datadir       = $_POST['DATA_DIR'] ?? $current['datadir'];
     $scandays      = $_POST['SCAN_DAYS'] ?? $current['scandays'];
     $defaultsort   = $_POST['DEFAULT_SORT'] ?? $current['defaultsort'];
+    $cardsperrow   = $_POST['CARDS_PER_ROW'] ?? $current['cardsperrow'];
 
     // TOKEN is the subtle one. The panel's password field always renders
     // blank, since a browser should never echo a saved secret back into a
@@ -3694,7 +3726,7 @@ if ($method === 'POST') {
         $token = $current['token'];
     }
 
-    gas_write_cfg($gas_cfg, $token, $service, $notifications, $datadir, $scandays, $defaultsort);
+    gas_write_cfg($gas_cfg, $token, $service, $notifications, $datadir, $scandays, $defaultsort, $cardsperrow);
     gas_write_cron($gas_cron, $scandays);
 
     echo json_encode(gas_settings_response(gas_read_cfg($gas_cfg), ['saved' => true]));
@@ -3744,6 +3776,9 @@ echo json_encode(['error' => 'method not allowed']);
     // server's real value; 'new' is only what's used before that response lands
     // or if the config on disk can't be read
     var defaultSort = 'new';
+    // the configured cards per row, from applist.php, overwritten again the
+    // moment a settings save answers with a new one
+    var cardsPerRow = 3;
     // initSort() must run exactly once per page load (see its own comment); this
     // is the guard, since loadApps() itself refires several times after start()
     var sortInited = false;
@@ -4081,6 +4116,14 @@ echo json_encode(['error' => 'method not allowed']);
         });
     }
 
+    // Both settings.php and applist.php send cardsPerRow the same way, so
+    // this is the one place that turns whatever they sent into a number the
+    // grid can trust: an out-of-range or missing value falls back to dflt
+    // rather than handing fitColumns() something it has to re-validate.
+    function colsOr(v, dflt) {
+      var n = parseInt(v, 10);
+      return (n >= 2 && n <= 6) ? n : dflt;
+    }
     function loadApps(cb) {
       fetch(PREFIX + 'applist.php?_=' + Date.now())
         .then(function (r) { return r.ok ? r.json() : null; })
@@ -4092,6 +4135,10 @@ echo json_encode(['error' => 'method not allowed']);
           // so a config value the grid doesn't recognise is silently ignored
           // rather than handed straight to view.sort
           if (j && j.defaultSort && optFor(j.defaultSort).v === j.defaultSort) defaultSort = j.defaultSort;
+          if (j) {
+            cardsPerRow = colsOr(j.cardsPerRow, 3);
+            fitColumns();
+          }
           if (j) { stamps.feed = j.feedAt || 0; stamps.scan = j.scanAt || 0; updateStamp(); }
           // no answer at all counts as not ready, so a failed request retries
           // rather than freezing the grid on an empty catalog
@@ -6312,6 +6359,25 @@ echo json_encode(['error' => 'method not allowed']);
         txt.appendChild(only);
       }
     }
+    // How many 340px cards, plus their 14px gaps, fit across the grid right
+    // now. The configured cardsPerRow is the count on a window wide enough to
+    // hold it; fit is the cap a narrower window imposes, since a card never
+    // squeezes below 340px, so the grid shows the smaller of the two.
+    function fitColumns() {
+      var grid = document.getElementById('asga-grid');
+      if (!grid) return;
+      var w = grid.clientWidth;
+      // 0 means the grid is not laid out yet, same reasoning fitTitles uses.
+      if (!w) return;
+      var fit = Math.max(1, Math.floor((w + 14) / (340 + 14)));
+      var cols = Math.min(cardsPerRow, fit);
+      // Comparing against the current inline value before writing keeps a
+      // resize that lands on the same column count from touching styles at
+      // all, so it never fights fitTitles() over whether a repaint is due.
+      if (grid.style.getPropertyValue('--asga-cols') !== String(cols)) {
+        grid.style.setProperty('--asga-cols', cols);
+      }
+    }
     // How many of a card's categories its byline can print whole. The
     // maintainer's name never shrinks (see .asga-tile-author), so the box
     // the category lands in is exactly the room left on the line, and the
@@ -6374,9 +6440,9 @@ echo json_encode(['error' => 'method not allowed']);
       var t = null;
       window.addEventListener('resize', function () {
         clearTimeout(t);
-        t = setTimeout(fitTitles, 120);
+        t = setTimeout(function () { fitColumns(); fitTitles(); }, 120);
       });
-      if (document.fonts && document.fonts.ready) document.fonts.ready.then(fitTitles);
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { fitColumns(); fitTitles(); });
     }
 
     function render() {
@@ -6438,6 +6504,7 @@ echo json_encode(['error' => 'method not allowed']);
       queueScan();
       try { window.scrollTo(0, 0); } catch (e) {}
       fillMissingDates();
+      fitColumns();
       fitTitles();
     }
 
@@ -7384,6 +7451,14 @@ echo json_encode(['error' => 'method not allowed']);
       els.sort = addSettingsField(body, 'asga-set-sort', 'Default sort order', sortSel);
       themeSettingsSelect(els.sort);
 
+      // Two to six: two for big cards, six for an ultrawide. The grid still
+      // drops columns on a window too narrow for the chosen count, so a high
+      // number is safe to pick on a laptop.
+      var colsOpts = [];
+      for (var ci = 2; ci <= 6; ci++) colsOpts.push({ v: String(ci), label: String(ci) });
+      els.cols = addSettingsSelect(body, 'asga-set-cols', 'Cards per row', colsOpts);
+      themeSettingsSelect(els.cols);
+
       var dataDirInput = document.createElement('input');
       dataDirInput.type = 'text';
       dataDirInput.className = 'asga-settings-input';
@@ -7427,6 +7502,7 @@ echo json_encode(['error' => 'method not allowed']);
       // value this select doesn't recognise leaves the field as it was
       // rather than selecting nothing
       if (j.defaultSort && optFor(j.defaultSort).v === j.defaultSort) els.sort.value = j.defaultSort;
+      els.cols.value = j.cardsPerRow ? String(j.cardsPerRow) : '3';
       els.dataDir.value = j.dataDir || '';
       // the token field is ALWAYS rendered empty: the endpoint never sends
       // the saved value back, and echoing whatever the user last typed here
@@ -7507,6 +7583,7 @@ echo json_encode(['error' => 'method not allowed']);
       if (els.token.value) params.set('TOKEN', els.token.value);
       params.set('SCAN_DAYS', els.scanDays.value);
       params.set('DEFAULT_SORT', els.sort.value);
+      params.set('CARDS_PER_ROW', els.cols.value);
       params.set('DATA_DIR', els.dataDir.value);
       postSettingsForm(params, function (j) {
         // an empty or unparsable body lands here as j === null, same as any
@@ -7518,6 +7595,12 @@ echo json_encode(['error' => 'method not allowed']);
         // immediately, without reloading the page or touching whatever sort
         // the user is currently looking at
         if (j.defaultSort && optFor(j.defaultSort).v === j.defaultSort) defaultSort = j.defaultSort;
+        // same immediate-effect contract for the column count: the grid
+        // re-lays out right now, on whatever page is open, rather than
+        // waiting for a reload to notice the save
+        cardsPerRow = colsOr(j.cardsPerRow, cardsPerRow);
+        fitColumns();
+        fitTitles();
         setSettingsStatus('Settings applied.');
       });
     }
@@ -8518,69 +8601,34 @@ body.dark .asga-settings-select { color-scheme: dark; }
    rather than relocating it.
    row-gap doubles as the spacing between bands, since a card's four rows are
    the parent's rows. */
-/* Three cards to a row, and the grid is the container every card measures
-   itself against. The card cannot be its own container: container-type cancels
-   the subgrid below, which is the only thing keeping the four bands of every
-   card in a row on one line. Measuring off the grid instead means one column
-   is a third of the grid less two gaps, and --cw below turns that back
-   into the width of a single card, which every size on the card is then a
-   fraction of. Fixed pixels were the bug this replaces: they were correct at
-   one column width and 20% too small at the width the column actually grew to. */
+/* The grid is the container every card measures itself against. The card
+   cannot be its own container: container-type cancels the subgrid below,
+   which is the only thing keeping the four bands of every card in a row on
+   one line. Measuring off the grid instead means one column is the grid
+   less its gaps, divided by however many columns there are, and --cw below
+   turns that back into the width of a single card, which every size on the
+   card is then a fraction of. Fixed pixels were the bug this replaces: they
+   were correct at one column width and wrong at any other. */
 /* The grid measures a card off itself, so it stays a container of its own; this
    one exists purely so the column count above has something to ask. */
 #asga-view { container: asga-view / inline-size; }
 .asga-grid {
   container-type: inline-size;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(var(--asga-cols, 3), minmax(0, 1fr));
   column-gap: 14px; row-gap: 10px;
 }
-/* Three across is the layout, at every width from 1048px of grid up: a
-   fourth column bought nothing but smaller type, since every size on the
-   card is a fraction of the column. The ladder below steps one column at a
-   time. It used to jump straight from four to two, which is why a single notch
-   of browser zoom halved the grid: at 110% a 1560px view measures 1418 CSS
-   pixels and fell through the four-column test to land on two, with cards
-   nearly twice the width they had a moment earlier.
-   Three columns was banned for a while because a button row laid out with
-   space-between scattered its six buttons to the card's edges at that width.
-   That is no longer how the row is laid out, and every size on the card is a
-   fraction of the card's own width now, so a wider card carries proportionally
-   larger type and the run keeps filling the same share of it.
-   Each threshold is the width at which a card can no longer hold all six
-   buttons, labelled, on one line: the run needs about 432px of a band's inner
-   width at its 12px size, so a card has to clear about 460px, and a column
-   has to clear that plus its share of the gaps. Below that, the button row
-   never wraps: the font clamp on .asga-btn shrinks the labels instead, so a
-   card at 447px still fits the row at a smaller size rather than growing
-   taller than its neighbours. */
-/* --cw has to follow the column count, not just the grid width. It is the width
-   of one card, and one card is the grid less its gaps divided by however many
-   columns there are, so a ladder that changes the count without restating it
-   leaves every size on the card computed for a quarter of the grid while the
-   card is actually a third of it. That is what made a three column grid render
-   type sized for a 344px card inside a 463px one, and the button run fill only
-   72% of the row it sits in.
-   The selector carries the grid as well as the card because the base rule that
-   declares --cw sits further down this file at the same specificity, and a
-   container query adds none of its own, so an equally weighted override placed
-   above it would simply lose. */
-/* The steps are where three and two 340px cards plus their 14px gaps stop
-   fitting. 340px is the narrowest card the button row prints whole at. */
-@container asga-view (max-width: 1047px) {
-  .asga-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .asga-grid > .asga-tile { --cw: calc(50cqw - 7px); }
-}
-@container asga-view (max-width: 693px) {
-  .asga-grid { grid-template-columns: minmax(0, 1fr); }
-  .asga-grid > .asga-tile { --cw: 100cqw; }
-}
+/* The column count is no longer a width ladder in CSS. fitColumns() in
+   inject.js measures the grid, fits as many 340px cards as it can across
+   that width, clamps the result to the configured minimum and maximum, and
+   writes it onto the grid as --asga-cols. CSS never chooses the count; it
+   only turns whatever count it is handed into a card width. */
 .asga-tile {
   position: relative;
-  /* One column of the grid, which is a third of it less its two gaps.
-     Every size on this card is a fraction of this figure, taken from the
-     reference design as a percentage of its card's width. */
-  --cw: calc(33.3333cqw - 9.3333px);
+  /* One column of the grid, which is the grid less its gaps divided by the
+     column count. Every size on this card is a fraction of this figure,
+     taken from the reference design as a percentage of its card's width. */
+  --cw: calc((100cqw - 14px * (var(--asga-cols, 3) - 1)) / var(--asga-cols, 3));
   /* A card is lit from the top. The gradient runs from a grey a shade above the
      page down to the page's own colour, so a card reads as a raised surface
      rather than a rectangle drawn on the background, and the run is built from
@@ -10742,7 +10790,8 @@ if ($_POST) {
         $datadir       = $_POST['DATA_DIR'] ?? '';
         $scandays      = $_POST['SCAN_DAYS'] ?? '1';
         $defsort       = $_POST['DEFAULT_SORT'] ?? 'new';
-        gas_write_cfg($gas_cfg, $token, $service, $notifications, $datadir, $scandays, $defsort);
+        $cardsperrow   = $_POST['CARDS_PER_ROW'] ?? '3';
+        gas_write_cfg($gas_cfg, $token, $service, $notifications, $datadir, $scandays, $defsort, $cardsperrow);
         gas_write_cron($gas_cron, $scandays);
         $gas_msg = "Settings saved.";
         if (trim($token) === '') {
@@ -10762,6 +10811,7 @@ $notifications = $cfg['notifications'];
 $datadir       = $cfg['datadir'];
 $scandays      = $cfg['scandays'];
 $defsort       = $cfg['defaultsort'];
+$cardsperrow   = $cfg['cardsperrow'];
 
 $status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/modern.appstore/status.json"), true) ?: [];
 ?>
@@ -10843,6 +10893,17 @@ _(Default sort order)_:
   </select>
 
 > The order the Apps page opens in. The page remembers whichever sort you picked last for 20 minutes, so paging back and forth keeps your place; past that window it opens back on this one.
+
+_(Cards per row)_:
+: <select name="CARDS_PER_ROW" size="1">
+    <?= mk_option($cardsperrow, "2", "2") ?>
+    <?= mk_option($cardsperrow, "3", "3") ?>
+    <?= mk_option($cardsperrow, "4", "4") ?>
+    <?= mk_option($cardsperrow, "5", "5") ?>
+    <?= mk_option($cardsperrow, "6", "6") ?>
+  </select>
+
+> How many cards the Apps page lays across a row on a window wide enough to hold them. A narrower window shows as many as fit, never squeezing a card under 340px. Three is the default: every size on a card scales with its width, so more columns means smaller type.
 
 _(Database directory)_:
 : <input type="text" name="DATA_DIR" value="<?= htmlspecialchars($datadir) ?>" style="width:520px;max-width:90%;" spellcheck="false">

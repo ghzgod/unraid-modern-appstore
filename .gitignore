@@ -11,6 +11,8 @@ appstore.github.addon.plg
 *.png
 # except the app icon Community Applications loads from this repo
 !icon.png
+# the README screenshots
+!screenshots/*.png
 docs/superpowers/
 .playwright-mcp/
 
