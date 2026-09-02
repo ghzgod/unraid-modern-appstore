@@ -910,6 +910,10 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    fine once it is not competing with a header stat box for room. */
 .asga-tile-facts .asga-stat-noun { display: none; }
 .asga-tile-facts .asga-stat { font-weight: 600; }
+/* In the strip the glyph sits closer to its figure (2px, against 5px in the
+   drawer) so each pair reads as one mark and the gap between pairs is what
+   separates the four facts. */
+.asga-tile-facts .asga-stat, .asga-tile-facts .asga-tile-updated, .asga-tile-facts .asga-tile-added { gap: 2px; }
 /* one rule is what guarantees every item on this line shares a centre line:
    the same icon-then-text flex box for every one of them, whichever kind of
    figure follows the icon */

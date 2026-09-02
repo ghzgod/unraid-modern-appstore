@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.09.04d">
+<!ENTITY version "2026.09.04e">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
@@ -14,6 +14,11 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" support="&support;">
 
 <CHANGES>
+##2026.09.04e
+- Each glyph in the strip sits 2px from its figure instead of 5px, so a star
+  and its count read as one mark and the gap between the four facts is what
+  separates them.
+
 ##2026.09.04d
 - Installed is grey. An app whose exact Docker repository or plugin is already
   on the server gets a dimmed Installed pill in place of Install, rather than
@@ -9188,6 +9193,10 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    fine once it is not competing with a header stat box for room. */
 .asga-tile-facts .asga-stat-noun { display: none; }
 .asga-tile-facts .asga-stat { font-weight: 600; }
+/* In the strip the glyph sits closer to its figure (2px, against 5px in the
+   drawer) so each pair reads as one mark and the gap between pairs is what
+   separates the four facts. */
+.asga-tile-facts .asga-stat, .asga-tile-facts .asga-tile-updated, .asga-tile-facts .asga-tile-added { gap: 2px; }
 /* one rule is what guarantees every item on this line shares a centre line:
    the same icon-then-text flex box for every one of them, whichever kind of
    figure follows the icon */

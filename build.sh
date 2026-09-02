@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.09.04d}"
+VERSION="${1:-2026.09.04e}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -57,6 +57,11 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Each glyph in the strip sits 2px from its figure instead of 5px, so a star
+  and its count read as one mark and the gap between the four facts is what
+  separates them.
+
+##2026.09.04d
 - Installed is grey. An app whose exact Docker repository or plugin is already
   on the server gets a dimmed Installed pill in place of Install, rather than
   the green the pinned button wears.
