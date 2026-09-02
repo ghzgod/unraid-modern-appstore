@@ -26,7 +26,8 @@ if ($_POST) {
         $scandays      = $_POST['SCAN_DAYS'] ?? '1';
         $defsort       = $_POST['DEFAULT_SORT'] ?? 'new';
         $cardsperrow   = $_POST['CARDS_PER_ROW'] ?? '3';
-        gas_write_cfg($gas_cfg, $token, $service, $notifications, $datadir, $scandays, $defsort, $cardsperrow);
+        $hideincompatible = $_POST['HIDE_INCOMPATIBLE'] ?? 'no';
+        gas_write_cfg($gas_cfg, $token, $service, $notifications, $datadir, $scandays, $defsort, $cardsperrow, $hideincompatible);
         gas_write_cron($gas_cron, $scandays);
         $gas_msg = "Settings saved.";
         if (trim($token) === '') {
@@ -47,6 +48,7 @@ $datadir       = $cfg['datadir'];
 $scandays      = $cfg['scandays'];
 $defsort       = $cfg['defaultsort'];
 $cardsperrow   = $cfg['cardsperrow'];
+$hideincompatible = $cfg['hideincompatible'];
 
 $status = @json_decode(@file_get_contents("/usr/local/emhttp/plugins/modern.appstore/status.json"), true) ?: [];
 ?>
@@ -139,6 +141,14 @@ _(Cards per row)_:
   </select>
 
 > How many cards the Apps page lays across a row on a window wide enough to hold them. A narrower window shows as many as fit, never squeezing a card under 340px. Three is the default: every size on a card scales with its width, so more columns means smaller type.
+
+_(Hide incompatible apps)_:
+: <select name="HIDE_INCOMPATIBLE" size="1">
+    <?= mk_option($hideincompatible, "no", "No") ?>
+    <?= mk_option($hideincompatible, "yes", "Yes") ?>
+  </select>
+
+> Community Applications marks a few dozen templates as not compatible with this Unraid version, and the grid shows them with a red Not compatible badge and no working Install. Yes drops them from every list except Installed Apps, the same as CA's own setting.
 
 _(Database directory)_:
 : <input type="text" name="DATA_DIR" value="<?= htmlspecialchars($datadir) ?>" style="width:520px;max-width:90%;" spellcheck="false">

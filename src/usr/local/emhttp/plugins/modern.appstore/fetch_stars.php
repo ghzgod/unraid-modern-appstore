@@ -714,8 +714,11 @@ foreach ($apps as $idx => $app) {
     $desc = (string)($app['Overview'] ?? '');
     $desc = preg_replace('/\[[^\]]{1,40}\]/', ' ', $desc);   // strip BBCode ([br], [b], [/b], …)
     $desc = trim(preg_replace('/\s+/', ' ', strip_tags($desc)));
-    if (function_exists('mb_substr')) { if (mb_strlen($desc) > 240) $desc = mb_substr($desc, 0, 237) . '…'; }
-    else { if (strlen($desc) > 240) $desc = substr($desc, 0, 237) . '…'; }
+    // 320, not the 240 it was: the card now prints three lines of blurb and
+    // applist.php folds sentences in up to 300 characters, which a 240 cut
+    // here never let it reach.
+    if (function_exists('mb_substr')) { if (mb_strlen($desc) > 320) $desc = mb_substr($desc, 0, 317) . '…'; }
+    else { if (strlen($desc) > 320) $desc = substr($desc, 0, 317) . '…'; }
     $cat = is_array($app['Category'] ?? null) ? implode(' ', $app['Category']) : ($app['Category'] ?? '');
     $cat = trim(str_replace(':', ' ', explode(' ', trim($cat))[0] ?? ''));   // first category, no colons
 

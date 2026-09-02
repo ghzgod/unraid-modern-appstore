@@ -49,7 +49,7 @@ function gas_cards_per_row($v) {
     return ($v >= 2 && $v <= 6) ? $v : 3;
 }
 
-function gas_write_cfg($path, $token, $service, $notifications, $datadir, $scanDays, $defaultSort, $cardsPerRow = 3) {
+function gas_write_cfg($path, $token, $service, $notifications, $datadir, $scanDays, $defaultSort, $cardsPerRow = 3, $hideIncompatible = 'no') {
     $token   = str_replace(["\"", "\n", "\r"], "", $token);
     $datadir = rtrim(str_replace(["\"", "\n", "\r"], "", $datadir), '/');
     if ($datadir === '') $datadir = '/boot/config/plugins/modern.appstore';
@@ -58,7 +58,8 @@ function gas_write_cfg($path, $token, $service, $notifications, $datadir, $scanD
     $scanDays = gas_scan_days($scanDays);
     $defaultSort = gas_default_sort($defaultSort);
     $cardsPerRow = gas_cards_per_row($cardsPerRow);
-    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nNOTIFICATIONS=\"$notifications\"\nDATA_DIR=\"$datadir\"\nSCAN_DAYS=\"$scanDays\"\nDEFAULT_SORT=\"$defaultSort\"\nCARDS_PER_ROW=\"$cardsPerRow\"\n";
+    $hideIncompatible = ($hideIncompatible === 'yes' || $hideIncompatible === true || $hideIncompatible === '1') ? 'yes' : 'no';
+    $out = "TOKEN=\"$token\"\nSERVICE=\"$service\"\nNOTIFICATIONS=\"$notifications\"\nDATA_DIR=\"$datadir\"\nSCAN_DAYS=\"$scanDays\"\nDEFAULT_SORT=\"$defaultSort\"\nCARDS_PER_ROW=\"$cardsPerRow\"\nHIDE_INCOMPATIBLE=\"$hideIncompatible\"\n";
     file_put_contents($path, $out);
     @chmod($path, 0600);
     @mkdir($datadir, 0755, true);
@@ -126,6 +127,7 @@ function gas_read_cfg($path) {
         'scandays'      => (string)gas_scan_days($cfg['SCAN_DAYS'] ?? 1),
         'defaultsort'   => gas_default_sort($cfg['DEFAULT_SORT'] ?? 'new'),
         'cardsperrow'   => (string)$cardsPerRow,
+        'hideincompatible' => (($cfg['HIDE_INCOMPATIBLE'] ?? 'no') === 'yes') ? 'yes' : 'no',
     ];
 }
 

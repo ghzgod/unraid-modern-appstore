@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.09.03}"
+VERSION="${1:-2026.09.04}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -57,6 +57,25 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- The card is three bands instead of four. The stars, downloads, last update
+  and added date now sit in the tinted strip beside the Docker or plugin
+  glyph, in their short form (8d, 3w, 5mo, 2y; the tooltip keeps the full
+  date), and the description takes the row they left: three lines rather than
+  two, with sentences folded in until the blurb fills them.
+- Each fact in the strip has its own colour: amber stars, teal downloads, a
+  violet clock for the last update and a rose calendar for the added date.
+- The maintainer's standing follows their name: how many templates they
+  publish and the GitHub stars across them, as "(64 apps · 292k stars)", summed
+  from the catalog already in hand.
+- Not compatible is a red badge beside the app name, like the Official and
+  Unraid flags, instead of a red sentence in the description. A new setting,
+  Hide incompatible apps (default No), drops those templates from every list
+  except Installed Apps.
+- Strip colours no longer go grey for good after one bad batch: a failed icon
+  read is held for the page load only, never written to the browser or the
+  server cache, so the icon is asked about again next time.
+
+##2026.09.03
 - New setting, Cards per row (2 to 6, default 3), in the settings panel and on
   the plugin's settings page. It is the count on a window wide enough to hold
   it; a narrower window shows as many as fit, never squeezing a card under

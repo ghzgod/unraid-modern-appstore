@@ -492,8 +492,8 @@ body.dark .asga-settings-select { color-scheme: dark; }
 @keyframes asga-rotate { to { transform: rotate(360deg); } }
 .asga-refreshlink.asga-spinning { display: inline-block; animation: asga-rotate 0.8s linear infinite; opacity: 1; }
 
-/* The grid declares the four bands every card is made of (header, description,
-   metadata, buttons) as its own row tracks, and each card spans them with
+/* The grid declares the three bands every card is made of (header, description,
+   buttons) as its own row tracks, and each card spans them with
    grid-template-rows: subgrid. That is what makes every band line up across a
    row without a single min-height: each track is sized by the tallest card's
    version of THAT band, so a one-line description no longer has to reserve two
@@ -502,11 +502,11 @@ body.dark .asga-settings-select { color-scheme: dark; }
    width) and it was visible every time, because with equal-height cards the
    slack has to land somewhere. Subgrid is the only thing that removes it
    rather than relocating it.
-   row-gap doubles as the spacing between bands, since a card's four rows are
+   row-gap doubles as the spacing between bands, since a card's three rows are
    the parent's rows. */
 /* The grid is the container every card measures itself against. The card
    cannot be its own container: container-type cancels the subgrid below,
-   which is the only thing keeping the four bands of every card in a row on
+   which is the only thing keeping the three bands of every card in a row on
    one line. Measuring off the grid instead means one column is the grid
    less its gaps, divided by however many columns there are, and --cw below
    turns that back into the width of a single card, which every size on the
@@ -543,7 +543,7 @@ body.dark .asga-settings-select { color-scheme: dark; }
   /* No padding here: a subgrid item's own padding offsets its tracks from the
      parent's, which is exactly the alignment this is meant to guarantee. Each
      band carries the inset instead (see .asga-tile > * below). */
-  display: grid; grid-template-rows: subgrid; grid-row: span 4;
+  display: grid; grid-template-rows: subgrid; grid-row: span 3;
   grid-template-columns: minmax(0, 1fr);
   transition: border-color 0.15s ease;
   cursor: pointer;
@@ -582,7 +582,7 @@ body.dark .asga-settings-select { color-scheme: dark; }
 }
 /* The card's inset lives on its bands, not on the card. A subgrid item's own
    padding would shift its tracks off the parent's and undo the alignment the
-   subgrid exists for, so the four bands each carry the side inset and the
+   subgrid exists for, so the three bands each carry the side inset and the
    first and last carry the top and bottom. */
 .asga-tile > * { padding-left: 14px; padding-right: 14px; }
 .asga-tile > .asga-tile-head { padding-top: 0; }
@@ -590,17 +590,15 @@ body.dark .asga-settings-select { color-scheme: dark; }
 .asga-tile > .asga-tile-desc { padding-top: 1px; }
 /* The row gap is one figure, but the bands do not meet it with the same
    edge: two text lines face each other across the first two gaps, while the
-   button row faces the facts with a drawn border, which reads as closer than
-   type at the same distance. Measured ink to ink the three gaps ran 11, 12
-   and 10px; these two paddings bring them to 12, 12 and 13. */
-/* Four bands, one row track apiece. The strip touches the card's own top
+   button row faces the description with a drawn border, which reads as closer than
+   type at the same distance. Measured ink to ink the two gaps ran 12 and 10px; these paddings bring both to 12. */
+/* Three bands, one row track apiece. The strip touches the card's own top
    edge (its inset is the strip's own negative margin, not this padding) and
    the button row carries the card's bottom inset, so each outer edge belongs
    to the band that sits against it. */
 .asga-tile > .asga-tile-head  { grid-row: 1; }
 .asga-tile > .asga-tile-desc  { grid-row: 2; }
-.asga-tile > .asga-tile-facts { grid-row: 3; }
-.asga-tile > .asga-tile-btns  { grid-row: 4; }
+.asga-tile > .asga-tile-btns  { grid-row: 3; }
 
 /* A plain stack, not a grid: the tinted strip, the icon overlapping its
    bottom edge, the name, then one byline row of maintainer and category.
@@ -625,7 +623,13 @@ body.dark .asga-settings-select { color-scheme: dark; }
   display: flex; align-items: center; column-gap: 8px;
 }
 .asga-tile-title > .asga-tile-name { flex: 0 1 auto; }
-.asga-tile-flags { display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+.asga-tile-flags {
+  display: inline-flex; align-items: center; gap: 4px; flex: 0 0 auto;
+  /* Centred on the line box the flags sit a pixel above the name's cap
+     centre, because the name's baseline snaps down to the pixel grid and
+     the box does not. One pixel down puts the badge on the letters. */
+  position: relative; top: 1px;
+}
 /* No ellipsis, and nothing to clip: fitTitles() sizes the text to the band,
    so the overflow rule is a guard against a name longer than any the catalog
    holds, not something a card in the catalog ever meets. */
@@ -748,13 +752,26 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    what made the line read as out of true. The mark takes a margin instead,
    and the second half of the category takes a word space, which is what the
    space between two words should be. */
-.asga-tile-author { display: flex; align-items: center; gap: 0; min-width: 0; flex: 0 0 auto; max-width: 55%; }
+.asga-tile-author { display: flex; align-items: center; gap: 0; min-width: 0; flex: 0 0 auto; max-width: 62%; }
 /* The name keeps its width and the category takes what is left: fitCats() in
    inject.js reads the category box's width to decide how many categories to
    print, and that is only a real figure if the name beside it is not also
-   giving ground. A name past 55% of the line ellipsises; none of the 1182
+   giving ground. A name past 62% of the line ellipsises; none of the 1182
    maintainers in the catalog is that long at any column width. */
 .asga-tile-author > :first-child { margin-right: 6px; }
+/* The maintainer's standing, after their name: how many templates they
+   publish and the stars across them. It gives way before the name does (the
+   shrink factor is what says so) and before the category has to. The star is
+   the same amber the stars fact wears, since it counts the same thing. */
+.asga-tile-rep {
+  flex: 0 20 auto; min-width: 0; margin-left: 5px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: color-mix(in srgb, var(--text-color, #f2f2f2) 55%, var(--background-color, #1d1b1b));
+}
+.asga-tile-rep .asga-ficon {
+  display: inline; vertical-align: -1.5px; color: #f0a500;
+  width: clamp(10px, calc(var(--cw) * 0.026), 12px); height: clamp(10px, calc(var(--cw) * 0.026), 12px);
+}
 .asga-tile-sep {
   flex: 0 0 auto;
   color: color-mix(in srgb, var(--text-color, #f2f2f2) 40%, var(--background-color, #1d1b1b));
@@ -834,6 +851,12 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 .asga-flag-priv {
   color: #f0a500; background: rgba(240, 165, 0, 0.14); border-color: rgba(240, 165, 0, 0.35);
 }
+/* The one red on the card, and it means exactly what the old note said:
+   this template cannot be installed on this Unraid version. Same red as
+   the Docker-down note so the two reasons read as the same kind of fact. */
+.asga-flag-xc {
+  color: #e05c4a; background: rgba(224, 92, 74, 0.14); border-color: rgba(224, 92, 74, 0.35);
+}
 /* Docker's own brand blue, which is why it is allowed to sit alongside this
    card's own palette: it names a real external mark, not a second in-house
    hue. */
@@ -856,28 +879,25 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 .asga-tile-desc-hit { font-style: italic; }
 .asga-hit { color: #ff8c2f; font-weight: 600; font-style: normal; }
 
-/* One sentence, so two lines. applist.php now cuts the overview at its first
-   sentence rather than at a character count, and that sentence fits two lines
-   at nearly every column width, so the block that used to reserve six lines
-   reserves two. The floor and the clamp are the same number on purpose: every
-   card's description occupies exactly two lines, which is what keeps the
-   button rows aligned without leaving a hole under a short one. */
+/* Three lines. The facts moved up into the strip and the description took the
+   band they left, and applist.php now folds sentences in until the blurb has
+   at least 170 characters, so most cards fill all three. The clamp is what
+   keeps the button rows aligned: a card whose blurb runs longer is cut at the
+   third line rather than growing a line its neighbours do not have. */
 .asga-tile-desc {
   font-size: clamp(11px, calc(var(--cw) * 0.028), 14px); line-height: 1.5; color: color-mix(in srgb, var(--text-color, #f2f2f2) 92%, var(--background-color, #1d1b1b)); margin: 0;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
 }
 
-/* One line of standing facts: stars, downloads or installs, when the app was
-   last updated, and when CA's feed first saw it. All four used to be split
-   across a header stat column and a footer dates row; one line does the same
-   job in less height. Everything past what fits ellipsises rather than
-   wrapping, since a second line here would put one card's button row a whole
-   line lower than its neighbours. */
+/* The standing facts sit in the strip, right-aligned beside the kind glyph,
+   in the order stars, downloads or installs, last shipped, first seen. They
+   share the strip's own gap with the glyph. Nothing wraps: the strip is one
+   line by construction. */
 .asga-tile-facts {
-  display: flex; align-items: center; gap: clamp(10px, calc(var(--cw) * 0.03), 14px);
-  white-space: nowrap; overflow: hidden; min-width: 0;
+  display: inline-flex; align-items: center; gap: clamp(8px, calc(var(--cw) * 0.026), 12px);
+  white-space: nowrap; min-width: 0;
   font-size: clamp(10px, calc(var(--cw) * 0.026), 12px); line-height: 1.4;
-  color: color-mix(in srgb, var(--text-color, #f2f2f2) 72%, var(--background-color, #1d1b1b));
+  color: color-mix(in srgb, var(--text-color, #f2f2f2) 78%, var(--background-color, #1d1b1b));
 }
 .asga-tile-facts .asga-ficon {
   width: clamp(11px, calc(var(--cw) * 0.028), 14px);
@@ -921,13 +941,14 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
      shade and touches nothing else. */
   color: color-mix(in srgb, var(--text-color, #f2f2f2) 86%, var(--background-color, #1d1b1b));
 }
-/* #6ab7ff and #f0a500 are already this card's hues, for the docker tag and the
-   star badge; reused here rather than adding new ones, so added and updated
-   can be told apart at a glance without reading either. */
-.asga-tile-added .asga-ficon { color: #6ab7ff; }
-.asga-tile-updated .asga-ficon { color: #f0a500; }
-/* Every date in this row reads the same whatever its age. The gold clock and
-   the blue calendar are what tell the two apart, and they are constant; a
+/* Each fact in the strip owns a hue: amber stars, teal downloads, a violet
+   clock for the last update and a rose calendar for the day the catalog first
+   saw the app. Four facts, four colours, so a reader can pick one out of the
+   strip without reading the others. The two date hues are used nowhere else. */
+.asga-tile-updated .asga-ficon { color: #a78bfa; }
+.asga-tile-added .asga-ficon { color: #e8748a; }
+/* Every date in this row reads the same whatever its age. The violet clock and
+   the rose calendar are what tell the two apart, and they are constant; a
    recent date used to repaint both its mark and its text orange, which put two
    unrelated treatments side by side on the same line and made a card look like
    it was flagging something it was not. */

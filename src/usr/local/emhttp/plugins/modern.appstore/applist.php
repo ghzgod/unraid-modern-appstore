@@ -15,6 +15,7 @@
  *
  * Output: { "generated": <ts>, "feedReady": <bool>, "docker": {...}, "defaultSort": <string>,
  *           "cardsPerRow": <int>,
+ *           "hideIncompatible": <bool>,
  *           "historyDays": <int>,
  *           "apps": [ { p,n,sn,ic,fa,xc,ct,s,dl,fs,fx,fk,lu,lk,ca,sx,rn,mi,t1,t7,t30,t365,rd,dt,td,tc,of,bt,pv,rm } ] }
  *   p  = template path (passed to CA's showSidebarApp for Info/Install)
@@ -75,6 +76,7 @@ $defaultSort = substr($defaultSort, 0, 20);
 // cannot hand the grid a column count it cannot lay out.
 $cardsPerRow = (int)($cfg['CARDS_PER_ROW'] ?? 3);
 $cardsPerRow = ($cardsPerRow >= 2 && $cardsPerRow <= 6) ? $cardsPerRow : 3;
+$hideIncompatible = (($cfg['HIDE_INCOMPATIBLE'] ?? 'no') === 'yes');
 
 // Who the card names under an app, and it has to be the same person the
 // drawer names and the same person the picture beside it shows.
@@ -172,14 +174,17 @@ function first_sentence($s) {
     $sentence = null;
     if ($end !== null) {
         $sentence = substr($s, 0, $end + 1);
-        // a one-word opener like "Warning." is not a useful blurb on its
-        // own, so fold in the next sentence when this one is too short
-        if ($charlen($sentence) < 40) {
-            foreach ($candidates as $cand) {
-                if ($cand[1] <= $end || $skip($cand[1])) continue;
-                $sentence = substr($s, 0, $cand[1] + 1);
-                break;
-            }
+        // Fold sentences in until the blurb is long enough to fill the three
+        // lines the card gives it. One sentence used to be the cut, and most
+        // ran a line and a half; 170 characters is what three lines hold at
+        // the narrowest card, and the 300 cap below still applies.
+        foreach ($candidates as $cand) {
+            if ($charlen($sentence) >= 170) break;
+            if ($cand[1] <= $end || $skip($cand[1])) continue;
+            $next = substr($s, 0, $cand[1] + 1);
+            if ($charlen($next) > 300) break;
+            $sentence = $next;
+            $end = $cand[1];
         }
     }
 
@@ -479,7 +484,7 @@ foreach ($tmpl as $t) {
     }
 
     // description: prefer our stored copy, fall back to CA's Overview; cut to
-    // its opening sentence (tiles clamp it anyway) to keep the payload lean.
+    // its opening sentences, enough for the card's three lines, to keep the payload lean.
     // See first_sentence() above for why a sentence cut beats a character cut.
     $desc = $mine['de'] ?? ($t['Overview'] ?? '');
     $desc = trim(preg_replace('/\s+/', ' ', strip_tags($desc)));
@@ -652,6 +657,7 @@ echo json_encode(
     ['generated' => time(), 'count' => count($out), 'historyDays' => $historyDays,
      'feedReady' => $feedReady, 'docker' => docker_state(), 'defaultSort' => $defaultSort,
      'cardsPerRow' => $cardsPerRow,
+     'hideIncompatible' => $hideIncompatible,
      // when CA last synced its feed (the store's own check for new and updated
      // apps) and when the last star scan ran, for the toolbar's Updated stamp
      'feedAt' => (int)@filemtime("$caTmp/templates_new.json"),

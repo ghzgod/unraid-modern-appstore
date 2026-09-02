@@ -35,6 +35,10 @@
     // the configured cards per row, from applist.php, overwritten again the
     // moment a settings save answers with a new one
     var cardsPerRow = 3;
+    var hideIncompatible = false;
+    // maintainer name (lowercased) -> { apps, stars }, built from APPS on
+    // first use and dropped whenever APPS or a star count changes
+    var REP = null;
     // initSort() must run exactly once per page load (see its own comment); this
     // is the guard, since loadApps() itself refires several times after start()
     var sortInited = false;
@@ -301,6 +305,9 @@
     var TONE_DARK = 78;   // 0-255 mean luminance; below this needs a plate
     var toneMap = {};
     try { toneMap = JSON.parse(localStorage.getItem(TONE_KEY) || '{}') || {}; } catch (e) { toneMap = {}; }
+    // Entries stamped -1 by an older build are a stale failure, not a fact
+    // about the icon, so they are dropped and the icon is asked about again.
+    Object.keys(toneMap).forEach(function (u) { if (toneMap[u] === -1) delete toneMap[u]; });
     // the catalog runs to four and a half thousand icons and localStorage to a
     // few megabytes, so the map starts over rather than growing without end
     if (Object.keys(toneMap).length > 2500) toneMap = {};
@@ -338,6 +345,15 @@
       (tonePending[url] = tonePending[url] || []).push(img);
       if (!toneTimer) toneTimer = setTimeout(flushTone, 200);
     }
+    // A -1 answer means the server could not fetch or read the icon just
+    // then. It is kept for this page load so the tile is not asked about on
+    // every render, and never written to storage: one bad batch used to grey
+    // every strip in it for good in that browser.
+    function keepableTones() {
+      var out = {};
+      Object.keys(toneMap).forEach(function (u) { if (toneMap[u] !== -1) out[u] = toneMap[u]; });
+      return out;
+    }
     function flushTone() {
       toneTimer = null;
       var urls = Object.keys(tonePending);
@@ -361,8 +377,10 @@
             delete tonePending[u];
           });
           // lum here still holds whatever icontone.php answered: -1 on
-          // failure, or the [luminance, colour] pair, both handled by paintTone
-          try { localStorage.setItem(TONE_KEY, JSON.stringify(toneMap)); } catch (e) {}
+          // failure, or the [luminance, colour] pair, both handled by paintTone.
+          // The -1 answers stay in toneMap for this page load only and are
+          // left out of what goes to storage.
+          try { localStorage.setItem(TONE_KEY, JSON.stringify(keepableTones())); } catch (e) {}
           if (Object.keys(tonePending).length && !toneTimer) toneTimer = setTimeout(flushTone, 200);
         })
         .catch(function () {
@@ -385,6 +403,7 @@
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) {
           APPS = dedupe((j && j.apps) || []);
+          REP = null;
           if (j && j.historyDays != null) historyDays = j.historyDays;
           if (j && j.docker) docker = j.docker;
           // same validity test optFor() already backs the saved-sort read with,
@@ -393,6 +412,7 @@
           if (j && j.defaultSort && optFor(j.defaultSort).v === j.defaultSort) defaultSort = j.defaultSort;
           if (j) {
             cardsPerRow = colsOr(j.cardsPerRow, 3);
+            hideIncompatible = !!j.hideIncompatible;
             fitColumns();
           }
           if (j) { stamps.feed = j.feedAt || 0; stamps.scan = j.scanAt || 0; updateStamp(); }
@@ -535,6 +555,9 @@
       var list = APPS.filter(function (a) {
         if (view.special === 'pinned') { if (!pinnedSet || !pinnedSet.has((a.ri || '') + '&' + (a.pn || ''))) return false; }
         else if (view.special === 'installed') { if (!installedSet || !installedSet.has(stripTag(a.ri))) return false; }
+        // The Installed list is exempt: an app already on the server is a
+        // fact to show, whatever CA now says about compatibility.
+        if (hideIncompatible && a.xc && view.special !== 'installed') return false;
         // Matched against the display author (a.au) exactly, never as a
         // substring: a substring test on a short maintainer name is
         // catastrophic here, a live measurement found "ITI" matching 1,789
@@ -1914,7 +1937,7 @@
       var a = null;
       for (var i = 0; i < APPS.length; i++) { if (APPS[i].p === p) { a = APPS[i]; break; } }
       if (!a) return;
-      var fresh = addedSpan(a);
+      var fresh = addedSpan(a, true);
       if (!fresh) { if (old) old.remove(); return; }
       if (old) old.replaceWith(fresh);
       else {
@@ -1927,25 +1950,25 @@
     // a date here and it is the same date CA's stock drawer prints. The time of
     // day is asked for only above that floor: below it the clock reads whatever
     // CA's constant happens to encode rather than anything that happened.
-    function addedSpan(a) {
+    function addedSpan(a, short) {
       // Not one of the apps CA lost the date for: its own value stands.
       if (a.fx !== 1) {
         if (!a.fs) return null;
-        return dateSpan('asga-tile-added', CAL_ICON, 'Added', a.fs, false, a.fs > 1433649600);
+        return dateSpan('asga-tile-added', CAL_ICON, 'Added', a.fs, false, a.fs > 1433649600, short);
       }
       queueAdded(a);
       var resolved = addedMap[a.p];
       // The plugin's own changelog said when it was first released. That is a
       // date somebody published, not one inferred from anything.
       if (resolved > 0) {
-        var s = dateSpan('asga-tile-added', CAL_ICON, 'Added', resolved, true, false);
+        var s = dateSpan('asga-tile-added', CAL_ICON, 'Added', resolved, true, false, short);
         s.title = 'First released ' + absDate(resolved, false) + ', read from this plugin’s own changelog. The app catalog holds no record of when it was added.';
         return s;
       }
       // Failing that, the repository it is built from has a birthday, which is
       // the earliest the app can possibly have existed.
       if (resolved !== undefined && a.ca) {
-        var g = dateSpan('asga-tile-added', CAL_ICON, 'Added', a.ca, true, false);
+        var g = dateSpan('asga-tile-added', CAL_ICON, 'Added', a.ca, true, false, short);
         g.title = 'Source repository created ' + absDate(a.ca, false) + '. The app catalog holds no record of when this app was added, and this is the earliest it can have existed.';
         return g;
       }
@@ -1965,7 +1988,7 @@
       }
       // The answer has not come back yet. CA's own value holds the slot so the
       // footer does not jump, and repaintAdded replaces it the moment it does.
-      return dateSpan('asga-tile-added', CAL_ICON, 'Added', a.fs, false, false);
+      return dateSpan('asga-tile-added', CAL_ICON, 'Added', a.fs, false, false, short);
     }
 
     // Why this app is in the results. The search reads an app's whole overview,
@@ -2055,6 +2078,42 @@
       document.addEventListener('click', clearFlash, true);
     }
 
+    // What the catalog says about a maintainer, summed from the apps already in
+    // hand: how many templates they publish and the GitHub stars across them.
+    // No request is made for this; every figure is on the list already.
+    function repFor(au) {
+      if (!REP) {
+        REP = {};
+        for (var i = 0; i < APPS.length; i++) {
+          var a = APPS[i];
+          var k = (a.au || '').toLowerCase().trim();
+          if (!k) continue;
+          var r = REP[k] || (REP[k] = { apps: 0, stars: 0 });
+          r.apps++;
+          if (a.s != null) r.stars += a.s;
+        }
+      }
+      return REP[(au || '').toLowerCase().trim()] || null;
+    }
+    // "(3 apps · 41 ★)" after the maintainer's name, the way a forum prints
+    // karma beside a handle. Stars are left out when none of the maintainer's
+    // apps has been matched to a repository, so a bracket never shows a zero
+    // that means "unknown".
+    function repSpan(au) {
+      var r = repFor(au);
+      if (!r) return null;
+      var s = document.createElement('span');
+      s.className = 'asga-tile-rep';
+      s.appendChild(document.createTextNode('(' + r.apps + (r.apps === 1 ? ' app' : ' apps')));
+      if (r.stars > 0) {
+        s.appendChild(document.createTextNode(' · ' + fmt(r.stars) + ' '));
+        s.insertAdjacentHTML('beforeend', STAR_ICON);
+      }
+      s.appendChild(document.createTextNode(')'));
+      s.title = r.apps + (r.apps === 1 ? ' template' : ' templates') + ' in the catalog from this maintainer' +
+        (r.stars > 0 ? ', ' + r.stars.toLocaleString() + ' GitHub stars across them' : '');
+      return s;
+    }
     function makeTile(a) {
       var tile = document.createElement('div');
       tile.className = 'asga-tile';
@@ -2072,14 +2131,14 @@
       if (a.po && a.po.length) tile.setAttribute('data-ports', a.po.join(','));
       tile.title = a.n;
 
-      // header: a tinted strip carrying the flags and the kind glyph, the icon
+      // header: a tinted strip carrying the facts and the kind glyph, the icon
       // overlapping its bottom edge, then the name and one byline row of
       // maintainer and category. Four pieces, one band.
       var head = document.createElement('div');
       head.className = 'asga-tile-head';
 
       // The strip names the kind by colour before the glyph at its end spells
-      // it out, and gives the flags and the kind glyph a row of their own so
+      // it out, and gives the facts and the kind glyph a row of their own so
       // they never have to compete with the name or the byline for space.
       var strip = document.createElement('div');
       strip.className = 'asga-tile-strip';
@@ -2088,6 +2147,29 @@
       var kind = document.createElement('span');
       kind.className = 'asga-tile-kind';
       kind.insertAdjacentHTML('beforeend', (a.ty === 'plugin') ? PLUGIN_ICON : DOCKER_ICON);
+      // The standing facts (stars, downloads or installs, last shipped, first
+      // seen) sit in the strip beside the kind glyph rather than on a band of
+      // their own: the strip was 40px of colour holding one glyph while the
+      // facts took a whole row, and merging the two hands the description the
+      // room. Ages print in their short form here (8d, 3mo, 2y) since four of
+      // them share the strip with the glyph; the tooltip still carries the
+      // absolute date.
+      var facts = document.createElement('div');
+      facts.className = 'asga-tile-facts';
+      facts.appendChild(statSpan('asga-stat-stars', STAR_ICON, a.s, 'star', starTitle(a.s)));
+      facts.appendChild(statSpan('asga-stat-dl', DL_ICON, a.dl, a.ty === 'plugin' ? 'install' : 'pull', downloadTitle(a.dl, a.ty, a.dz)));
+      // Always, even with no date to give. An app the feed holds no update
+      // date for used to have no clock at all, so one card in a row carried
+      // two facts and the next carried one, and the missing one read as a
+      // hole rather than as an unknown. It prints "unknown" dimmed, the same
+      // way a missing count does, and fillMissingDates() replaces it in place
+      // once the registry that hosts the image has answered.
+      facts.appendChild(dateSpan('asga-tile-updated', CLOCK_ICON, 'Updated', a.lu, a.lk !== 'r', a.lk === 'r', true));
+      // Added is last and only when known: a date the catalog holds nothing
+      // for still takes no room rather than printing a word where one belongs.
+      var added = addedSpan(a, true);
+      if (added) facts.appendChild(added);
+      marks.appendChild(facts);
       marks.appendChild(kind);
       strip.appendChild(marks);
       head.appendChild(strip);
@@ -2119,6 +2201,7 @@
       // glyph. fitTitles() takes their width off the room the name gets.
       var flags = document.createElement('span');
       flags.className = 'asga-tile-flags';
+      if (a.xc) flags.appendChild(mkFlag('Not compatible', 'asga-flag-xc', 'Not compatible with this version of Unraid, install unavailable'));
       if (a.lt) flags.appendChild(mkFlag('Unraid', 'asga-flag-unraid', 'Published by Unraid'));
       if (a.of) flags.appendChild(mkFlag('Official', 'asga-flag-official',
         'Published by the people who make this software, rather than repackaged by a third party'));
@@ -2166,6 +2249,8 @@
         aun.className = 'asga-tile-authorname';
         aun.textContent = a.au;
         au.appendChild(aun);
+        var rep = repSpan(a.au);
+        if (rep) au.appendChild(rep);
         byline.appendChild(au);
         var sep = document.createElement('span');
         sep.className = 'asga-tile-sep';
@@ -2213,7 +2298,7 @@
       tile.appendChild(head);
 
       // description (verbiage)
-      // Always appended, even empty. The card is a four-band subgrid and each
+      // Always appended, even empty. The card is a three-band subgrid and each
       // band occupies one of the grid's own row tracks, so a card that skipped
       // its description would slide every band below it up a track and stop
       // lining up with its neighbours.
@@ -2225,20 +2310,24 @@
       tile.appendChild(desc);
 
       // Why Install is off. It goes INSIDE the description band rather than
-      // becoming a fifth child, because the card spans exactly four of the
+      // becoming a fifth child, because the card spans exactly three of the
       // grid's row tracks and an extra top-level element would push the button
       // row out of its track on blocked cards only.
       if (blocked(a)) {
         tile.classList.add('asga-tile-blocked');
-        var note = document.createElement('div');
-        note.className = 'asga-tile-blocked-note';
-        note.textContent = blockReason(a) + ', install unavailable';
-        // Ahead of the blurb, not after it. The band is clamped to two lines
-        // and the clamp counts this note as one of them, so appended it landed
-        // on line three of any app whose blurb already filled both and was
-        // clipped away unseen: the card dimmed Install and gave no reason at
-        // all, which on the 36 apps CA marks incompatible is the whole message.
-        desc.insertBefore(note, desc.firstChild);
+        // Incompatibility is said by the badge beside the name; the note is
+        // only for Docker being down, which no badge covers.
+        if (!a.xc) {
+          var note = document.createElement('div');
+          note.className = 'asga-tile-blocked-note';
+          note.textContent = blockReason(a) + ', install unavailable';
+          // Ahead of the blurb, not after it. The band is clamped to three lines
+          // and the clamp counts this note as one of them, so appended it landed
+          // on line four of any app whose blurb already filled them and was
+          // clipped away unseen: the card dimmed Install and gave no reason at
+          // all, which on the 36 apps CA marks incompatible is the whole message.
+          desc.insertBefore(note, desc.firstChild);
+        }
       }
 
       // Info / Pin / Project / Support / Install buttons (Project + Support are
@@ -2303,28 +2392,6 @@
         btns.appendChild(ib);
       }
 
-      // One line of standing facts: stars, then downloads or installs, then
-      // when the app last shipped, then when CA's feed first saw it. All four
-      // used to be split across a header stat column and a footer dates row;
-      // one line does the same job in less height, and the noun each figure
-      // needs (star, pull, install) rides the tooltip since the row has no
-      // room to spell it out.
-      var facts = document.createElement('div');
-      facts.className = 'asga-tile-facts';
-      facts.appendChild(statSpan('asga-stat-stars', STAR_ICON, a.s, 'star', starTitle(a.s)));
-      facts.appendChild(statSpan('asga-stat-dl', DL_ICON, a.dl, a.ty === 'plugin' ? 'install' : 'pull', downloadTitle(a.dl, a.ty, a.dz)));
-      // Always, even with no date to give. An app the feed holds no update
-      // date for used to have no clock at all, so one card in a row carried
-      // two facts and the next carried one, and the missing one read as a
-      // hole rather than as an unknown. It prints "unknown" dimmed, the same
-      // way a missing count does, and fillMissingDates() replaces it in place
-      // once the registry that hosts the image has answered.
-      facts.appendChild(dateSpan('asga-tile-updated', CLOCK_ICON, 'Updated', a.lu, a.lk !== 'r', a.lk === 'r'));
-      // Added is last and only when known: a date the catalog holds nothing
-      // for still takes no room rather than printing a word where one belongs.
-      var added = addedSpan(a);
-      if (added) facts.appendChild(added);
-      tile.appendChild(facts);
       tile.appendChild(btns);
       return tile;
     }
@@ -2368,6 +2435,26 @@
       if (months < 24) return countOf(Math.max(1, months), 'month') + ' ago';
       return countOf(Math.floor(months / 12), 'year') + ' ago';
     }
+    // The same age in the fewest characters, for the strip, where four ages
+    // share one line with the kind glyph: 8d, 3w, 5mo, 2y. The absolute date
+    // is in the tooltip, so nothing is lost by the abbreviation.
+    function relDateShort(ts, dayOnly) {
+      var now = Math.floor(Date.now() / 1000);
+      var age = now - ts;
+      if (age < 0) return '';
+      if (!dayOnly) {
+        if (age < 60) return 'now';
+        if (age < 3600) return Math.floor(age / 60) + 'm';
+        if (age < 86400) return Math.floor(age / 3600) + 'h';
+      }
+      var days = dayGap(ts, now);
+      if (days <= 0) return 'today';
+      if (days < 14) return days + 'd';
+      if (days < 61) return Math.floor(days / 7) + 'w';
+      var months = monthGap(ts, now);
+      if (months < 24) return Math.max(1, months) + 'mo';
+      return Math.floor(months / 12) + 'y';
+    }
     function countOf(n, unit) { return n + ' ' + unit + (n === 1 ? '' : 's'); }
     // Calendar days apart rather than 24-hour blocks, so 11pm last night is
     // "yesterday" to someone reading at 1am, which is what they would call it.
@@ -2399,7 +2486,7 @@
     // what makes a wall of cards look untidy. The slot is always there; only
     // what fills it changes, and an unknown one is dimmed so a real value still
     // wins the eye.
-    function dateSpan(cls, icon, word, ts, dayOnly, withTime) {
+    function dateSpan(cls, icon, word, ts, dayOnly, withTime, short) {
       var wrap = document.createElement('span');
       wrap.className = cls;
       wrap.insertAdjacentHTML('afterbegin', icon);
@@ -2414,7 +2501,7 @@
         wrap.title = word + ' ' + absDate(ts, withTime);
         // relDate returns '' only for a feed clock running ahead of ours; fall
         // back to the absolute date so a date that IS known is never blank.
-        txt.textContent = relDate(ts, dayOnly) || absDate(ts, false);
+        txt.textContent = (short ? relDateShort(ts, dayOnly) : relDate(ts, dayOnly)) || absDate(ts, false);
       }
       wrap.appendChild(txt);
       return wrap;
@@ -2823,7 +2910,7 @@
         // rebuilt through the same helper the initial paint uses, so a date
         // filled in after the fact gets its icon and today highlight too,
         // rather than the old textContent write that would have wiped the icon
-        up.replaceWith(dateSpan('asga-tile-updated', CLOCK_ICON, 'Updated', a.lu, a.lk !== 'r', a.lk === 'r'));
+        up.replaceWith(dateSpan('asga-tile-updated', CLOCK_ICON, 'Updated', a.lu, a.lk !== 'r', a.lk === 'r', true));
       } catch (e) {}
     }
 
@@ -2883,6 +2970,7 @@
             if (stars[p] !== a.s) changed++;
             a.s = stars[p];
           });
+          REP = null;
           paintStars(stars);
           if (force) {
             if (!j) scanStatus('Refresh failed, the server did not answer');
@@ -2908,6 +2996,14 @@
         var old = t.querySelector('.asga-tile-facts .asga-stat-stars');
         if (!old) continue;
         old.replaceWith(statSpan('asga-stat-stars', STAR_ICON, v, 'star', starTitle(v)));
+      }
+      // The brackets sum those same counts, so they are refreshed in the same
+      // pass rather than waiting for the next full render.
+      var reps = grid.querySelectorAll('.asga-tile-rep');
+      for (var j = 0; j < reps.length; j++) {
+        var nm = reps[j].parentNode && reps[j].parentNode.querySelector('.asga-tile-authorname');
+        var fresh = nm ? repSpan(nm.textContent) : null;
+        if (fresh) reps[j].replaceWith(fresh);
       }
     }
 
@@ -3714,6 +3810,10 @@
       for (var ci = 2; ci <= 6; ci++) colsOpts.push({ v: String(ci), label: String(ci) });
       els.cols = addSettingsSelect(body, 'asga-set-cols', 'Cards per row', colsOpts);
       themeSettingsSelect(els.cols);
+      els.hideXc = addSettingsSelect(body, 'asga-set-hidexc', 'Hide incompatible apps', [
+        { v: 'no', label: 'No' }, { v: 'yes', label: 'Yes' }
+      ]);
+      themeSettingsSelect(els.hideXc);
 
       var dataDirInput = document.createElement('input');
       dataDirInput.type = 'text';
@@ -3759,6 +3859,7 @@
       // rather than selecting nothing
       if (j.defaultSort && optFor(j.defaultSort).v === j.defaultSort) els.sort.value = j.defaultSort;
       els.cols.value = j.cardsPerRow ? String(j.cardsPerRow) : '3';
+      els.hideXc.value = j.hideIncompatible ? 'yes' : 'no';
       els.dataDir.value = j.dataDir || '';
       // the token field is ALWAYS rendered empty: the endpoint never sends
       // the saved value back, and echoing whatever the user last typed here
@@ -3840,6 +3941,7 @@
       params.set('SCAN_DAYS', els.scanDays.value);
       params.set('DEFAULT_SORT', els.sort.value);
       params.set('CARDS_PER_ROW', els.cols.value);
+      params.set('HIDE_INCOMPATIBLE', els.hideXc.value);
       params.set('DATA_DIR', els.dataDir.value);
       postSettingsForm(params, function (j) {
         // an empty or unparsable body lands here as j === null, same as any
@@ -3855,6 +3957,10 @@
         // re-lays out right now, on whatever page is open, rather than
         // waiting for a reload to notice the save
         cardsPerRow = colsOr(j.cardsPerRow, cardsPerRow);
+        hideIncompatible = !!j.hideIncompatible;
+        // render redraws the list under the new filter; fitColumns and
+        // fitTitles measure the tiles it drew, so it has to come first
+        render();
         fitColumns();
         fitTitles();
         setSettingsStatus('Settings applied.');

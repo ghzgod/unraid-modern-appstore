@@ -29,8 +29,9 @@ Then set your token at **Settings → Utilities → Unraid Modern App Store**.
 
 ## What you get
 
-- **A card grid** with the app icon, maintainer, categories, the description, and when the app was added to the store. The strip across the top of each card is tinted in the app's own icon colour, and Unraid, Official, Beta and Privileged apps are flagged beside the name.
-- **Badges** for GitHub stars and Docker pulls. Pull counts are dropped for apps built on an official base image (nginx, redis, postgres), where the figure belongs to the base image rather than the app.
+- **A card grid** with the app icon, maintainer, categories and a three-line description. The strip across the top of each card is tinted in the app's own icon colour and carries the app's facts: GitHub stars, Docker pulls, last update and the date it was added to the store, each with its own colour. Unraid, Official, Beta, Privileged and Not compatible apps are flagged beside the name, and incompatible apps can be hidden from Settings.
+- **Maintainer standing** beside every maintainer's name: how many templates they publish and the GitHub stars across them.
+- **Pull counts** are dropped for apps built on an official base image (nginx, redis, postgres), where the figure belongs to the base image rather than the app.
 - **Sorting that works across the whole catalog**, with real pagination, search and category filtering.
 - **Pinned Apps** and **Installed Apps** rendered by the plugin.
 - **A restyled Info drawer**, with the description, details and maintainer as one column of cards, and a built-in screenshot lightbox.

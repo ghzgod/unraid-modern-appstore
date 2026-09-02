@@ -17,7 +17,9 @@
  *
  * Answers are cached to the addon's data directory on flash and kept: an
  * icon's artwork does not change, and artwork that does arrives under a new
- * URL. Only URLs the catalog actually names are ever fetched, so this endpoint
+ * URL. A failed answer is the one thing not kept, so a CDN hiccup is retried
+ * on the next request rather than remembered as a fact about the icon.
+ * Only URLs the catalog actually names are ever fetched, so this endpoint
  * cannot be pointed at anything else on the network.
  */
 header('Content-Type: application/json');
@@ -71,7 +73,12 @@ if ($todo) {
 }
 
 if ($todo) {
-    foreach (fetchTone($todo) as $u => $l) { $out[$u] = $l; $cache[$u] = $l; }
+    foreach (fetchTone($todo) as $u => $l) {
+        $out[$u] = $l;
+        // [-1, ''] is a fetch or decode failure, usually a CDN timeout, and
+        // is answered but not remembered, so the next request tries again
+        if ($l[0] !== -1) $cache[$u] = $l;
+    }
     if (is_dir($dataDir) || @mkdir($dataDir, 0755, true)) {
         $tmp = $cacheFile . '.tmp';
         if (@file_put_contents($tmp, json_encode($cache)) !== false) @rename($tmp, $cacheFile);
