@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.09.04h">
+<!ENTITY version "2026.09.04i">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
@@ -14,6 +14,13 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" support="&support;">
 
 <CHANGES>
+##2026.09.04i
+- Project and Support open the template's link exactly as the maintainer
+  published it, as CA does. 2026.09.04g had the plugin resolve and repair
+  those links; a wrong destination is the template's to fix, and the plugin
+  no longer stands between the two.
+- The icon plate is a darker grey, so the artwork stands off it.
+
 ##2026.09.04h
 - A maintainer's drawer lists their apps as the store's own cards, with the
   same strip, facts, byline and buttons, instead of a flat row per app. They
@@ -1082,25 +1089,6 @@ const CDN_PREFIX = 'https://ca.unraid.net/cdn/';
 
 function is_cdn_link(string $url): bool { return strncmp($url, CDN_PREFIX, strlen(CDN_PREFIX)) === 0; }
 
-// A template author who wrote "https//github.com/x" (no colon) gets a scheme
-// prepended by CA, and its redirector then answers with
-// "https://https://github.com/x". Seven Project links in the catalog land
-// there. Collapse the doubled scheme to the inner one so the link opens.
-function repair_url(string $url): string {
-    $url = trim($url);
-    return preg_replace('~^https?://(https?)(?::/{0,2}|/{1,2})(?=[A-Za-z0-9])~i', '$1://', $url) ?? $url;
-}
-
-// The link a card should open: the redirector's cached destination when the
-// scan has resolved it, the raw link otherwise, repaired either way. Cards
-// then open github.com straight off rather than bouncing through ca.unraid.net
-// and inheriting whatever its Location header says.
-function link_out(string $url, array $cdnCache): string {
-    if ($url === '') return '';
-    if (is_cdn_link($url) && !empty($cdnCache[$url])) $url = $cdnCache[$url];
-    return repair_url($url);
-}
-
 // HEAD each link, following redirects, and record where it lands. Failures are
 // deliberately NOT cached, so a transient outage retries on the next scan.
 function resolve_cdn_links(array $urls, int $concurrency, ?callable $onProgress = null): array {
@@ -1140,7 +1128,7 @@ function resolve_cdn_links(array $urls, int $concurrency, ?callable $onProgress 
                 // redirect still told us where the link points, and a dead repo
                 // is better recorded than re-resolved on every scan. Only a
                 // transport failure (code 0) is left uncached, to retry later.
-                if ($final !== '' && $final !== $meta['url'] && $code > 0) $out[$meta['url']] = repair_url($final);
+                if ($final !== '' && $final !== $meta['url'] && $code > 0) $out[$meta['url']] = $final;
                 unset($active[(int)$ch]);
             }
             curl_multi_remove_handle($mh, $ch);
@@ -1215,18 +1203,12 @@ function app_wanted(array $app, ?array $wantedPaths): bool {
 $cdnPath  = $dataDir . '/cdn_links.json';
 $cdnCache = @json_decode((string)@file_get_contents($cdnPath), true);
 if (!is_array($cdnCache)) $cdnCache = [];
-// Destinations cached before repair_url existed are repaired on the way in
-// and written back with the next batch, so the seven bad ones heal themselves.
-$cdnCache = array_map('repair_url', $cdnCache);
 $pending = [];
 foreach ($apps as $app) {
     if (!is_array($app)) continue;
     if (!app_wanted($app, $wantedPaths)) continue;
-    // Support links are resolved too since 2026.09.04g, so a card's Support
-    // button opens the thread itself rather than trusting the redirector.
-    foreach ([$app['Project'] ?? '', $app['Support'] ?? ''] as $u) {
-        if ($u && is_cdn_link($u) && !isset($cdnCache[$u])) $pending[$u] = $u;
-    }
+    $u = $app['Project'] ?? '';
+    if ($u && is_cdn_link($u) && !isset($cdnCache[$u])) $pending[$u] = $u;
 }
 if ($pending && !$trendsOnly) {
     fwrite(STDERR, 'fetch_stars: resolving ' . count($pending) . " CA cdn links...\n");
@@ -1553,8 +1535,8 @@ foreach ($apps as $idx => $app) {
         'au' => display_author($app, $full),
         'ct' => $cat,
         'de' => $desc,
-        'pr' => link_out($app['Project'] ?? '', $cdnCache),
-        'su' => link_out($app['Support'] ?? '', $cdnCache),
+        'pr' => $app['Project'] ?? '',
+        'su' => $app['Support'] ?? '',
         'rp' => $full,
         's'  => $stars,
         'dl' => (int)($app['downloads'] ?? 0),
@@ -2164,22 +2146,6 @@ function icon_fa($t) {
 
 // our own catalog (already has name/path/icon/category/stars/trends for every app)
 $ours = read_json_ro("$dataDir/apps.json");
-// The scan's map from CA's https://ca.unraid.net/cdn/<blob> redirectors to
-// where they land. A stored copy written before 2026.09.04g still carries the
-// redirector itself as the Project link, so both stored and template links
-// go through link_out() here rather than waiting for the next scan. The two
-// helpers mirror fetch_stars.php's, which writes what this reads.
-$cdnLinks = read_json_ro("$dataDir/cdn_links.json") ?: [];
-function repair_url($url) {
-    $url = trim((string)$url);
-    return preg_replace('~^https?://(https?)(?::/{0,2}|/{1,2})(?=[A-Za-z0-9])~i', '$1://', $url) ?? $url;
-}
-function link_out($url, $cdnLinks) {
-    $url = (string)$url;
-    if ($url === '') return '';
-    if (strncmp($url, 'https://ca.unraid.net/cdn/', 26) === 0 && !empty($cdnLinks[$url])) $url = $cdnLinks[$url];
-    return repair_url($url);
-}
 $byPath = [];
 foreach (($ours['apps'] ?? []) as $a) {
     if (!empty($a['p'])) $byPath[$a['p']] = $a;
@@ -2354,8 +2320,8 @@ foreach ($tmpl as $t) {
         'mi'  => $repoMeta[(string)($t['RepoName'] ?? $t['Repo'] ?? '')]['icon'] ?? '',
         'de'  => $desc,
         'sx'  => $sx,
-        'pr'  => link_out($mine['pr'] ?? ($t['Project'] ?? ''), $cdnLinks),
-        'su'  => link_out($mine['su'] ?? ($t['Support'] ?? ''), $cdnLinks),
+        'pr'  => $mine['pr'] ?? ($t['Project'] ?? ''),
+        'su'  => $mine['su'] ?? ($t['Support'] ?? ''),
         'ri'  => $t['Repository'] ?? '',                     // image ref, CA's pin key part 1
         'pn'  => $t['SortName'] ?? $name,                    // exact SortName, CA's pin key part 2
         'rp'  => $mine['rp'] ?? '',                          // owner/repo, for the icon fallback
@@ -4536,11 +4502,13 @@ echo json_encode(['error' => 'method not allowed']);
       } catch (e) {}
     }
 
-    // The last guard against CA's doubled scheme ("https://https://github.com/x",
-    // which its redirector hands out for seven catalog links): the server
-    // repairs what it stores, and this repairs whatever still reaches a click.
-    function fixUrl(url) { return String(url || '').replace(/^https?:\/\/(https?)(?::\/{0,2}|\/{1,2})(?=[a-z0-9])/i, '$1://'); }
-    function openExt(url) { if (url) try { window.open(fixUrl(url), '_blank', 'noopener'); } catch (e) {} }
+    // The link exactly as the template carries it, which for most apps is
+    // CA's own https://ca.unraid.net/cdn/ redirector. Where that lands is the
+    // maintainer's business: seven templates redirect to a doubled scheme
+    // ("https://https://github.com/...") because their authors typed it so,
+    // and this opens that too, the same as CA does. Nothing is resolved or
+    // repaired on the way, so a wrong destination is never this plugin's.
+    function openExt(url) { if (url) try { window.open(url, '_blank', 'noopener'); } catch (e) {} }
 
     // Blank until finished. Set the moment a drawer is asked for, cleared by
     // drawerReady() once CA's own render has landed and this file's own fixups
@@ -8968,13 +8936,14 @@ body.dark .asga-settings-select { color-scheme: dark; }
   white-space: nowrap; overflow: hidden;
 }
 /* One plate behind every icon, on the card, in the drawer and in the repo
-   list: a mid grey mixed from the theme, 62% page to 38% text (about #6e6c6c
-   on the dark theme, #9c9c9c on the white). Mid, because it has to carry both
-   the white-on-transparent artwork most apps ship and the dark artwork about
-   a fifth of them ship; until 2026.09.04g the dark ones got a near-white plate
-   of their own, and two plates in one row read as two kinds of card. */
+   list: a dark grey mixed from the theme, 76% page to 24% text (about #505050
+   on the dark theme, #c2c2c2 on the white), a step above the card so the
+   artwork stands off it. Until 2026.09.04g the dark artwork a fifth of the
+   catalog ships got a near-white plate of its own, and two plates in one row
+   read as two kinds of card; 04g's mid grey then washed the bright artwork
+   out, so the plate went darker again in 04i. */
 body.asga-active {
-  --asga-icon-plate: color-mix(in srgb, var(--background-color, #1d1b1b) 62%, var(--text-color, #f2f2f2));
+  --asga-icon-plate: color-mix(in srgb, var(--background-color, #1d1b1b) 76%, var(--text-color, #f2f2f2));
 }
 .asga-tile-icon {
   position: relative; z-index: 1;

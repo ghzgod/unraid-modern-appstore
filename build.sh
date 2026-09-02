@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.09.04h}"
+VERSION="${1:-2026.09.04i}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -57,6 +57,13 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Project and Support open the template's link exactly as the maintainer
+  published it, as CA does. 2026.09.04g had the plugin resolve and repair
+  those links; a wrong destination is the template's to fix, and the plugin
+  no longer stands between the two.
+- The icon plate is a darker grey, so the artwork stands off it.
+
+##2026.09.04h
 - A maintainer's drawer lists their apps as the store's own cards, with the
   same strip, facts, byline and buttons, instead of a flat row per app. They
   are the compact cut: every size on its floor and a two-line blurb, since

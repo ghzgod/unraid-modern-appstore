@@ -639,13 +639,14 @@ body.dark .asga-settings-select { color-scheme: dark; }
   white-space: nowrap; overflow: hidden;
 }
 /* One plate behind every icon, on the card, in the drawer and in the repo
-   list: a mid grey mixed from the theme, 62% page to 38% text (about #6e6c6c
-   on the dark theme, #9c9c9c on the white). Mid, because it has to carry both
-   the white-on-transparent artwork most apps ship and the dark artwork about
-   a fifth of them ship; until 2026.09.04g the dark ones got a near-white plate
-   of their own, and two plates in one row read as two kinds of card. */
+   list: a dark grey mixed from the theme, 76% page to 24% text (about #505050
+   on the dark theme, #c2c2c2 on the white), a step above the card so the
+   artwork stands off it. Until 2026.09.04g the dark artwork a fifth of the
+   catalog ships got a near-white plate of its own, and two plates in one row
+   read as two kinds of card; 04g's mid grey then washed the bright artwork
+   out, so the plate went darker again in 04i. */
 body.asga-active {
-  --asga-icon-plate: color-mix(in srgb, var(--background-color, #1d1b1b) 62%, var(--text-color, #f2f2f2));
+  --asga-icon-plate: color-mix(in srgb, var(--background-color, #1d1b1b) 76%, var(--text-color, #f2f2f2));
 }
 .asga-tile-icon {
   position: relative; z-index: 1;

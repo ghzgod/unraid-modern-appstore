@@ -283,25 +283,6 @@ const CDN_PREFIX = 'https://ca.unraid.net/cdn/';
 
 function is_cdn_link(string $url): bool { return strncmp($url, CDN_PREFIX, strlen(CDN_PREFIX)) === 0; }
 
-// A template author who wrote "https//github.com/x" (no colon) gets a scheme
-// prepended by CA, and its redirector then answers with
-// "https://https://github.com/x". Seven Project links in the catalog land
-// there. Collapse the doubled scheme to the inner one so the link opens.
-function repair_url(string $url): string {
-    $url = trim($url);
-    return preg_replace('~^https?://(https?)(?::/{0,2}|/{1,2})(?=[A-Za-z0-9])~i', '$1://', $url) ?? $url;
-}
-
-// The link a card should open: the redirector's cached destination when the
-// scan has resolved it, the raw link otherwise, repaired either way. Cards
-// then open github.com straight off rather than bouncing through ca.unraid.net
-// and inheriting whatever its Location header says.
-function link_out(string $url, array $cdnCache): string {
-    if ($url === '') return '';
-    if (is_cdn_link($url) && !empty($cdnCache[$url])) $url = $cdnCache[$url];
-    return repair_url($url);
-}
-
 // HEAD each link, following redirects, and record where it lands. Failures are
 // deliberately NOT cached, so a transient outage retries on the next scan.
 function resolve_cdn_links(array $urls, int $concurrency, ?callable $onProgress = null): array {
@@ -341,7 +322,7 @@ function resolve_cdn_links(array $urls, int $concurrency, ?callable $onProgress 
                 // redirect still told us where the link points, and a dead repo
                 // is better recorded than re-resolved on every scan. Only a
                 // transport failure (code 0) is left uncached, to retry later.
-                if ($final !== '' && $final !== $meta['url'] && $code > 0) $out[$meta['url']] = repair_url($final);
+                if ($final !== '' && $final !== $meta['url'] && $code > 0) $out[$meta['url']] = $final;
                 unset($active[(int)$ch]);
             }
             curl_multi_remove_handle($mh, $ch);
@@ -416,18 +397,12 @@ function app_wanted(array $app, ?array $wantedPaths): bool {
 $cdnPath  = $dataDir . '/cdn_links.json';
 $cdnCache = @json_decode((string)@file_get_contents($cdnPath), true);
 if (!is_array($cdnCache)) $cdnCache = [];
-// Destinations cached before repair_url existed are repaired on the way in
-// and written back with the next batch, so the seven bad ones heal themselves.
-$cdnCache = array_map('repair_url', $cdnCache);
 $pending = [];
 foreach ($apps as $app) {
     if (!is_array($app)) continue;
     if (!app_wanted($app, $wantedPaths)) continue;
-    // Support links are resolved too since 2026.09.04g, so a card's Support
-    // button opens the thread itself rather than trusting the redirector.
-    foreach ([$app['Project'] ?? '', $app['Support'] ?? ''] as $u) {
-        if ($u && is_cdn_link($u) && !isset($cdnCache[$u])) $pending[$u] = $u;
-    }
+    $u = $app['Project'] ?? '';
+    if ($u && is_cdn_link($u) && !isset($cdnCache[$u])) $pending[$u] = $u;
 }
 if ($pending && !$trendsOnly) {
     fwrite(STDERR, 'fetch_stars: resolving ' . count($pending) . " CA cdn links...\n");
@@ -754,8 +729,8 @@ foreach ($apps as $idx => $app) {
         'au' => display_author($app, $full),
         'ct' => $cat,
         'de' => $desc,
-        'pr' => link_out($app['Project'] ?? '', $cdnCache),
-        'su' => link_out($app['Support'] ?? '', $cdnCache),
+        'pr' => $app['Project'] ?? '',
+        'su' => $app['Support'] ?? '',
         'rp' => $full,
         's'  => $stars,
         'dl' => (int)($app['downloads'] ?? 0),
