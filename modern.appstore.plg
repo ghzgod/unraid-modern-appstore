@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.09.04g">
+<!ENTITY version "2026.09.04h">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
@@ -14,6 +14,16 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" support="&support;">
 
 <CHANGES>
+##2026.09.04h
+- A maintainer's drawer lists their apps as the store's own cards, with the
+  same strip, facts, byline and buttons, instead of a flat row per app. They
+  are the compact cut: every size on its floor and a two-line blurb, since
+  they sit in a list.
+- The drawer's Total Applications reads the number of apps listed under it
+  when CA's own count comes back 0.
+- A date the catalog does not have reads N/A in the drawer, the same word a
+  missing count wears in the strip, instead of Unknown.
+
 ##2026.09.04g
 - Project and Support open the page itself. Both used to open CA's
   https://ca.unraid.net/cdn/ redirector, and for seven apps (binhex-paseo,
@@ -4471,36 +4481,39 @@ echo json_encode(['error' => 'method not allowed']);
       var anchor = document.getElementById('templates_content');
       if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(wrap, anchor);
       else host.appendChild(wrap);
-      // one delegated click handles tiles + their Info/Support/Install buttons
-      document.getElementById('asga-grid').addEventListener('click', function (e) {
-        var el = e.target;
-        var tile = el.closest ? el.closest('.asga-tile') : null;
-        if (!tile) return;
-        var p = tile.getAttribute('data-apppath'), n = tile.getAttribute('data-appname');
-        var btn = el.closest ? el.closest('.asga-btn') : null;
-        if (btn) {
-          e.stopPropagation();
-          if (btn.classList.contains('asga-install')) {
-            installApp(tile);
-          } else if (btn.classList.contains('asga-project')) {
-            openExt(tile.getAttribute('data-project'));
-          } else if (btn.classList.contains('asga-support')) {
-            openExt(tile.getAttribute('data-support'));
-          } else if (btn.classList.contains('asga-maint')) {
-            // CA's own repo drawer, the same one its Profile button opens
-            var repo = tile.getAttribute('data-repo');
-            if (repo) { holdDrawer(); try { window.showRepoPopup(repo); } catch (err) {} }
-          } else if (btn.classList.contains('asga-pin')) {
-            pinApp(tile, btn);
-          } else { // Info
-            openSidebar(p, n);
-          }
-          return;
-        }
-        // click anywhere else on the card opens the Info/Install drawer
-        openSidebar(p, n);
-      });
+      // one delegated click handles tiles + their Info/Support/Install
+      // buttons; the same handler serves the repo drawer's cards
+      document.getElementById('asga-grid').addEventListener('click', tileClick);
       return wrap;
+    }
+
+    function tileClick(e) {
+      var el = e.target;
+      var tile = el.closest ? el.closest('.asga-tile') : null;
+      if (!tile) return;
+      var p = tile.getAttribute('data-apppath'), n = tile.getAttribute('data-appname');
+      var btn = el.closest ? el.closest('.asga-btn') : null;
+      if (btn) {
+        e.stopPropagation();
+        if (btn.classList.contains('asga-install')) {
+          installApp(tile);
+        } else if (btn.classList.contains('asga-project')) {
+          openExt(tile.getAttribute('data-project'));
+        } else if (btn.classList.contains('asga-support')) {
+          openExt(tile.getAttribute('data-support'));
+        } else if (btn.classList.contains('asga-maint')) {
+          // CA's own repo drawer, the same one its Profile button opens
+          var repo = tile.getAttribute('data-repo');
+          if (repo) { holdDrawer(); try { window.showRepoPopup(repo); } catch (err) {} }
+        } else if (btn.classList.contains('asga-pin')) {
+          pinApp(tile, btn);
+        } else { // Info
+          openSidebar(p, n);
+        }
+        return;
+      }
+      // click anywhere else on the card opens the Info/Install drawer
+      openSidebar(p, n);
     }
 
     // pin/unpin via CA's own pinApp action (keyed by RepoName & Name, exactly
@@ -5067,76 +5080,16 @@ echo json_encode(['error' => 'method not allowed']);
       var mine = repoApps();
       if (!mine.length) return;   // nothing to show, leave CA's bio alone
 
+      // The list is the grid's own cover cards, from the same builder and
+      // the same click handler, so a maintainer's page shows their apps
+      // exactly as the store does rather than as a second, flatter drawing
+      // of the same facts. Until 2026.09.04h each app was a row: icon,
+      // name and blurb, with the figures and dates in a right column.
       var list = document.createElement('div');
-      list.className = 'asga-repo-apps';
+      list.className = 'asga-repo-apps asga-grid asga-repo-grid';
       mine.sort(function (a, b) { return (a.sn || '').localeCompare(b.sn || ''); });
-      mine.forEach(function (a) {
-        var row = document.createElement('div');
-        row.className = 'asga-repo-app';
-        row.tabIndex = 0;
-        row.setAttribute('role', 'button');
-        row.title = 'Show ' + a.n + ' in the app store';
-
-        // Same four answers the grid's own card gets, from the same builder,
-        // so a row here and a card out there can no more disagree about an
-        // app's picture than they already can about its numbers.
-        row.appendChild(appIcon(a, 'asga-repo-app-icon'));
-
-        var text = document.createElement('div');
-        text.className = 'asga-repo-app-text';
-        var nm = document.createElement('div');
-        nm.className = 'asga-repo-app-name';
-        nm.textContent = a.n;
-        var de = document.createElement('div');
-        de.className = 'asga-repo-app-desc';
-        de.textContent = a.de || '';
-        text.appendChild(nm);
-        text.appendChild(de);
-        row.appendChild(text);
-
-        // The same four facts the grid's own card carries, built by the same
-        // two helpers, so a row here and a card out there can never disagree
-        // about a number or a date. Stars and downloads ride at the top of the
-        // right column and the two dates sit under them, which is the card's
-        // own arrangement turned on its side.
-        var badges = document.createElement('div');
-        badges.className = 'asga-repo-app-badges';
-        badges.appendChild(statSpan('asga-stat-stars', STAR_ICON, a.s, 'star', starTitle(a.s)));
-        badges.appendChild(statSpan('asga-stat-dl', DL_ICON, a.dl, a.ty === 'plugin' ? 'install' : 'pull', downloadTitle(a.dl, a.ty, a.dz)));
-        row.appendChild(badges);
-
-        var dates = document.createElement('div');
-        dates.className = 'asga-repo-app-dates';
-        // Same pair in the same order the card uses, and the same answer for an
-        // app that predates CA's records.
-        var rowAdded = addedSpan(a);
-        if (rowAdded) dates.appendChild(rowAdded);
-        if (a.lu) dates.appendChild(dateSpan('asga-tile-updated', CLOCK_ICON, 'Updated', a.lu, a.lk !== 'r', a.lk === 'r'));
-        row.appendChild(dates);
-
-        // The row is the button now. A pill at the end of every row said Show
-        // App as many times as the maintainer has apps and took the width the
-        // figures above it needed; hovering the row fades the figures out and
-        // this in, in the same place, so the card visibly becomes the control
-        // rather than carrying one.
-        var go = document.createElement('span');
-        go.className = 'asga-repo-app-go';
-        go.textContent = 'Show App';
-        row.appendChild(go);
-
-        function show() {
-          flashPath = a.p;
-          if (typeof window.closeSidebar === 'function') try { window.closeSidebar(); } catch (e2) {}
-          var box = document.getElementById('searchBox');
-          if (box) box.value = a.n;
-          applySearch(a.n);
-        }
-        row.addEventListener('click', show);
-        row.addEventListener('keydown', function (e) {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); show(); }
-        });
-        list.appendChild(row);
-      });
+      mine.forEach(function (a) { list.appendChild(makeTile(a)); });
+      list.addEventListener('click', tileClick);
       bio.parentNode.insertBefore(list, bio);
       bio.parentNode.removeChild(bio);
       // Statistics moves ABOVE the list. CA emits it as a sibling of the block
@@ -5159,6 +5112,24 @@ echo json_encode(['error' => 'method not allowed']);
       // to scroll.
       var sbw = list.offsetWidth - list.clientWidth;
       if (sbw > 0) list.style.marginRight = (-sbw) + 'px';
+      fitRepoColumns(list);
+    }
+
+    // The drawer's grid picks its own column count the way fitColumns() does
+    // for the store, from its own width: as many 340px cards as fit at 14px
+    // gaps, one at the least. The drawer is not laid out on the frame it is
+    // built, so a zero width is retried on the next frames rather than acted
+    // on; fitTitles() then shrinks the names to the width they actually get.
+    function fitRepoColumns(list, tries) {
+      tries = tries || 0;
+      var w = list.clientWidth;
+      if (!w) {
+        if (tries < 20) requestAnimationFrame(function () { fitRepoColumns(list, tries + 1); });
+        return;
+      }
+      var cols = Math.max(1, Math.floor((w + 14) / (340 + 14)));
+      list.style.setProperty('--asga-cols', cols);
+      fitTitles(list);
     }
 
     // The two rows CA leaves out for anyone who does not publish Docker
@@ -5206,6 +5177,14 @@ echo json_encode(['error' => 'method not allowed']);
       if (counted) {
         setRepoRow(table, 'Total Known Downloads', total.toLocaleString());
         setRepoRow(table, 'Average Downloads Per App', Math.round(total / counted).toLocaleString());
+      }
+      // CA's own count reads 0 for a maintainer whose templates its popup
+      // loop does not match (Binhex's 64 apps read as none), while the apps
+      // themselves are listed right under the table. The list is the count.
+      var appsRow = repoRowByLabel(table, 'Total Applications');
+      var appsCell = appsRow ? appsRow.querySelector('.repoRight') : null;
+      if (appsCell && parseInt(appsCell.textContent.replace(/[^0-9]/g, '') || '0', 10) === 0 && mine.length) {
+        appsCell.textContent = mine.length.toLocaleString();
       }
       // CA keeps no statistic on GitHub stars at all. This one lands directly
       // above Total Docker Applications, and the tooltip says plainly that it
@@ -5595,13 +5574,13 @@ echo json_encode(['error' => 'method not allowed']);
     // own card carries the date the next time the grid repaints.
     function resolveLastUpdate(app, cell) {
       var ref = app.ri || '';
-      if (!ref || app.ty !== 'docker') { cell.textContent = 'Unknown'; return; }
+      if (!ref || app.ty !== 'docker') { cell.textContent = 'N/A'; return; }
       var done = function (ts) {
         // the drawer can be closed or already showing another app by the time
         // this lands, and writing into a detached cell would be invisible at
         // best and wrong at worst
         if (!document.contains(cell)) return;
-        if (!ts) { cell.textContent = 'Unknown'; return; }
+        if (!ts) { cell.textContent = 'N/A'; return; }
         app.lu = ts; app.lk = 'r';
         setLuCell(cell, ts, 'r');
       };
@@ -5861,7 +5840,7 @@ echo json_encode(['error' => 'method not allowed']);
         u.title = 'The app catalog holds no record of when this app was added';
         var t = document.createElement('span');
         t.className = 'asga-datetext';
-        t.textContent = 'Unknown';
+        t.textContent = 'N/A';
         u.appendChild(t);
         return u;
       }
@@ -6376,7 +6355,7 @@ echo json_encode(['error' => 'method not allowed']);
       if (!ts) {
         wrap.classList.add('asga-stat-none');
         wrap.title = word + ' date is not in the app catalog';
-        txt.textContent = 'unknown';
+        txt.textContent = 'N/A';
       } else {
         if (dayGap(ts, Math.floor(Date.now() / 1000)) <= 0) wrap.classList.add('asga-date-today');
         wrap.title = word + ' ' + absDate(ts, withTime);
@@ -6607,8 +6586,9 @@ echo json_encode(['error' => 'method not allowed']);
     // the category lands in is exactly the room left on the line, and the
     // widest label that fits it is the one printed. A label of one category
     // is printed whatever its width, and ellipsises like any other text.
-    function fitCats() {
-      var cats = document.querySelectorAll('#asga-grid .asga-tile-cat');
+    function fitCats(root) {
+      root = root || document.getElementById('asga-grid'); if (!root) return;
+      var cats = root.querySelectorAll('.asga-tile-cat');
       if (!cats.length) return;
       if (!fitCanvas) fitCanvas = document.createElement('canvas');
       var ctx = fitCanvas.getContext('2d');
@@ -6626,9 +6606,10 @@ echo json_encode(['error' => 'method not allowed']);
         if (txt.textContent !== label) writeCat(txt, label);
       }
     }
-    function fitTitles() {
-      fitCats();
-      var names = document.querySelectorAll('#asga-grid .asga-tile-name');
+    function fitTitles(root) {
+      root = root || document.getElementById('asga-grid'); if (!root) return;
+      fitCats(root);
+      var names = root.querySelectorAll('.asga-tile-name');
       if (!names.length) return;
       for (var i = 0; i < names.length; i++) names[i].style.fontSize = '';
       var cs = getComputedStyle(names[0]);
@@ -10802,111 +10783,30 @@ body.asga-active .asga-repo-apps::-webkit-scrollbar-thumb {
   background: rgba(127, 127, 127, 0.35); border-radius: 4px;
 }
 body.asga-active .asga-repo-apps::-webkit-scrollbar-thumb:hover { background: rgba(127, 127, 127, 0.55); }
-
-/* Each row is the grid card's own anatomy laid on its side: icon, then name
-   and blurb, then the two figures at the top of the right column with the two
-   dates under them. Three columns and two rows rather than one flex line,
-   because the figures and the dates have to hold their own corners whatever
-   height the blurb runs to. */
-body.asga-active .asga-repo-app {
-  position: relative;
+/* The list is a grid of the store's own cards (see buildRepoApps). It has to
+   restate the grid, because the flex column above outranks the bare
+   .asga-grid rule, and it is its own container so a card in here measures
+   --cw off the drawer rather than off the store's grid. */
+body.asga-active .asga-repo-grid {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
-  column-gap: 12px; row-gap: 6px; align-items: start;
-  padding: 10px 12px; border: 1px solid var(--asga-cardline);
-  border-radius: 8px; background: var(--asga-surface);
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  grid-template-columns: repeat(var(--asga-cols, 1), minmax(0, 1fr));
+  column-gap: 14px; row-gap: 8px;
+  container-type: inline-size;
+  padding: 2px 0 6px;
 }
-body.asga-active .asga-repo-app-icon {
-  grid-column: 1; grid-row: 1 / span 2; align-self: start;
-  width: 40px; height: 40px; box-sizing: border-box;
-  object-fit: contain; border-radius: 8px; padding: 3px;
-  background: var(--asga-icon-plate); border: 1px solid var(--asga-cardline);
-}
-/* the glyph form of the same tile, for the apps that carry one instead of a
-   picture; the rule above already gave it the plate, so only the mark inside
-   it needs placing */
-body.asga-active .asga-repo-app-icon.asga-icon-fa {
-  display: flex; align-items: center; justify-content: center;
-  font-size: 17px; line-height: 1;
-  color: color-mix(in srgb, var(--asga-fg) 66%, transparent);
-}
-body.asga-active .asga-repo-app-text {
-  grid-column: 2; grid-row: 1; align-self: start; min-width: 0;
-}
-/* the name holds one line for the same reason the blurb below holds two: a
-   row that grows to fit a long name reads as ragged next to the ones beside
-   it that didn't need the room */
-body.asga-active .asga-repo-app-name {
-  font-size: 1.4rem; font-weight: 600; line-height: 1.3;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  transition: color 0.15s ease;
-}
-/* two lines at most, so one wordy app cannot make its row twice the height of
-   its neighbours' */
-/* min-height reserves those two lines whether the blurb needs them or not: a
-   list whose rows change height with the length of a sentence reads as
-   ragged, and the alternative, a fixed height, would clip a longer blurb. */
-body.asga-active .asga-repo-app-desc {
-  font-size: 1.2rem; line-height: 1.4; color: var(--asga-muted);
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-  min-height: calc(2 * 1.2rem * 1.4);
-}
-/* The two corners of the right column. Both carry the grid's own .asga-stat,
-   .asga-tile-added and .asga-tile-updated classes, so a figure here is built
-   by the same helper and painted by the same rule as the one on the card. */
-body.asga-active .asga-repo-app-badges {
-  grid-column: 3; grid-row: 1; justify-self: end; align-self: start;
-  display: flex; gap: 4px; align-items: center;
-  transition: opacity 0.15s ease;
-}
-body.asga-active .asga-repo-app-badges .asga-stat {
-  font-size: 10px; line-height: 1; font-weight: 600;
-  background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(127, 127, 127, 0.3);
-  padding: 3px 7px; border-radius: 10px;
-}
-body.asga-active .asga-repo-app-badges .asga-stat-noun { display: none; }
-body.asga-active .asga-repo-app-badges .asga-ficon { width: 11px; height: 11px; }
-/* The dates read from the same left edge the name and the blurb do, rather
-   than from the right edge, where they were competing with the figures above
-   them for the eye. The icon is topped out against the name for the same
-   reason: both now answer to the row's left column instead of its right one. */
-body.asga-active .asga-repo-app-dates {
-  grid-column: 2; grid-row: 2; justify-self: start; align-self: end;
-  display: flex; gap: 12px; align-items: center;
-  font-size: 1.05rem; line-height: 1.5;
-  transition: opacity 0.15s ease;
-}
-/* The row IS the button. A Show App pill on every row repeated itself the
-   whole way down the list and took the width the figures above it needed, so
-   it now lives in the same corner of the grid and appears only when the row is
-   under the pointer, with the figures fading out beneath it. Nothing moves:
-   the pill is placed in the same two cells the figures occupy, so the column
-   is already as wide as the wider of the two. */
-body.asga-active .asga-repo-app-go {
-  grid-column: 3; grid-row: 1 / span 2; justify-self: end; align-self: center;
-  display: inline-flex; align-items: center;
-  font-size: 1.15rem; line-height: 1.2; font-weight: 600;
-  padding: 6px 14px; border-radius: 20px;
-  border: 1px solid var(--asga-accent); background: rgba(255, 140, 47, 0.18);
-  color: var(--asga-accent);
-  white-space: nowrap; opacity: 0; pointer-events: none;
-  transition: opacity 0.15s ease;
-}
-body.asga-active .asga-repo-app:hover,
-body.asga-active .asga-repo-app:focus-visible {
-  border-color: var(--asga-accent); background: rgba(255, 140, 47, 0.12); outline: none;
-}
-body.asga-active .asga-repo-app:hover .asga-repo-app-name,
-body.asga-active .asga-repo-app:focus-visible .asga-repo-app-name { color: var(--asga-accent); }
-body.asga-active .asga-repo-app:hover .asga-repo-app-badges,
-body.asga-active .asga-repo-app:hover .asga-repo-app-dates,
-body.asga-active .asga-repo-app:focus-visible .asga-repo-app-badges,
-body.asga-active .asga-repo-app:focus-visible .asga-repo-app-dates { opacity: 0; }
-body.asga-active .asga-repo-app:hover .asga-repo-app-go,
-body.asga-active .asga-repo-app:focus-visible .asga-repo-app-go { opacity: 1; }
+/* The compact card. Every size on a card is a fraction of --cw, so pinning
+   --cw under the grid's 340px floor puts each of them on its floor (36px
+   strip, 48px icon, 15px name, 12px byline and blurb, 9.5px buttons) however
+   wide the drawer is, and the bands close up around them. The blurb is two
+   lines at a fixed height rather than three at its own: the list is a flex
+   item with a definite height, and a grid inside one sizes a track by its
+   items' minimum contribution, which for an overflow: hidden band is nothing,
+   so left to itself the blurb collapsed to its 1px of padding. */
+body.asga-active .asga-repo-grid .asga-tile { --cw: 300px; }
+body.asga-active .asga-repo-grid .asga-tile > * { padding-left: 12px; padding-right: 12px; }
+body.asga-active .asga-repo-grid .asga-tile > .asga-tile-btns { padding-bottom: 10px; padding-top: 2px; }
+body.asga-active .asga-repo-grid .asga-tile-desc { height: 3em; -webkit-line-clamp: 2; }
+body.asga-active .asga-repo-grid .asga-btn { padding: 5px 3px; }
 
 /* ---- the Support dropdown ----
    CA builds it with ContextJS, whose stylesheet is written for a light theme:

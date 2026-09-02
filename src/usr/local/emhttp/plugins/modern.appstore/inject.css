@@ -2454,111 +2454,30 @@ body.asga-active .asga-repo-apps::-webkit-scrollbar-thumb {
   background: rgba(127, 127, 127, 0.35); border-radius: 4px;
 }
 body.asga-active .asga-repo-apps::-webkit-scrollbar-thumb:hover { background: rgba(127, 127, 127, 0.55); }
-
-/* Each row is the grid card's own anatomy laid on its side: icon, then name
-   and blurb, then the two figures at the top of the right column with the two
-   dates under them. Three columns and two rows rather than one flex line,
-   because the figures and the dates have to hold their own corners whatever
-   height the blurb runs to. */
-body.asga-active .asga-repo-app {
-  position: relative;
+/* The list is a grid of the store's own cards (see buildRepoApps). It has to
+   restate the grid, because the flex column above outranks the bare
+   .asga-grid rule, and it is its own container so a card in here measures
+   --cw off the drawer rather than off the store's grid. */
+body.asga-active .asga-repo-grid {
   display: grid;
-  grid-template-columns: 40px minmax(0, 1fr) auto;
-  grid-template-rows: auto auto;
-  column-gap: 12px; row-gap: 6px; align-items: start;
-  padding: 10px 12px; border: 1px solid var(--asga-cardline);
-  border-radius: 8px; background: var(--asga-surface);
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  grid-template-columns: repeat(var(--asga-cols, 1), minmax(0, 1fr));
+  column-gap: 14px; row-gap: 8px;
+  container-type: inline-size;
+  padding: 2px 0 6px;
 }
-body.asga-active .asga-repo-app-icon {
-  grid-column: 1; grid-row: 1 / span 2; align-self: start;
-  width: 40px; height: 40px; box-sizing: border-box;
-  object-fit: contain; border-radius: 8px; padding: 3px;
-  background: var(--asga-icon-plate); border: 1px solid var(--asga-cardline);
-}
-/* the glyph form of the same tile, for the apps that carry one instead of a
-   picture; the rule above already gave it the plate, so only the mark inside
-   it needs placing */
-body.asga-active .asga-repo-app-icon.asga-icon-fa {
-  display: flex; align-items: center; justify-content: center;
-  font-size: 17px; line-height: 1;
-  color: color-mix(in srgb, var(--asga-fg) 66%, transparent);
-}
-body.asga-active .asga-repo-app-text {
-  grid-column: 2; grid-row: 1; align-self: start; min-width: 0;
-}
-/* the name holds one line for the same reason the blurb below holds two: a
-   row that grows to fit a long name reads as ragged next to the ones beside
-   it that didn't need the room */
-body.asga-active .asga-repo-app-name {
-  font-size: 1.4rem; font-weight: 600; line-height: 1.3;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  transition: color 0.15s ease;
-}
-/* two lines at most, so one wordy app cannot make its row twice the height of
-   its neighbours' */
-/* min-height reserves those two lines whether the blurb needs them or not: a
-   list whose rows change height with the length of a sentence reads as
-   ragged, and the alternative, a fixed height, would clip a longer blurb. */
-body.asga-active .asga-repo-app-desc {
-  font-size: 1.2rem; line-height: 1.4; color: var(--asga-muted);
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-  min-height: calc(2 * 1.2rem * 1.4);
-}
-/* The two corners of the right column. Both carry the grid's own .asga-stat,
-   .asga-tile-added and .asga-tile-updated classes, so a figure here is built
-   by the same helper and painted by the same rule as the one on the card. */
-body.asga-active .asga-repo-app-badges {
-  grid-column: 3; grid-row: 1; justify-self: end; align-self: start;
-  display: flex; gap: 4px; align-items: center;
-  transition: opacity 0.15s ease;
-}
-body.asga-active .asga-repo-app-badges .asga-stat {
-  font-size: 10px; line-height: 1; font-weight: 600;
-  background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(127, 127, 127, 0.3);
-  padding: 3px 7px; border-radius: 10px;
-}
-body.asga-active .asga-repo-app-badges .asga-stat-noun { display: none; }
-body.asga-active .asga-repo-app-badges .asga-ficon { width: 11px; height: 11px; }
-/* The dates read from the same left edge the name and the blurb do, rather
-   than from the right edge, where they were competing with the figures above
-   them for the eye. The icon is topped out against the name for the same
-   reason: both now answer to the row's left column instead of its right one. */
-body.asga-active .asga-repo-app-dates {
-  grid-column: 2; grid-row: 2; justify-self: start; align-self: end;
-  display: flex; gap: 12px; align-items: center;
-  font-size: 1.05rem; line-height: 1.5;
-  transition: opacity 0.15s ease;
-}
-/* The row IS the button. A Show App pill on every row repeated itself the
-   whole way down the list and took the width the figures above it needed, so
-   it now lives in the same corner of the grid and appears only when the row is
-   under the pointer, with the figures fading out beneath it. Nothing moves:
-   the pill is placed in the same two cells the figures occupy, so the column
-   is already as wide as the wider of the two. */
-body.asga-active .asga-repo-app-go {
-  grid-column: 3; grid-row: 1 / span 2; justify-self: end; align-self: center;
-  display: inline-flex; align-items: center;
-  font-size: 1.15rem; line-height: 1.2; font-weight: 600;
-  padding: 6px 14px; border-radius: 20px;
-  border: 1px solid var(--asga-accent); background: rgba(255, 140, 47, 0.18);
-  color: var(--asga-accent);
-  white-space: nowrap; opacity: 0; pointer-events: none;
-  transition: opacity 0.15s ease;
-}
-body.asga-active .asga-repo-app:hover,
-body.asga-active .asga-repo-app:focus-visible {
-  border-color: var(--asga-accent); background: rgba(255, 140, 47, 0.12); outline: none;
-}
-body.asga-active .asga-repo-app:hover .asga-repo-app-name,
-body.asga-active .asga-repo-app:focus-visible .asga-repo-app-name { color: var(--asga-accent); }
-body.asga-active .asga-repo-app:hover .asga-repo-app-badges,
-body.asga-active .asga-repo-app:hover .asga-repo-app-dates,
-body.asga-active .asga-repo-app:focus-visible .asga-repo-app-badges,
-body.asga-active .asga-repo-app:focus-visible .asga-repo-app-dates { opacity: 0; }
-body.asga-active .asga-repo-app:hover .asga-repo-app-go,
-body.asga-active .asga-repo-app:focus-visible .asga-repo-app-go { opacity: 1; }
+/* The compact card. Every size on a card is a fraction of --cw, so pinning
+   --cw under the grid's 340px floor puts each of them on its floor (36px
+   strip, 48px icon, 15px name, 12px byline and blurb, 9.5px buttons) however
+   wide the drawer is, and the bands close up around them. The blurb is two
+   lines at a fixed height rather than three at its own: the list is a flex
+   item with a definite height, and a grid inside one sizes a track by its
+   items' minimum contribution, which for an overflow: hidden band is nothing,
+   so left to itself the blurb collapsed to its 1px of padding. */
+body.asga-active .asga-repo-grid .asga-tile { --cw: 300px; }
+body.asga-active .asga-repo-grid .asga-tile > * { padding-left: 12px; padding-right: 12px; }
+body.asga-active .asga-repo-grid .asga-tile > .asga-tile-btns { padding-bottom: 10px; padding-top: 2px; }
+body.asga-active .asga-repo-grid .asga-tile-desc { height: 3em; -webkit-line-clamp: 2; }
+body.asga-active .asga-repo-grid .asga-btn { padding: 5px 3px; }
 
 /* ---- the Support dropdown ----
    CA builds it with ContextJS, whose stylesheet is written for a light theme:

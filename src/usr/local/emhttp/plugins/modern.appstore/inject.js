@@ -596,36 +596,39 @@
       var anchor = document.getElementById('templates_content');
       if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(wrap, anchor);
       else host.appendChild(wrap);
-      // one delegated click handles tiles + their Info/Support/Install buttons
-      document.getElementById('asga-grid').addEventListener('click', function (e) {
-        var el = e.target;
-        var tile = el.closest ? el.closest('.asga-tile') : null;
-        if (!tile) return;
-        var p = tile.getAttribute('data-apppath'), n = tile.getAttribute('data-appname');
-        var btn = el.closest ? el.closest('.asga-btn') : null;
-        if (btn) {
-          e.stopPropagation();
-          if (btn.classList.contains('asga-install')) {
-            installApp(tile);
-          } else if (btn.classList.contains('asga-project')) {
-            openExt(tile.getAttribute('data-project'));
-          } else if (btn.classList.contains('asga-support')) {
-            openExt(tile.getAttribute('data-support'));
-          } else if (btn.classList.contains('asga-maint')) {
-            // CA's own repo drawer, the same one its Profile button opens
-            var repo = tile.getAttribute('data-repo');
-            if (repo) { holdDrawer(); try { window.showRepoPopup(repo); } catch (err) {} }
-          } else if (btn.classList.contains('asga-pin')) {
-            pinApp(tile, btn);
-          } else { // Info
-            openSidebar(p, n);
-          }
-          return;
-        }
-        // click anywhere else on the card opens the Info/Install drawer
-        openSidebar(p, n);
-      });
+      // one delegated click handles tiles + their Info/Support/Install
+      // buttons; the same handler serves the repo drawer's cards
+      document.getElementById('asga-grid').addEventListener('click', tileClick);
       return wrap;
+    }
+
+    function tileClick(e) {
+      var el = e.target;
+      var tile = el.closest ? el.closest('.asga-tile') : null;
+      if (!tile) return;
+      var p = tile.getAttribute('data-apppath'), n = tile.getAttribute('data-appname');
+      var btn = el.closest ? el.closest('.asga-btn') : null;
+      if (btn) {
+        e.stopPropagation();
+        if (btn.classList.contains('asga-install')) {
+          installApp(tile);
+        } else if (btn.classList.contains('asga-project')) {
+          openExt(tile.getAttribute('data-project'));
+        } else if (btn.classList.contains('asga-support')) {
+          openExt(tile.getAttribute('data-support'));
+        } else if (btn.classList.contains('asga-maint')) {
+          // CA's own repo drawer, the same one its Profile button opens
+          var repo = tile.getAttribute('data-repo');
+          if (repo) { holdDrawer(); try { window.showRepoPopup(repo); } catch (err) {} }
+        } else if (btn.classList.contains('asga-pin')) {
+          pinApp(tile, btn);
+        } else { // Info
+          openSidebar(p, n);
+        }
+        return;
+      }
+      // click anywhere else on the card opens the Info/Install drawer
+      openSidebar(p, n);
     }
 
     // pin/unpin via CA's own pinApp action (keyed by RepoName & Name, exactly
@@ -1192,76 +1195,16 @@
       var mine = repoApps();
       if (!mine.length) return;   // nothing to show, leave CA's bio alone
 
+      // The list is the grid's own cover cards, from the same builder and
+      // the same click handler, so a maintainer's page shows their apps
+      // exactly as the store does rather than as a second, flatter drawing
+      // of the same facts. Until 2026.09.04h each app was a row: icon,
+      // name and blurb, with the figures and dates in a right column.
       var list = document.createElement('div');
-      list.className = 'asga-repo-apps';
+      list.className = 'asga-repo-apps asga-grid asga-repo-grid';
       mine.sort(function (a, b) { return (a.sn || '').localeCompare(b.sn || ''); });
-      mine.forEach(function (a) {
-        var row = document.createElement('div');
-        row.className = 'asga-repo-app';
-        row.tabIndex = 0;
-        row.setAttribute('role', 'button');
-        row.title = 'Show ' + a.n + ' in the app store';
-
-        // Same four answers the grid's own card gets, from the same builder,
-        // so a row here and a card out there can no more disagree about an
-        // app's picture than they already can about its numbers.
-        row.appendChild(appIcon(a, 'asga-repo-app-icon'));
-
-        var text = document.createElement('div');
-        text.className = 'asga-repo-app-text';
-        var nm = document.createElement('div');
-        nm.className = 'asga-repo-app-name';
-        nm.textContent = a.n;
-        var de = document.createElement('div');
-        de.className = 'asga-repo-app-desc';
-        de.textContent = a.de || '';
-        text.appendChild(nm);
-        text.appendChild(de);
-        row.appendChild(text);
-
-        // The same four facts the grid's own card carries, built by the same
-        // two helpers, so a row here and a card out there can never disagree
-        // about a number or a date. Stars and downloads ride at the top of the
-        // right column and the two dates sit under them, which is the card's
-        // own arrangement turned on its side.
-        var badges = document.createElement('div');
-        badges.className = 'asga-repo-app-badges';
-        badges.appendChild(statSpan('asga-stat-stars', STAR_ICON, a.s, 'star', starTitle(a.s)));
-        badges.appendChild(statSpan('asga-stat-dl', DL_ICON, a.dl, a.ty === 'plugin' ? 'install' : 'pull', downloadTitle(a.dl, a.ty, a.dz)));
-        row.appendChild(badges);
-
-        var dates = document.createElement('div');
-        dates.className = 'asga-repo-app-dates';
-        // Same pair in the same order the card uses, and the same answer for an
-        // app that predates CA's records.
-        var rowAdded = addedSpan(a);
-        if (rowAdded) dates.appendChild(rowAdded);
-        if (a.lu) dates.appendChild(dateSpan('asga-tile-updated', CLOCK_ICON, 'Updated', a.lu, a.lk !== 'r', a.lk === 'r'));
-        row.appendChild(dates);
-
-        // The row is the button now. A pill at the end of every row said Show
-        // App as many times as the maintainer has apps and took the width the
-        // figures above it needed; hovering the row fades the figures out and
-        // this in, in the same place, so the card visibly becomes the control
-        // rather than carrying one.
-        var go = document.createElement('span');
-        go.className = 'asga-repo-app-go';
-        go.textContent = 'Show App';
-        row.appendChild(go);
-
-        function show() {
-          flashPath = a.p;
-          if (typeof window.closeSidebar === 'function') try { window.closeSidebar(); } catch (e2) {}
-          var box = document.getElementById('searchBox');
-          if (box) box.value = a.n;
-          applySearch(a.n);
-        }
-        row.addEventListener('click', show);
-        row.addEventListener('keydown', function (e) {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); show(); }
-        });
-        list.appendChild(row);
-      });
+      mine.forEach(function (a) { list.appendChild(makeTile(a)); });
+      list.addEventListener('click', tileClick);
       bio.parentNode.insertBefore(list, bio);
       bio.parentNode.removeChild(bio);
       // Statistics moves ABOVE the list. CA emits it as a sibling of the block
@@ -1284,6 +1227,24 @@
       // to scroll.
       var sbw = list.offsetWidth - list.clientWidth;
       if (sbw > 0) list.style.marginRight = (-sbw) + 'px';
+      fitRepoColumns(list);
+    }
+
+    // The drawer's grid picks its own column count the way fitColumns() does
+    // for the store, from its own width: as many 340px cards as fit at 14px
+    // gaps, one at the least. The drawer is not laid out on the frame it is
+    // built, so a zero width is retried on the next frames rather than acted
+    // on; fitTitles() then shrinks the names to the width they actually get.
+    function fitRepoColumns(list, tries) {
+      tries = tries || 0;
+      var w = list.clientWidth;
+      if (!w) {
+        if (tries < 20) requestAnimationFrame(function () { fitRepoColumns(list, tries + 1); });
+        return;
+      }
+      var cols = Math.max(1, Math.floor((w + 14) / (340 + 14)));
+      list.style.setProperty('--asga-cols', cols);
+      fitTitles(list);
     }
 
     // The two rows CA leaves out for anyone who does not publish Docker
@@ -1331,6 +1292,14 @@
       if (counted) {
         setRepoRow(table, 'Total Known Downloads', total.toLocaleString());
         setRepoRow(table, 'Average Downloads Per App', Math.round(total / counted).toLocaleString());
+      }
+      // CA's own count reads 0 for a maintainer whose templates its popup
+      // loop does not match (Binhex's 64 apps read as none), while the apps
+      // themselves are listed right under the table. The list is the count.
+      var appsRow = repoRowByLabel(table, 'Total Applications');
+      var appsCell = appsRow ? appsRow.querySelector('.repoRight') : null;
+      if (appsCell && parseInt(appsCell.textContent.replace(/[^0-9]/g, '') || '0', 10) === 0 && mine.length) {
+        appsCell.textContent = mine.length.toLocaleString();
       }
       // CA keeps no statistic on GitHub stars at all. This one lands directly
       // above Total Docker Applications, and the tooltip says plainly that it
@@ -1720,13 +1689,13 @@
     // own card carries the date the next time the grid repaints.
     function resolveLastUpdate(app, cell) {
       var ref = app.ri || '';
-      if (!ref || app.ty !== 'docker') { cell.textContent = 'Unknown'; return; }
+      if (!ref || app.ty !== 'docker') { cell.textContent = 'N/A'; return; }
       var done = function (ts) {
         // the drawer can be closed or already showing another app by the time
         // this lands, and writing into a detached cell would be invisible at
         // best and wrong at worst
         if (!document.contains(cell)) return;
-        if (!ts) { cell.textContent = 'Unknown'; return; }
+        if (!ts) { cell.textContent = 'N/A'; return; }
         app.lu = ts; app.lk = 'r';
         setLuCell(cell, ts, 'r');
       };
@@ -1986,7 +1955,7 @@
         u.title = 'The app catalog holds no record of when this app was added';
         var t = document.createElement('span');
         t.className = 'asga-datetext';
-        t.textContent = 'Unknown';
+        t.textContent = 'N/A';
         u.appendChild(t);
         return u;
       }
@@ -2501,7 +2470,7 @@
       if (!ts) {
         wrap.classList.add('asga-stat-none');
         wrap.title = word + ' date is not in the app catalog';
-        txt.textContent = 'unknown';
+        txt.textContent = 'N/A';
       } else {
         if (dayGap(ts, Math.floor(Date.now() / 1000)) <= 0) wrap.classList.add('asga-date-today');
         wrap.title = word + ' ' + absDate(ts, withTime);
@@ -2732,8 +2701,9 @@
     // the category lands in is exactly the room left on the line, and the
     // widest label that fits it is the one printed. A label of one category
     // is printed whatever its width, and ellipsises like any other text.
-    function fitCats() {
-      var cats = document.querySelectorAll('#asga-grid .asga-tile-cat');
+    function fitCats(root) {
+      root = root || document.getElementById('asga-grid'); if (!root) return;
+      var cats = root.querySelectorAll('.asga-tile-cat');
       if (!cats.length) return;
       if (!fitCanvas) fitCanvas = document.createElement('canvas');
       var ctx = fitCanvas.getContext('2d');
@@ -2751,9 +2721,10 @@
         if (txt.textContent !== label) writeCat(txt, label);
       }
     }
-    function fitTitles() {
-      fitCats();
-      var names = document.querySelectorAll('#asga-grid .asga-tile-name');
+    function fitTitles(root) {
+      root = root || document.getElementById('asga-grid'); if (!root) return;
+      fitCats(root);
+      var names = root.querySelectorAll('.asga-tile-name');
       if (!names.length) return;
       for (var i = 0; i < names.length; i++) names[i].style.fontSize = '';
       var cs = getComputedStyle(names[0]);

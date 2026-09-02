@@ -34,7 +34,7 @@ Then set your token at **Settings → Utilities → Unraid Modern App Store**.
 - **Pull counts** are dropped for apps built on an official base image (nginx, redis, postgres), where the figure belongs to the base image rather than the app.
 - **Sorting that works across the whole catalog**, with real pagination, search and category filtering.
 - **Pinned Apps** and **Installed Apps** rendered by the plugin.
-- **A restyled Info drawer**, with the description, details and maintainer as one column of cards, and a built-in screenshot lightbox.
+- **A restyled Info drawer**, with the description, details and maintainer as one column of cards, and a built-in screenshot lightbox. The maintainer's own drawer lists their apps as the same cards the store uses.
 - **A Modern view toggle** in the toolbar to hand the page back to Community Applications at any time.
 - **Cards per row** is a setting (2 to 6, default 3). A narrower window shows as many as fit.
 

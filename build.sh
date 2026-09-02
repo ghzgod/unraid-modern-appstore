@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.09.04g}"
+VERSION="${1:-2026.09.04h}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -57,6 +57,16 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- A maintainer's drawer lists their apps as the store's own cards, with the
+  same strip, facts, byline and buttons, instead of a flat row per app. They
+  are the compact cut: every size on its floor and a two-line blurb, since
+  they sit in a list.
+- The drawer's Total Applications reads the number of apps listed under it
+  when CA's own count comes back 0.
+- A date the catalog does not have reads N/A in the drawer, the same word a
+  missing count wears in the strip, instead of Unknown.
+
+##2026.09.04g
 - Project and Support open the page itself. Both used to open CA's
   https://ca.unraid.net/cdn/ redirector, and for seven apps (binhex-paseo,
   code-server, Crafty, Deluge, Emby, get_iplayer, Overseerr) that redirector
