@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.09.04e}"
+VERSION="${1:-2026.09.04f}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -57,6 +57,11 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- The five groups in the strip (four facts and the docker or plugin glyph)
+  sit at one gap. The glyph used to stand a few pixels further from the added
+  date than the facts stood from each other.
+
+##2026.09.04e
 - Each glyph in the strip sits 2px from its figure instead of 5px, so a star
   and its count read as one mark and the gap between the four facts is what
   separates them.

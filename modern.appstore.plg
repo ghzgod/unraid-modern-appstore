@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.09.04e">
+<!ENTITY version "2026.09.04f">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
@@ -14,6 +14,11 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" support="&support;">
 
 <CHANGES>
+##2026.09.04f
+- The five groups in the strip (four facts and the docker or plugin glyph)
+  sit at one gap. The glyph used to stand a few pixels further from the added
+  date than the facts stood from each other.
+
 ##2026.09.04e
 - Each glyph in the strip sits 2px from its figure instead of 5px, so a star
   and its count read as one mark and the gap between the four facts is what
@@ -9010,11 +9015,14 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
   -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 42%, rgba(0, 0, 0, 0.4) 74%, rgba(0, 0, 0, 0) 100%);
   mask-image: linear-gradient(to bottom, #000 0%, #000 42%, rgba(0, 0, 0, 0.4) 74%, rgba(0, 0, 0, 0) 100%);
 }
-.asga-tile-marks { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: inherit; }
+/* The marks corner is five groups (four facts and the kind glyph) at one
+   gap, the facts' own, so the glyph is as far from the added date as that
+   date is from the update. */
+.asga-tile-marks { position: relative; z-index: 1; display: inline-flex; align-items: center; gap: clamp(8px, calc(var(--cw) * 0.026), 12px); }
 .asga-tile-strip .asga-tile-kind .asga-ficon-lg {
   width: clamp(16px, calc(var(--cw) * 0.043), 22px); height: clamp(16px, calc(var(--cw) * 0.043), 22px);
 }
-.asga-tile-kind { display: inline-flex; align-items: center; margin-left: clamp(2px, calc(var(--cw) * 0.009), 6px); }
+.asga-tile-kind { display: inline-flex; align-items: center; margin-left: 0; }
 /* Two lines under the name: the maintainer with their standing, then the
    categories. Same size and colour on both; the second sits a hair closer to
    the first than the first does to the name, so the pair reads as one block. */
