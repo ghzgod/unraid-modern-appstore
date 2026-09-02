@@ -2212,9 +2212,10 @@
       if (flags.firstChild) title.appendChild(flags);
       head.appendChild(title);
 
-      // Maintainer and category now share one line rather than two, separated
-      // by a middle dot, since the flags and the kind glyph moved up into the
-      // strip and freed the row they used to sit under.
+      // Two lines: the maintainer with their standing, then the categories on
+      // a line of their own. They shared one line until the standing bracket
+      // arrived beside the name and left the categories "Downloaders and 2
+      // more" on most cards; a line each prints both whole.
       var byline = document.createElement('div');
       byline.className = 'asga-tile-byline';
       // The maintainer wears their own face. CA publishes an icon for 671 of
@@ -2252,10 +2253,6 @@
         var rep = repSpan(a.au);
         if (rep) au.appendChild(rep);
         byline.appendChild(au);
-        var sep = document.createElement('span');
-        sep.className = 'asga-tile-sep';
-        sep.textContent = '·';
-        byline.appendChild(sep);
       }
       // CA files a category as "Parent: Child, Child". The parent is the part
       // worth reading first, so it carries the weight and the children trail
@@ -2293,8 +2290,11 @@
       txt.className = 'asga-tile-cattext';
       writeCat(txt, catLabel(cats, cats.length));
       cat.appendChild(txt);
-      byline.appendChild(cat);
       head.appendChild(byline);
+      var catline = document.createElement('div');
+      catline.className = 'asga-tile-byline asga-tile-catline';
+      catline.appendChild(cat);
+      head.appendChild(catline);
       tile.appendChild(head);
 
       // description (verbiage)

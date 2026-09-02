@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.09.04}"
+VERSION="${1:-2026.09.04a}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -57,6 +57,11 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- The categories sit on a line of their own under the maintainer, so both
+  print whole. On one line the maintainer's standing left the categories as
+  "Downloaders and 2 more" on most cards.
+
+##2026.09.04
 - The card is three bands instead of four. The stars, downloads, last update
   and added date now sit in the tinted strip beside the Docker or plugin
   glyph, in their short form (8d, 3w, 5mo, 2y; the tooltip keeps the full

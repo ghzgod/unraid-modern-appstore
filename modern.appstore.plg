@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.09.04">
+<!ENTITY version "2026.09.04a">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
@@ -14,6 +14,11 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" support="&support;">
 
 <CHANGES>
+##2026.09.04a
+- The categories sit on a line of their own under the maintainer, so both
+  print whole. On one line the maintainer's standing left the categories as
+  "Downloaders and 2 more" on most cards.
+
 ##2026.09.04
 - The card is three bands instead of four. The stars, downloads, last update
   and added date now sit in the tinted strip beside the Docker or plugin
@@ -5995,9 +6000,10 @@ echo json_encode(['error' => 'method not allowed']);
       if (flags.firstChild) title.appendChild(flags);
       head.appendChild(title);
 
-      // Maintainer and category now share one line rather than two, separated
-      // by a middle dot, since the flags and the kind glyph moved up into the
-      // strip and freed the row they used to sit under.
+      // Two lines: the maintainer with their standing, then the categories on
+      // a line of their own. They shared one line until the standing bracket
+      // arrived beside the name and left the categories "Downloaders and 2
+      // more" on most cards; a line each prints both whole.
       var byline = document.createElement('div');
       byline.className = 'asga-tile-byline';
       // The maintainer wears their own face. CA publishes an icon for 671 of
@@ -6035,10 +6041,6 @@ echo json_encode(['error' => 'method not allowed']);
         var rep = repSpan(a.au);
         if (rep) au.appendChild(rep);
         byline.appendChild(au);
-        var sep = document.createElement('span');
-        sep.className = 'asga-tile-sep';
-        sep.textContent = '·';
-        byline.appendChild(sep);
       }
       // CA files a category as "Parent: Child, Child". The parent is the part
       // worth reading first, so it carries the weight and the children trail
@@ -6076,8 +6078,11 @@ echo json_encode(['error' => 'method not allowed']);
       txt.className = 'asga-tile-cattext';
       writeCat(txt, catLabel(cats, cats.length));
       cat.appendChild(txt);
-      byline.appendChild(cat);
       head.appendChild(byline);
+      var catline = document.createElement('div');
+      catline.className = 'asga-tile-byline asga-tile-catline';
+      catline.appendChild(cat);
+      head.appendChild(catline);
       tile.appendChild(head);
 
       // description (verbiage)
@@ -8974,10 +8979,9 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
   width: clamp(16px, calc(var(--cw) * 0.043), 22px); height: clamp(16px, calc(var(--cw) * 0.043), 22px);
 }
 .asga-tile-kind { display: inline-flex; align-items: center; margin-left: clamp(2px, calc(var(--cw) * 0.009), 6px); }
-/* Maintainer and category now share one line, a middle dot between the two,
-   rather than the two lines of their own they used to need: the flags and
-   the kind glyph that used to crowd this row moved up into the strip, which
-   is what frees the room. */
+/* Two lines under the name: the maintainer with their standing, then the
+   categories. Same size and colour on both; the second sits a hair closer to
+   the first than the first does to the name, so the pair reads as one block. */
 .asga-tile-byline {
   margin-top: 2px; display: flex; align-items: center;
   gap: clamp(4px, calc(var(--cw) * 0.013), 6px);
@@ -8985,6 +8989,7 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
   font-size: clamp(11px, calc(var(--cw) * 0.028), 14px); line-height: 1.4;
   color: color-mix(in srgb, var(--text-color, #f2f2f2) 72%, var(--background-color, #1d1b1b));
 }
+.asga-tile-catline { margin-top: 1px; }
 /* The gap sits between the mark and its text, and nowhere else. A flex gap
    applies between EVERY child, so on the category row it also pushed the two
    words apart: measured off the rendered pixels, the icon sat 5px from
@@ -8994,12 +8999,10 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    what made the line read as out of true. The mark takes a margin instead,
    and the second half of the category takes a word space, which is what the
    space between two words should be. */
-.asga-tile-author { display: flex; align-items: center; gap: 0; min-width: 0; flex: 0 0 auto; max-width: 62%; }
-/* The name keeps its width and the category takes what is left: fitCats() in
-   inject.js reads the category box's width to decide how many categories to
-   print, and that is only a real figure if the name beside it is not also
-   giving ground. A name past 62% of the line ellipsises; none of the 1182
-   maintainers in the catalog is that long at any column width. */
+.asga-tile-author { display: flex; align-items: center; gap: 0; min-width: 0; flex: 0 0 auto; max-width: 100%; }
+/* The maintainer has the whole line now that the categories sit under it,
+   so the name only ellipsises past the card's own width, which none of the
+   1182 maintainers in the catalog reaches at any column width. */
 .asga-tile-author > :first-child { margin-right: 6px; }
 /* The maintainer's standing, after their name: how many templates they
    publish and the stars across them. It gives way before the name does (the
@@ -9013,10 +9016,6 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 .asga-tile-rep .asga-ficon {
   display: inline; vertical-align: -1.5px; color: #f0a500;
   width: clamp(10px, calc(var(--cw) * 0.026), 12px); height: clamp(10px, calc(var(--cw) * 0.026), 12px);
-}
-.asga-tile-sep {
-  flex: 0 0 auto;
-  color: color-mix(in srgb, var(--text-color, #f2f2f2) 40%, var(--background-color, #1d1b1b));
 }
 .asga-tile-cat {
   display: flex; align-items: center; gap: 0; min-width: 0; flex: 1 1 auto;
