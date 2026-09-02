@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.09.04a}"
+VERSION="${1:-2026.09.04b}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -57,6 +57,14 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Card type is one step larger at every column count; at four columns it
+  was sitting on its floor and read small on a 2x display.
+- The maintainer and category rows start their text on one edge: the tag
+  glyph takes the avatar's box. Both marks are amber now, the person glyph a
+  maintainer without a picture gets and the category tag, and the star in
+  the maintainer's standing sits before its count, as it does in the strip.
+
+##2026.09.04a
 - The categories sit on a line of their own under the maintainer, so both
   print whole. On one line the maintainer's standing left the categories as
   "Downloaders and 2 more" on most cards.

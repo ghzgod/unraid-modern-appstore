@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.09.04a">
+<!ENTITY version "2026.09.04b">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
@@ -14,6 +14,14 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" support="&support;">
 
 <CHANGES>
+##2026.09.04b
+- Card type is one step larger at every column count; at four columns it
+  was sitting on its floor and read small on a 2x display.
+- The maintainer and category rows start their text on one edge: the tag
+  glyph takes the avatar's box. Both marks are amber now, the person glyph a
+  maintainer without a picture gets and the category tag, and the star in
+  the maintainer's standing sits before its count, as it does in the strip.
+
 ##2026.09.04a
 - The categories sit on a line of their own under the maintainer, so both
   print whole. On one line the maintainer's standing left the categories as
@@ -5883,7 +5891,7 @@ echo json_encode(['error' => 'method not allowed']);
       }
       return REP[(au || '').toLowerCase().trim()] || null;
     }
-    // "(3 apps · 41 ★)" after the maintainer's name, the way a forum prints
+    // "(3 apps · ★ 41)" after the maintainer's name, the way a forum prints
     // karma beside a handle. Stars are left out when none of the maintainer's
     // apps has been matched to a repository, so a bracket never shows a zero
     // that means "unknown".
@@ -5893,9 +5901,11 @@ echo json_encode(['error' => 'method not allowed']);
       var s = document.createElement('span');
       s.className = 'asga-tile-rep';
       s.appendChild(document.createTextNode('(' + r.apps + (r.apps === 1 ? ' app' : ' apps')));
+      // Star before the figure, the order the strip prints it in.
       if (r.stars > 0) {
-        s.appendChild(document.createTextNode(' · ' + fmt(r.stars) + ' '));
+        s.appendChild(document.createTextNode(' · '));
         s.insertAdjacentHTML('beforeend', STAR_ICON);
+        s.appendChild(document.createTextNode(' ' + fmt(r.stars)));
       }
       s.appendChild(document.createTextNode(')'));
       s.title = r.apps + (r.apps === 1 ? ' template' : ' templates') + ' in the catalog from this maintainer' +
@@ -8862,7 +8872,7 @@ body.dark .asga-settings-select { color-scheme: dark; }
    Every header in a row is then the same height whatever its name runs to. */
 .asga-tile-title {
   margin-top: clamp(6px, calc(var(--cw) * 0.017), 8px); min-width: 0;
-  --asga-name-size: clamp(14px, calc(var(--cw) * 0.038), 20px);
+  --asga-name-size: clamp(15px, calc(var(--cw) * 0.042), 21px);
   font-size: var(--asga-name-size);
   line-height: calc(var(--asga-name-size) * 1.25);
   /* The name and its flags on one line: the name gives ground first (its
@@ -8986,7 +8996,7 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
   margin-top: 2px; display: flex; align-items: center;
   gap: clamp(4px, calc(var(--cw) * 0.013), 6px);
   min-width: 0; white-space: nowrap; overflow: hidden;
-  font-size: clamp(11px, calc(var(--cw) * 0.028), 14px); line-height: 1.4;
+  font-size: clamp(12px, calc(var(--cw) * 0.031), 15px); line-height: 1.4;
   color: color-mix(in srgb, var(--text-color, #f2f2f2) 72%, var(--background-color, #1d1b1b));
 }
 .asga-tile-catline { margin-top: 1px; }
@@ -9015,7 +9025,7 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 }
 .asga-tile-rep .asga-ficon {
   display: inline; vertical-align: -1.5px; color: #f0a500;
-  width: clamp(10px, calc(var(--cw) * 0.026), 12px); height: clamp(10px, calc(var(--cw) * 0.026), 12px);
+  width: clamp(11px, calc(var(--cw) * 0.029), 13px); height: clamp(11px, calc(var(--cw) * 0.029), 13px);
 }
 .asga-tile-cat {
   display: flex; align-items: center; gap: 0; min-width: 0; flex: 1 1 auto;
@@ -9044,13 +9054,21 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 }
 .asga-bicon { flex: 0 0 auto; }
 .asga-bicon-line { width: clamp(11px, calc(var(--cw) * 0.032), 22px); height: clamp(11px, calc(var(--cw) * 0.032), 22px); opacity: 0.7; }
-/* The person glyph and the tag mark read smaller here, sized to the byline's
-   own text rather than to the avatar-sized rhythm the rest of the card's
-   marks keep. */
+/* The person glyph and the tag mark take the avatar's own box, so the text
+   after each of them starts on the same edge on both rows: measured, an 18px
+   avatar over a 14px tag put "Binhex" 4px to the right of "Cloud". The
+   padding keeps the glyph drawn at its old size inside the larger box. */
 .asga-tile-byline .asga-bicon-line {
-  width: clamp(12px, calc(var(--cw) * 0.028), 14px); height: clamp(12px, calc(var(--cw) * 0.028), 14px);
+  width: clamp(14px, calc(var(--cw) * 0.034), 18px); height: clamp(14px, calc(var(--cw) * 0.034), 18px);
+  padding: 1.5px; box-sizing: border-box;
   opacity: 0.6;
 }
+/* A maintainer with no picture wears the stars amber, the hue this card
+   already uses for their standing, rather than a grey placeholder. */
+.asga-tile-author .asga-bicon-line { color: #f0a500; opacity: 1; }
+/* The tag mark wears the same amber, so the two byline rows open with the
+   same mark colour and neither reads as the dimmer of the two. */
+.asga-tile-cat .asga-bicon-line { color: #f0a500; opacity: 1; }
 
 /* Official, Beta and Privileged flags, right-aligned in the strip with the
    kind glyph. 394 of the 3,873 displayable apps in the catalog are
@@ -9126,7 +9144,7 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    keeps the button rows aligned: a card whose blurb runs longer is cut at the
    third line rather than growing a line its neighbours do not have. */
 .asga-tile-desc {
-  font-size: clamp(11px, calc(var(--cw) * 0.028), 14px); line-height: 1.5; color: color-mix(in srgb, var(--text-color, #f2f2f2) 92%, var(--background-color, #1d1b1b)); margin: 0;
+  font-size: clamp(12px, calc(var(--cw) * 0.031), 15px); line-height: 1.5; color: color-mix(in srgb, var(--text-color, #f2f2f2) 92%, var(--background-color, #1d1b1b)); margin: 0;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
 }
 
@@ -9137,12 +9155,12 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 .asga-tile-facts {
   display: inline-flex; align-items: center; gap: clamp(8px, calc(var(--cw) * 0.026), 12px);
   white-space: nowrap; min-width: 0;
-  font-size: clamp(10px, calc(var(--cw) * 0.026), 12px); line-height: 1.4;
+  font-size: clamp(10.5px, calc(var(--cw) * 0.029), 13px); line-height: 1.4;
   color: color-mix(in srgb, var(--text-color, #f2f2f2) 78%, var(--background-color, #1d1b1b));
 }
 .asga-tile-facts .asga-ficon {
-  width: clamp(11px, calc(var(--cw) * 0.028), 14px);
-  height: clamp(11px, calc(var(--cw) * 0.028), 14px);
+  width: clamp(12px, calc(var(--cw) * 0.031), 15px);
+  height: clamp(12px, calc(var(--cw) * 0.031), 15px);
 }
 /* The noun (star, pull, install) rides the tooltip instead: the row has no
    width to spell it out beside three other facts, and the figure alone reads
@@ -9207,16 +9225,18 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
 }
 /* The type follows the cell. A cell is a sixth of the band less the five gaps,
    and the widest label a cell can hold is "Installed", 4.17 times the font
-   size wide in Clear Sans: a 447px card gives 12px, a 390px phone gives 9.5px
-   and the floor is 8.5px, which is what "Installed" needs at the 340px card
-   the column ladder bottoms out on (a 36.7px cell against a 35.7px word).
+   size wide in Clear Sans: a 447px card gives 12.5px, a 359px card gives 10px
+   and the floor is 9.5px, which "Installed" still clears at the 340px card
+   the grid bottoms out on (a 48.7px cell against a 39.6px word).
    The label still ellipsises past the floor, but no width the grid produces
    reaches it. */
 .asga-btn {
   display: inline-flex; align-items: center; justify-content: center;
   cursor: pointer; user-select: none; white-space: nowrap;
-  font-size: clamp(8.5px, calc(var(--cw) / 25 - 5.3px), 12px);
-  padding: 7px 5px; border-radius: 8px;
+  font-size: clamp(9.5px, calc(var(--cw) / 25 - 4.3px), 12.5px);
+  /* 3px of side padding, not 5: the label needs the room now that the type
+     is a step larger, and "Installed" at four columns is 42px in a 44px cell. */
+  padding: 7px 3px; border-radius: 8px;
   border: 1px solid rgba(127, 127, 127, 0.3);
   color: color-mix(in srgb, var(--text-color, #f2f2f2) 88%, var(--background-color, #1d1b1b));
   background: rgba(127, 127, 127, 0.10);

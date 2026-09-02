@@ -2095,7 +2095,7 @@
       }
       return REP[(au || '').toLowerCase().trim()] || null;
     }
-    // "(3 apps · 41 ★)" after the maintainer's name, the way a forum prints
+    // "(3 apps · ★ 41)" after the maintainer's name, the way a forum prints
     // karma beside a handle. Stars are left out when none of the maintainer's
     // apps has been matched to a repository, so a bracket never shows a zero
     // that means "unknown".
@@ -2105,9 +2105,11 @@
       var s = document.createElement('span');
       s.className = 'asga-tile-rep';
       s.appendChild(document.createTextNode('(' + r.apps + (r.apps === 1 ? ' app' : ' apps')));
+      // Star before the figure, the order the strip prints it in.
       if (r.stars > 0) {
-        s.appendChild(document.createTextNode(' · ' + fmt(r.stars) + ' '));
+        s.appendChild(document.createTextNode(' · '));
         s.insertAdjacentHTML('beforeend', STAR_ICON);
+        s.appendChild(document.createTextNode(' ' + fmt(r.stars)));
       }
       s.appendChild(document.createTextNode(')'));
       s.title = r.apps + (r.apps === 1 ? ' template' : ' templates') + ' in the catalog from this maintainer' +
