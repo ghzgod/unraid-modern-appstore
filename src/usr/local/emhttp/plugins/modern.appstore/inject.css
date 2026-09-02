@@ -955,6 +955,11 @@ body.asga-active .asga-repo-app-icon[data-tone="dark"] {
    unrelated treatments side by side on the same line and made a card look like
    it was flagging something it was not. */
 .asga-datetext { font-weight: 400; line-height: 1.5; }
+/* In the strip the four facts are one line, so the dates take the row's own
+   line box and the stats' weight: measured, the date text sat in a 19.5px
+   box beside the stats' 18.2px one, which put its glyphs on a different
+   line from theirs next to icons that were level. */
+.asga-tile-facts .asga-datetext { line-height: inherit; font-weight: 600; }
 /* Six equal cells on one line at every width. The row never wraps, which is
    what keeps every card in a row the same height, and the cells never differ,
    so the six pills read as one control strip rather than six pills of six

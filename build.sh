@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.09.04b}"
+VERSION="${1:-2026.09.04c}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -57,6 +57,11 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- The four facts in the strip sit on one line: the two dates carried a taller
+  line box and a lighter weight than the two counts beside them, so their
+  text sat a pixel off next to icons that were level.
+
+##2026.09.04b
 - Card type is one step larger at every column count; at four columns it
   was sitting on its floor and read small on a 2x display.
 - The maintainer and category rows start their text on one edge: the tag
