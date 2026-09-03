@@ -139,9 +139,9 @@ cat <<XMLHEAD
   across the whole drawer as a giant question mark. Roughly one template in ten
   is affected, agent-zero and Appwrite among them.
 - The drawer's description reads as paragraphs. An author's plain-text indent
-  arrived as runs of &nbsp;, which do not collapse, and a blank line arrived as
-  three or four breaks, so a description printed indented halfway down and
-  spread over acres of nothing. Indentation goes, a paragraph break is one
+  arrived as runs of non-breaking spaces, which do not collapse the way an
+  ordinary space does, and a blank line arrived as three or four breaks, so a
+  description printed indented halfway down and spread over acres of nothing. Indentation goes, a paragraph break is one
   blank line, and a list of bullets closes up instead of putting a blank line
   between every item.
 - Every card's strip wears its icon's colour, whatever order the pictures
@@ -1087,4 +1087,35 @@ if grep -qaE '^TOKEN="[^"]+"' "$OUT"; then
   exit 1
 fi
 
-echo "Built $OUT ($VERSION), token-free (verified), ${#FILES[@]} files embedded."
+# A .plg IS an XML document, and Unraid parses it before it runs a line of it:
+# a document that does not parse fails with "XML file doesn't exist or xml parse
+# error" and the plugin cannot be installed at all, however good the code inside
+# it is. The 2026.09.04j release shipped exactly that way, over one &nbsp; typed
+# into the changelog: every entity in a .plg has to be one of the five XML
+# defines above, and an HTML entity is not. Nothing else here would have caught
+# it, since the payload files are inside CDATA and only the prose around them is
+# parsed as markup. So the finished document is parsed before it is called built.
+if command -v xmllint >/dev/null 2>&1; then
+  if ! xmllint --noout "$OUT" 2>/tmp/plgxml.$$; then
+    echo "ERROR: $OUT is not well-formed XML. Refusing to ship it." >&2
+    sed 's/^/       /' /tmp/plgxml.$$ >&2
+    rm -f /tmp/plgxml.$$ "$OUT"
+    exit 1
+  fi
+  rm -f /tmp/plgxml.$$
+elif command -v python3 >/dev/null 2>&1; then
+  if ! python3 -c 'import sys,xml.dom.minidom as m; m.parse(sys.argv[1])' "$OUT" 2>/tmp/plgxml.$$; then
+    echo "ERROR: $OUT is not well-formed XML. Refusing to ship it." >&2
+    sed 's/^/       /' /tmp/plgxml.$$ >&2
+    rm -f /tmp/plgxml.$$ "$OUT"
+    exit 1
+  fi
+  rm -f /tmp/plgxml.$$
+else
+  echo "ERROR: neither xmllint nor python3 is available to parse $OUT." >&2
+  echo "       A .plg that does not parse cannot be installed, so it is not shipped unchecked." >&2
+  rm -f "$OUT"
+  exit 1
+fi
+
+echo "Built $OUT ($VERSION), token-free and well-formed (verified), ${#FILES[@]} files embedded."
