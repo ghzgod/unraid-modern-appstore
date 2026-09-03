@@ -4,11 +4,62 @@
 # Contains NO secrets. The GitHub token is left empty and each user sets their
 # own at Settings -> Utilities -> Unraid Modern App Store. Safe to publish.
 #
-# Usage: ./build.sh [version]   (default version below)
+# Usage: ./build.sh [version]   (default: today's date, next free suffix)
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.09.04j}"
+
+# The version's date is read off the clock, never typed.
+#
+# Unraid's plugin system documents the version as "YYYY.MM.DD, with a letter
+# suffix when several ship on one day", and it is the ONLY date the catalog
+# carries for a plugin: Community Applications records when it last scanned a
+# plugin, not when the plugin shipped, and neither its cdn redirector nor
+# raw.githubusercontent answers a Last-Modified for the .plg itself. So the
+# store reads a plugin's version as its release date, because there is nothing
+# else to read, and 289 of the catalog's 308 plugins are versioned this way.
+#
+# Which makes a hand-typed version a way to publish a false fact. This package
+# spent ten releases numbered 2026.09.04 while the date was the 2nd of
+# September, because the date field was being incremented as though it were a
+# serial number: 2026.09.01, then .02, then .03, then .04 and ten letters after
+# it, all on the 1st and 2nd. Its own card then read "last updated Sep 4" two
+# days before that day existed.
+#
+# TODAY comes from the clock and SUFFIX is the first letter this date has not
+# already shipped under, so a same-day release moves the letter and never the
+# date. The guard below refuses to build anything else, including a version
+# passed as an argument, which is what makes a future date impossible rather
+# than merely unlikely.
+TODAY="$(date +%Y.%m.%d)"
+next_version() {
+  local esc suffix log
+  # Read once into a variable and match with a here-string. Piping git log into
+  # grep -q looks equivalent and is not: grep exits on its first match, git log
+  # takes SIGPIPE, and under `set -o pipefail` the whole pipeline then reports
+  # failure, so every suffix tested as unused and the picker always answered
+  # with the first one.
+  log="$(git log --format='%s' 2>/dev/null || true)"
+  esc="$(printf '%s' "$TODAY" | sed 's/\./\\./g')"
+  for suffix in '' {a..z}; do
+    if ! grep -q "^Release ${esc}${suffix}\b" <<< "$log"; then
+      printf '%s%s' "$TODAY" "$suffix"
+      return 0
+    fi
+  done
+  echo "ERROR: every suffix for $TODAY is already published" >&2
+  return 1
+}
+VERSION="${1:-$(next_version)}"
+case "$VERSION" in
+  "$TODAY"|"$TODAY"[a-z]) ;;
+  *)
+    echo "ERROR: version '$VERSION' does not carry today's date ($TODAY)." >&2
+    echo "       A plugin's version IS its release date to every store that reads it," >&2
+    echo "       so a version dated anything else publishes a date that is not true." >&2
+    exit 1
+    ;;
+esac
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -57,6 +108,20 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- The version this package publishes is dated the day it is built. It had been
+  a hand-typed string in the build script, and the date field was being
+  incremented as though it were a serial number, so ten releases went out
+  numbered 2026.09.04 while the date was the 2nd of September. A plugin's
+  version IS its release date to every store that reads one, this store
+  included, so the card for this plugin read "last updated Sep 4" two days
+  before that day existed. The build now takes the date off the clock, moves
+  the letter suffix for a second release on one day, and refuses to build a
+  version dated anything but today.
+- Because 2026.09.02b sorts below the 2026.09.04 series it replaces, an
+  installation already on one of those will not be offered this release.
+  It will pick up the next one as normal.
+
+##2026.09.04j
 - A search marks the words it matched inside a card's own blurb instead of
   replacing the blurb with a passage cut from elsewhere. That passage came out
   of the searchable text, which is the maintainer's name, the template's extra

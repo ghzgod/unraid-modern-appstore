@@ -248,16 +248,20 @@ function card_category($feed, $stored) {
 // time. Returns 'v'. Semver-style plugin versions (1.3.13) yield nothing rather
 // than a guess.
 //
-// A version number is only a release date while it is not in the future. The
-// convention is a convention, not a fact, and a maintainer who numbers a
-// release ahead of the calendar (or past a run of same-day releases) publishes
-// a version that reads as a date nothing has reached yet. One plugin in the
-// current 3,600-app catalog does exactly that. Shown as-is it claimed to have
-// been updated two days from now, which is not a date this app store can print
-// and stay honest, so a future date is treated as no date at all and the card
-// says N/A. It self-corrects the moment the calendar catches the version up.
-// The registry push time below gets the same test, since a container registry
-// can be handed a bad clock the same way.
+// A version number is only a release date while it is not in the future, and
+// the check below is on the reading rather than on the writing, because this
+// package cannot fix what another maintainer types. It could fix what it typed
+// itself, and did: this plugin was the one entry in a catalog of 308 whose
+// version was dated ahead of the calendar, having spent ten releases numbered
+// 2026.09.04 while the date was the 2nd of September, because its build script
+// carried the version as a hand-typed string and the date field was being
+// incremented as a serial number. build.sh now reads the date off the clock
+// and refuses to build any other, so the store no longer publishes a date that
+// has not happened. Every other plugin in the catalog is somebody else's to
+// number, so the reading keeps its guard: a date nothing has reached yet is
+// treated as no date at all and the card says N/A rather than printing it. The
+// registry push time below gets the same test, since a container registry can
+// be handed a bad clock the same way.
 function last_update(array $t) {
     $now = time();
     if (!empty($t['Plugin'])) {
