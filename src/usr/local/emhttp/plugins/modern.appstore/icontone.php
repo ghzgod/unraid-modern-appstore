@@ -10,10 +10,22 @@
  * canvas taints it and the pixels cannot be read back. The server has no such
  * restriction.
  *
- * POST u=<JSON array of icon urls> (form-encoded, with the webGui's csrf_token) -> {"<icon url>": [<0-255 mean luminance>, <6-hex colour, or empty string>]}
+ * It also measures where the artwork inside the file actually starts and
+ * stops. The catalog's icons are not framed alike: some are drawn to the edge
+ * of their canvas, others sit in a wide transparent or flat-coloured margin
+ * baked into the file. Drawn at one size on one plate, the second kind reads
+ * as a small picture on a big tile beside a neighbour that fills its own. The
+ * grid scales each icon by this box so the gap between the artwork and the
+ * plate's edge is the same on every card, whatever the file was drawn with.
  *
- * An icon that cannot be fetched or decoded answers [-1, ''], which the caller
- * reads as "leave this tile alone" rather than asking again on every render.
+ * POST u=<JSON array of icon urls> (form-encoded, with the webGui's csrf_token) -> {"<icon url>": [<0-255 mean luminance>, <6-hex colour, or empty string>, <[x0,y0,x1,y1] in thousandths of the image, or null>]}
+ *
+ * An icon that cannot be fetched or decoded answers [-1, '', null], which the
+ * caller reads as "leave this tile alone" rather than asking again on every
+ * render. A null box on its own means the artwork's edge could not be read
+ * with confidence, and the icon is drawn exactly as it always was. The box
+ * reads "svg" instead for an icon this cannot rasterise, which asks the grid
+ * to measure that one itself; see the ?svg= passthrough below.
  *
  * Answers are cached to the addon's data directory on flash and kept: an
  * icon's artwork does not change, and artwork that does arrives under a new
@@ -22,13 +34,78 @@
  * Only URLs the catalog actually names are ever fetched, so this endpoint
  * cannot be pointed at anything else on the network.
  */
-header('Content-Type: application/json');
-
 $dataDir   = '/boot/config/plugins/modern.appstore';
-// New file: the old cache's entries are plain integers and would be misread
-// as a [lum, colour] pair.
-$cacheFile = $dataDir . '/icontone5.json';
+// New file each time the record's shape changes: the v5 cache's entries are
+// [lum, colour] pairs with no artwork box, and v6's null box means both "this
+// is a photograph and has no margin to trim" and "this is an SVG and could not
+// be rasterised", which are now two different answers.
+$cacheFile = $dataDir . '/icontone7.json';
 $appsFile  = __DIR__ . '/apps.json';
+
+/**
+ * Whether the catalog actually names this icon.
+ *
+ * Without it either entry point would fetch whatever URL a caller handed it,
+ * from a host sitting inside the user's own network.
+ */
+function iconKnown(string $u, string $appsFile): bool {
+    static $known = null;
+    if ($known === null) {
+        $known = [];
+        $apps = json_decode(@file_get_contents($appsFile), true);
+        foreach (($apps['apps'] ?? []) as $a) {
+            if (!empty($a['ic'])) $known[$a['ic']] = true;
+        }
+    }
+    if (isset($known[$u])) return true;
+    // the grid falls back to a maintainer's GitHub avatar when a template
+    // names no icon of its own, and those are built rather than listed
+    return (bool)preg_match('#^https://github\.com/[A-Za-z0-9._-]+\.png(\?size=\d+(&retry=1)?)?$#', $u);
+}
+
+/**
+ * GET ?svg=<icon url> -> that icon's own bytes, from this server's address.
+ *
+ * GD cannot rasterise an SVG and Unraid ships nothing that can, so an SVG icon
+ * is the one kind whose artwork this file cannot measure. The browser can: it
+ * draws the picture already. What it cannot do is read the result back, because
+ * ca.unraid.net and the maintainers' own hosts send no CORS header, and drawing
+ * one of their images to a canvas taints it.
+ *
+ * Served from here it is same-origin, so the canvas stays readable and the grid
+ * measures the artwork itself. The bytes are passed through untouched and only
+ * for a URL the catalog names, which is the same restriction the POST below
+ * works under.
+ */
+if (isset($_GET['svg'])) {
+    $u = (string)$_GET['svg'];
+    if (!iconKnown($u, $appsFile)) { http_response_code(404); exit; }
+    $ch = curl_init($u);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS      => 3,
+        CURLOPT_CONNECTTIMEOUT => 4,
+        CURLOPT_TIMEOUT        => 8,
+        CURLOPT_USERAGENT      => 'unraid-modern-appstore',
+    ]);
+    $body = curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    // Only an SVG is ever served back, whatever the far end decided to send,
+    // so this cannot be used to pull an arbitrary document through the webGui.
+    $head = ltrim(substr((string)$body, 0, 64), "\xEF\xBB\xBF \t\r\n");
+    if ($code !== 200 || $body === false || $head === '' || $head[0] !== '<' || strlen($body) > 262144) {
+        http_response_code(404);
+        exit;
+    }
+    header('Content-Type: image/svg+xml');
+    header('Cache-Control: public, max-age=86400');
+    echo $body;
+    exit;
+}
+
+header('Content-Type: application/json');
 
 // the webGui only lets a form-encoded POST through with its csrf token, so
 // the request now arrives as a field rather than a raw JSON body
@@ -55,20 +132,9 @@ foreach ($want as $u) {
     else $todo[] = $u;
 }
 
-// Only icons the catalog actually names. Without this the endpoint would fetch
-// whatever URL a caller handed it, from a host sitting inside the user's own
-// network.
 if ($todo) {
-    $known = [];
-    $apps = json_decode(@file_get_contents($appsFile), true);
-    foreach (($apps['apps'] ?? []) as $a) {
-        if (!empty($a['ic'])) $known[$a['ic']] = true;
-    }
-    $todo = array_values(array_filter($todo, function ($u) use ($known) {
-        if (isset($known[$u])) return true;
-        // the grid falls back to a maintainer's GitHub avatar when a template
-        // names no icon of its own, and those are built rather than listed
-        return (bool)preg_match('#^https://github\.com/[A-Za-z0-9._-]+\.png(\?size=\d+(&retry=1)?)?$#', $u);
+    $todo = array_values(array_filter($todo, function ($u) use ($appsFile) {
+        return iconKnown($u, $appsFile);
     }));
 }
 
@@ -122,17 +188,21 @@ function fetchTone(array $urls) {
 
 /**
  * Scales the image to 16x16 for luminance (unchanged from before) and to
- * 24x24 for colour, and answers both together. Returns [-1, ''] on failure.
+ * 24x24 for colour, measures the artwork's own edges at up to 128px, and
+ * answers all three together. Returns [-1, '', null] on failure.
  */
 function toneOf($body) {
-    if (!$body || strlen($body) > 4194304) return [-1, ''];
+    if (!$body || strlen($body) > 4194304) return [-1, '', null];
     // An SVG is text that opens with a tag; a raster opens with its magic
     // bytes. Searching the head for "<svg" instead matched a PNG that carried
     // an SVG inside its metadata chunk and read that as the whole icon.
     $head = ltrim(substr($body, 0, 64), "\xEF\xBB\xBF \t\r\n");
-    if ($head !== '' && $head[0] === '<') return svgTone($body);
+    // An SVG's artwork cannot be measured here; the grid measures it in a
+    // canvas instead, through the ?svg= passthrough above. 'svg' is the record
+    // that tells it to.
+    if ($head !== '' && $head[0] === '<') { $t = svgTone($body); $t[2] = ($t[0] === -1) ? null : 'svg'; return $t; }
     $im = @imagecreatefromstring($body);
-    if (!$im) return [-1, ''];
+    if (!$im) return [-1, '', null];
     if (!imageistruecolor($im)) @imagepalettetotruecolor($im);
 
     $lumSrc = @imagescale($im, 16, 16);
@@ -155,8 +225,98 @@ function toneOf($body) {
     $colour = colourOf($colSrc);
     if ($colSrc !== $im) imagedestroy($colSrc);
 
+    $box = inkBox($im);
+
     imagedestroy($im);
-    return [$lum, $colour];
+    return [$lum, $colour, $box];
+}
+
+/**
+ * Where the artwork inside the file begins and ends, as [x0,y0,x1,y1] in
+ * thousandths of the image's own width and height, or null when it cannot be
+ * read with confidence.
+ *
+ * What counts as background is decided by the four corners, because that is
+ * the only part of an icon that is background in every icon that has any:
+ *
+ *   - all four transparent  -> the margin is transparent, and the artwork is
+ *     every pixel that is not
+ *   - all four opaque and the same colour -> the icon is drawn on a flat
+ *     field, and the artwork is every pixel that differs from it
+ *   - anything else -> the image runs to its own edge, or is a photograph, or
+ *     is something this cannot describe. It answers null and the icon is left
+ *     exactly as it is, rather than being cropped on a guess.
+ *
+ * The tolerance is deliberately loose on the corner agreement (a gradient
+ * field is still a field) and tight on what counts as artwork, so a JPEG's
+ * ringing around a logo is background and the logo is not.
+ */
+function inkBox($im) {
+    $w0 = imagesx($im); $h0 = imagesy($im);
+    if ($w0 < 8 || $h0 < 8) return null;
+    // An icon is being measured, not read: a 512px source costs sixteen times
+    // the pixels of a 128px one and answers the same question.
+    $src = $im; $scaled = false;
+    $mx = max($w0, $h0);
+    if ($mx > 128) {
+        $s = @imagescale($im, (int)max(1, round($w0 * 128 / $mx)), (int)max(1, round($h0 * 128 / $mx)));
+        if ($s) { $src = $s; $scaled = true; }
+    }
+    $w = imagesx($src); $h = imagesy($src);
+
+    $corners = [
+        imagecolorat($src, 0, 0), imagecolorat($src, $w - 1, 0),
+        imagecolorat($src, 0, $h - 1), imagecolorat($src, $w - 1, $h - 1),
+    ];
+    $clear = 0; $solid = 0;
+    foreach ($corners as $p) {
+        $a = ($p >> 24) & 0x7F;
+        if ($a > 96) $clear++;
+        elseif ($a <= 32) $solid++;
+    }
+    $bg = null;                                  // null = transparent background
+    if ($clear !== 4) {
+        if ($solid !== 4) { if ($scaled) imagedestroy($src); return null; }
+        $r = $g = $b = 0;
+        foreach ($corners as $p) { $r += ($p >> 16) & 0xFF; $g += ($p >> 8) & 0xFF; $b += $p & 0xFF; }
+        $bg = [$r / 4, $g / 4, $b / 4];
+        foreach ($corners as $p) {
+            $d = sqrt(pow((($p >> 16) & 0xFF) - $bg[0], 2) + pow((($p >> 8) & 0xFF) - $bg[1], 2) + pow(($p & 0xFF) - $bg[2], 2));
+            if ($d > 28) { if ($scaled) imagedestroy($src); return null; }
+        }
+    }
+
+    $x0 = $w; $y0 = $h; $x1 = -1; $y1 = -1; $ink = 0;
+    for ($y = 0; $y < $h; $y++) {
+        for ($x = 0; $x < $w; $x++) {
+            $p = imagecolorat($src, $x, $y);
+            if ((($p >> 24) & 0x7F) > 96) continue;              // transparent is never artwork
+            if ($bg !== null) {
+                $d = sqrt(pow((($p >> 16) & 0xFF) - $bg[0], 2) + pow((($p >> 8) & 0xFF) - $bg[1], 2) + pow(($p & 0xFF) - $bg[2], 2));
+                if ($d <= 40) continue;
+            }
+            $ink++;
+            if ($x < $x0) $x0 = $x;
+            if ($x > $x1) $x1 = $x;
+            if ($y < $y0) $y0 = $y;
+            if ($y > $y1) $y1 = $y;
+        }
+    }
+    if ($scaled) imagedestroy($src);
+
+    // Nothing found, or so little that the box is noise rather than a mark:
+    // scaling a stray anti-aliased pixel up to fill the plate would be worse
+    // than leaving the icon alone.
+    if ($x1 < $x0 || $y1 < $y0) return null;
+    if ($ink < ($w * $h) * 0.003) return null;
+    if (($x1 - $x0 + 1) < $w * 0.06 || ($y1 - $y0 + 1) < $h * 0.06) return null;
+
+    return [
+        (int)round($x0 * 1000 / $w),
+        (int)round($y0 * 1000 / $h),
+        (int)round(($x1 + 1) * 1000 / $w),
+        (int)round(($y1 + 1) * 1000 / $h),
+    ];
 }
 
 /**

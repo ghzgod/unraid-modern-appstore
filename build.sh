@@ -8,7 +8,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")"
-VERSION="${1:-2026.09.04i}"
+VERSION="${1:-2026.09.04j}"
 NAME="modern.appstore"
 SRC="src/usr/local/emhttp/plugins/$NAME"
 OUT="$NAME.plg"
@@ -57,6 +57,46 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- A search marks the words it matched inside a card's own blurb instead of
+  replacing the blurb with a passage cut from elsewhere. That passage came out
+  of the searchable text, which is the maintainer's name, the template's extra
+  search terms and the overview joined together, so a search for a maintainer
+  landed on the name and printed whatever sentence fragment sat beside it. The
+  card said something the app never said.
+- A card's blurb stops after its second sentence. It used to keep folding
+  sentences in until it had 170 characters, which let a blurb of short
+  sentences run to five of them and lose its tail mid-thought. Where two
+  sentences still overrun the band, the card ends them on an ellipsis.
+- An app whose screenshot no longer resolves shows no screenshot. Community
+  Applications writes the picture straight out of the template and never checks
+  it, and a fair number of those links now answer 404, so the page-wide error
+  handler painted a 200px placeholder that the gallery rule then stretched
+  across the whole drawer as a giant question mark. Roughly one template in ten
+  is affected, agent-zero and Appwrite among them.
+- The drawer's description reads as paragraphs. An author's plain-text indent
+  arrived as runs of &nbsp;, which do not collapse, and a blank line arrived as
+  three or four breaks, so a description printed indented halfway down and
+  spread over acres of nothing. Indentation goes, a paragraph break is one
+  blank line, and a list of bullets closes up instead of putting a blank line
+  between every item.
+- Every card's strip wears its icon's colour, whatever order the pictures
+  arrive in. The colour was applied from inside the icon's load handler, which
+  an already-cached icon fires before the card exists and a lazily-loaded one
+  below the fold does not fire at all, so the top of the grid went grey on a
+  second visit and the bottom stayed grey until it was scrolled to.
+- The artwork inside an icon is measured and centred, so two icons that differ
+  only in the margin their author baked in land on the card at the same size.
+  SVGs, which cannot be rasterised on the server, are measured in the browser
+  and the answer is cached with the rest.
+- An app already installed shows a grey Installed button that does nothing,
+  in place of Install. CA's own check compares the feed's redirector URL with
+  the installed plugin's and matched none of the 308 plugins in the catalog;
+  matching on the .plg filename finds them.
+- A release date in the future reads N/A. A plugin's version is read as its
+  release date, and a version numbered ahead of today printed as a date that
+  has not happened yet.
+
+##2026.09.04i
 - Project and Support open the template's link exactly as the maintainer
   published it, as CA does. 2026.09.04g had the plugin resolve and repair
   those links; a wrong destination is the template's to fix, and the plugin

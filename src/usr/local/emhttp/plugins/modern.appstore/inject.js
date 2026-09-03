@@ -51,6 +51,12 @@
     var scanAsked = {};           // path -> 1, so a page is only auto-scanned once
     var scanInFlight = false, scanPending = false, scanTimer = null;
     var pinnedSet = null, installedSet = null;
+    // Installed plugins, keyed by the .plg filename they occupy, plus the
+    // punctuation-stripped form of the same name for the handful of feed
+    // templates spelled with different separators. Both come from
+    // pinned.php; see the comment there for why CA's own answer cannot be
+    // used and why the filename is the key.
+    var installedPlugins = null, installedPluginsNorm = null;
     // how many days of the plugin's own star-history snapshots this install
     // has. The year trending windows are built from this now, since GitHub
     // restricted the endpoints that used to backfill a year-ago baseline
@@ -83,6 +89,23 @@
     var caSpecial = false;
     var CA_SPECIAL = /^(previous_apps|prev_docker|prev_plugins|action_centre)$/;
     function stripTag(ri) { return (ri || '').toLowerCase().split(':')[0]; }
+    // Whether this server already has the app. The two kinds of app answer it
+    // from different records, and neither is CA's: a Docker app matches on the
+    // image its user template names, a plugin on the .plg filename it occupies
+    // in /var/log/plugins. A plugin's own image ref is the cdn-wrapped .plg
+    // URL, so it can never match a Docker image and every plugin in the store
+    // used to show an Install button, the maintainer's own installed ones
+    // included.
+    function isInstalled(a) {
+      if (!a) return false;
+      if (a.ty === 'plugin') {
+        if (!a.pk || !installedPlugins) return false;
+        if (installedPlugins.has(a.pk)) return true;
+        var n = a.pk.replace(/[^a-z0-9]/g, '');
+        return !!n && !!installedPluginsNorm && installedPluginsNorm.has(n);
+      }
+      return !!(a.ri && installedSet && installedSet.has(stripTag(a.ri)));
+    }
     // Template path of the app whose drawer is open. The drawer is CA's and CA
     // never tells us which app it just painted, so the path we handed
     // showSidebarApp is kept here for fixDrawerDetails() to look the app back
@@ -96,8 +119,20 @@
     function loadViews(cb) {
       fetch(PREFIX + 'pinned.php?_=' + Date.now())
         .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (j) { pinnedSet = new Set((j && j.pinned) || []); installedSet = new Set((j && j.installed) || []); cb && cb(); })
-        .catch(function () { pinnedSet = pinnedSet || new Set(); installedSet = installedSet || new Set(); cb && cb(); });
+        .then(function (j) {
+          pinnedSet = new Set((j && j.pinned) || []);
+          installedSet = new Set((j && j.installed) || []);
+          installedPlugins = new Set((j && j.plugins) || []);
+          installedPluginsNorm = new Set((j && j.pluginsNorm) || []);
+          cb && cb();
+        })
+        .catch(function () {
+          pinnedSet = pinnedSet || new Set();
+          installedSet = installedSet || new Set();
+          installedPlugins = installedPlugins || new Set();
+          installedPluginsNorm = installedPluginsNorm || new Set();
+          cb && cb();
+        });
     }
 
     // Every trending sort ranks by GitHub stars; they differ only in the window.
@@ -301,7 +336,7 @@
     // Every answer is held in localStorage, so a second visit asks for nothing.
     // Each answer now also carries a representative colour of the icon, which
     // paintTone hands to the tile's strip.
-    var TONE_KEY = 'asga_icontone_v5';
+    var TONE_KEY = 'asga_icontone_v7';
     var TONE_DARK = 78;   // 0-255 mean luminance; below this needs a plate
     var toneMap = {};
     try { toneMap = JSON.parse(localStorage.getItem(TONE_KEY) || '{}') || {}; } catch (e) { toneMap = {}; }
@@ -317,17 +352,164 @@
       if (val == null || val === -1) return;
       var lum = Array.isArray(val) ? val[0] : val;
       var col = Array.isArray(val) ? val[1] : '';
+      if (Array.isArray(val)) fitIconInk(img, val[2]);
       if (lum >= 0) img.dataset.tone = (lum < TONE_DARK) ? 'dark' : 'lit';
       // the strip wears the icon's own colour, so the card's top reads as the
       // app rather than as its kind
-      if (col && /^[0-9a-f]{6}$/i.test(col)) {
+      var rgb = hexToRgb(col);
+      if (rgb) {
+        // Written onto the image before anything is looked up through the DOM,
+        // because much of the time there is no DOM to look through yet: an icon
+        // the browser already holds fires its load in the same tick the element
+        // was created, which is before the card has appended it, so closest()
+        // finds nothing and the strip keeps the default tint.
+        img.dataset.asgaStrip = rgb;
         var tile = img.closest && img.closest('.asga-tile');
         var strip = tile && tile.querySelector('.asga-tile-strip');
-        if (strip) {
-          strip.style.setProperty('--asga-strip-rgb',
-            parseInt(col.slice(0, 2), 16) + ', ' + parseInt(col.slice(2, 4), 16) + ', ' + parseInt(col.slice(4, 6), 16));
-        }
+        if (strip) strip.style.setProperty('--asga-strip-rgb', rgb);
       }
+    }
+    function hexToRgb(col) {
+      if (!col || !/^[0-9a-f]{6}$/i.test(col)) return '';
+      return parseInt(col.slice(0, 2), 16) + ', ' + parseInt(col.slice(2, 4), 16) + ', ' + parseInt(col.slice(4, 6), 16);
+    }
+    // The strip's colour, asked for by icon URL rather than waited for on the
+    // picture. Tones are keyed by that URL and most of them are already in
+    // storage by the time a card is built, so the answer is usually there for
+    // the asking, and asking is what keeps a strip from depending on when its
+    // icon loads. Icons are lazy: below the fold one does not load until it is
+    // scrolled to, so a strip that waited for the load event stayed grey for
+    // every card the reader had not reached yet, and a card whose icon was
+    // cached could be painted before it had a strip to paint. Both are the same
+    // dependency, and this removes it.
+    function toneRgb(url) {
+      var rec = url ? toneMap[url] : undefined;
+      return hexToRgb(Array.isArray(rec) ? rec[1] : '');
+    }
+    function stripFromIcon(icon, strip) {
+      if (!icon || !strip) return;
+      var rgb = (icon.dataset && icon.dataset.asgaStrip) || toneRgb(icon.getAttribute && icon.getAttribute('src'));
+      if (rgb) strip.style.setProperty('--asga-strip-rgb', rgb);
+    }
+    // How much of the plate the artwork is given, and how far a small mark
+    // may be enlarged to get there. The pad is a fraction of the plate rather
+    // than a pixel count, so an icon keeps the same proportions at every card
+    // width. The cap exists because a mark drawn 40px across inside a 512px
+    // canvas goes soft long before it fills a tile, and a soft icon is worse
+    // than a small one.
+    var ICON_INK_PAD = 0.05;
+    var ICON_INK_MAX = 2.4;
+    // Scale and centre an icon on the artwork icontone.php found inside it,
+    // rather than on the canvas it was saved with. Two icons that differ only
+    // in how much empty margin their author baked in then land on the card at
+    // the same size, with the same gap to the plate's edge.
+    //
+    // Everything here is in fractions of the plate's side, and the transform
+    // is written in percentages and a scale factor, so it survives a change of
+    // card width without being recomputed. The plate itself is drawn on the
+    // wrapper rather than on this image, because scaling the image scales
+    // whatever is painted behind it too.
+    function fitIconInk(img, box) {
+      if (!img || !img.dataset || img.dataset.asgaCardIcon !== '1') return;
+      // 'svg' means icontone.php could not rasterise this one and is asking
+      // the browser, which draws it anyway, to measure it instead.
+      if (box === 'svg') { measureSvgInk(img); return; }
+      if (!Array.isArray(box) || box.length !== 4) return;
+      var nw = img.naturalWidth, nh = img.naturalHeight;
+      if (!nw || !nh) return;
+      applyInk(img, box, nw, nh);
+    }
+    function applyInk(img, box, nw, nh) {
+      // where object-fit: contain lands an image of this shape inside the
+      // square plate, in fractions of the plate's side
+      var dw = nw >= nh ? 1 : nw / nh;
+      var dh = nh >= nw ? 1 : nh / nw;
+      var ox = (1 - dw) / 2, oy = (1 - dh) / 2;
+      var x0 = ox + (box[0] / 1000) * dw, x1 = ox + (box[2] / 1000) * dw;
+      var y0 = oy + (box[1] / 1000) * dh, y1 = oy + (box[3] / 1000) * dh;
+      var iw = x1 - x0, ih = y1 - y0;
+      if (!(iw > 0.02) || !(ih > 0.02)) return;
+      var room = 1 - 2 * ICON_INK_PAD;
+      var s = Math.min(room / iw, room / ih, ICON_INK_MAX);
+      var tx = -s * ((x0 + x1) / 2 - 0.5) * 100;
+      var ty = -s * ((y0 + y1) / 2 - 0.5) * 100;
+      img.classList.add('asga-icon-fit');
+      img.style.transform = 'translate(' + tx.toFixed(2) + '%, ' + ty.toFixed(2) + '%) scale(' + s.toFixed(3) + ')';
+    }
+    // An SVG icon, drawn into a canvas of our own and read back for the same
+    // artwork box icontone.php works out for every other kind. It has to come
+    // through this server's own address to be readable: the maintainers' hosts
+    // and ca.unraid.net send no CORS header, and an image from either taints
+    // the canvas it is drawn on. icontone.php's ?svg= passthrough is what makes
+    // it same-origin.
+    //
+    // The answer is written back into the tone record, so it is measured once
+    // per icon per browser and read from storage after that.
+    var svgInkAsked = {};
+    function measureSvgInk(img) {
+      var url = img.currentSrc || img.src || '';
+      if (!url || svgInkAsked[url]) return;
+      svgInkAsked[url] = 1;
+      var probe = new Image();
+      probe.onload = function () {
+        var box = null, aw = probe.naturalWidth || 0, ah = probe.naturalHeight || 0;
+        // A viewBox-only SVG reports no intrinsic size, and a canvas draw of
+        // one is empty unless it is given a concrete one. Anything that does
+        // report a size is drawn at its own shape, because that is the shape
+        // object-fit: contain will letterbox on the card, and a box measured
+        // out of a squashed drawing would not describe it.
+        if (!aw || !ah) { aw = ah = 96; }
+        var side = Math.max(aw, ah);
+        var cw = Math.max(8, Math.round(aw * 96 / side));
+        var ch = Math.max(8, Math.round(ah * 96 / side));
+        try {
+          var cv = document.createElement('canvas');
+          cv.width = cw; cv.height = ch;
+          var cx = cv.getContext('2d');
+          cx.clearRect(0, 0, cw, ch);
+          cx.drawImage(probe, 0, 0, cw, ch);
+          var d = cx.getImageData(0, 0, cw, ch).data;
+          var x0 = cw, y0 = ch, x1 = -1, y1 = -1, ink = 0;
+          for (var y = 0; y < ch; y++) {
+            for (var x = 0; x < cw; x++) {
+              if (d[(y * cw + x) * 4 + 3] < 48) continue;
+              ink++;
+              if (x < x0) x0 = x;
+              if (x > x1) x1 = x;
+              if (y < y0) y0 = y;
+              if (y > y1) y1 = y;
+            }
+          }
+          if (x1 >= x0 && y1 >= y0 && ink > cw * ch * 0.003) {
+            box = [Math.round(x0 * 1000 / cw), Math.round(y0 * 1000 / ch),
+                   Math.round((x1 + 1) * 1000 / cw), Math.round((y1 + 1) * 1000 / ch)];
+          }
+        } catch (e) { box = null; }
+        if (!box) return;
+        rememberInk(url, box);
+        applyInkByUrl(url, box);
+      };
+      probe.onerror = function () {};
+      probe.src = PREFIX + 'icontone.php?svg=' + encodeURIComponent(url);
+    }
+    // Applied to whichever cards are showing this icon now, rather than to the
+    // element that asked. Measuring an SVG takes a round trip, and a render in
+    // the meantime replaces every tile, so the element that started this is
+    // often no longer the one on screen.
+    function applyInkByUrl(url, box) {
+      var live = document.querySelectorAll('#asga-grid .asga-tile-icon img');
+      for (var i = 0; i < live.length; i++) {
+        var im = live[i];
+        if ((im.currentSrc || im.src) === url) applyInk(im, box, im.naturalWidth || 1, im.naturalHeight || 1);
+      }
+    }
+    // Fold a measured box into the icon's tone record so the next page load
+    // reads it from storage instead of drawing the picture again.
+    function rememberInk(url, box) {
+      var rec = toneMap[url];
+      if (!Array.isArray(rec)) return;
+      rec[2] = box;
+      try { localStorage.setItem(TONE_KEY, JSON.stringify(keepableTones())); } catch (e) {}
     }
     // Bound on load rather than on creation, because a card swaps in the
     // maintainer's GitHub avatar when a template's own icon 404s and the tone
@@ -377,7 +559,8 @@
             delete tonePending[u];
           });
           // lum here still holds whatever icontone.php answered: -1 on
-          // failure, or the [luminance, colour] pair, both handled by paintTone.
+          // failure, or the [luminance, colour, artwork box] record, both
+          // handled by paintTone.
           // The -1 answers stay in toneMap for this page load only and are
           // left out of what goes to storage.
           try { localStorage.setItem(TONE_KEY, JSON.stringify(keepableTones())); } catch (e) {}
@@ -554,7 +737,7 @@
       var opt = optFor(view.sort);
       var list = APPS.filter(function (a) {
         if (view.special === 'pinned') { if (!pinnedSet || !pinnedSet.has((a.ri || '') + '&' + (a.pn || ''))) return false; }
-        else if (view.special === 'installed') { if (!installedSet || !installedSet.has(stripTag(a.ri))) return false; }
+        else if (view.special === 'installed') { if (!isInstalled(a)) return false; }
         // The Installed list is exempt: an app already on the server is a
         // fact to show, whatever CA now says about compatibility.
         if (hideIncompatible && a.xc && view.special !== 'installed') return false;
@@ -610,6 +793,10 @@
       var btn = el.closest ? el.closest('.asga-btn') : null;
       if (btn) {
         e.stopPropagation();
+        // Installed is a statement, not a control. Stopping here rather than
+        // falling through is what makes it unclickable; Info, one pill along,
+        // is the button for reading about an app already on the server.
+        if (btn.classList.contains('asga-btn-installed')) return;
         if (btn.classList.contains('asga-install')) {
           installApp(tile);
         } else if (btn.classList.contains('asga-project')) {
@@ -747,6 +934,65 @@
         openLightbox(srcs, Math.max(0, items.indexOf(scr)));
       }, true);
     }
+    // A preview that is not there. CA writes the screenshot straight out of the
+    // template into both the <img> and the lightbox link beside it, and it
+    // never checks that the picture still exists. Plenty no longer do: the URLs
+    // are ca.unraid.net/cdn redirectors and a fair number of them answer 404
+    // now, which is what agent-zero's does. The page-wide error handler then
+    // paints the Docker question mark over the failure, and because .screen is
+    // a full-width rule that 200px placeholder is stretched across the whole
+    // drawer as a giant grey question mark, sitting under Additional
+    // Requirements where it reads as part of the requirement. Clicking it opens
+    // a lightbox onto the same 404, so it looks broken twice.
+    //
+    // A missing picture is not a picture. The link goes, and the bare <div> CA
+    // wrapped the gallery in goes with it when nothing is left inside, so the
+    // drawer closes up rather than keeping an empty band. This is by state
+    // rather than by app: any template whose screenshot has rotted gets the
+    // same treatment, and one that still resolves is untouched.
+    //
+    // Three things have to be watched because the substitution can land before
+    // or after this runs: the src as it stands, the img's own error event, and
+    // any later rewrite of src by CA's handler.
+    function pruneShots() {
+      if (!isOn()) return;
+      var links = [].slice.call(document.querySelectorAll('#sidenavContent a.screenshot'));
+      for (var i = 0; i < links.length; i++) watchShot(links[i]);
+    }
+    function watchShot(link) {
+      if (link.__asgaShot || link.classList.contains('popupIcon')) return;
+      link.__asgaShot = true;
+      // a video preview is a YouTube thumbnail, which is served by YouTube and
+      // does not go through CA's redirectors at all
+      if (link.classList.contains('mfp-iframe')) return;
+      // img.screen is CA's gallery picture and nothing else. The maintainer's
+      // avatar is wrapped in a link of this same class, and it fails to load
+      // often enough (511 of CA's repositories publish no icon) that matching
+      // on the link alone would delete the maintainer's portrait along with the
+      // rotted screenshots. fixMaintainerIcon already answers that one, with a
+      // drawn glyph rather than a hole.
+      var img = link.querySelector('img.screen');
+      if (!img) return;
+      var check = function () {
+        var src = img.getAttribute('src') || '';
+        if (src.indexOf('question.png') >= 0) { dropShot(link); return true; }
+        if (img.complete && img.naturalWidth === 0) { dropShot(link); return true; }
+        return false;
+      };
+      if (check()) return;
+      img.addEventListener('error', function () { dropShot(link); });
+      img.addEventListener('load', check);
+      new MutationObserver(check).observe(img, { attributes: true, attributeFilter: ['src'] });
+    }
+    function dropShot(link) {
+      var box = link.parentNode;
+      if (!box) return;
+      box.removeChild(link);
+      // CA wraps the whole gallery in an unclassed div of its own, so an empty
+      // one is the gallery and nothing else, and it is safe to take with it.
+      if (!box.className && !box.id && box.children.length === 0 && box.parentNode) box.parentNode.removeChild(box);
+    }
+
     // CA's slide-out drawer carries a Maintainer block with three buttons
     // (ca_repoSearchPopUp/repoPopup/ca_favouriteRepo), which our drawer already
     // renders and styles. All Apps runs CA's own repo search by default, which
@@ -806,6 +1052,7 @@
     // how a template writes a list ("Port: 8080" on its own line), and joining
     // those would be the same vandalism in the other direction.
     var WRAP_MIN = 60;
+    var NBSP = '\u00a0';
     function wireDescriptionTidy() {
       if (document.body.__asgaDescTidy) return;
       document.body.__asgaDescTidy = true;
@@ -821,13 +1068,7 @@
       var el = document.querySelector('#sidenavContent .popupDescription');
       if (!el || el.__asgaTidied) return;
       el.__asgaTidied = true;
-      // the indent first: &nbsp; does not collapse the way a space does, so it
-      // has to become one before the lines are joined
-      var walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
-      var node;
-      while ((node = walk.nextNode())) {
-        if (node.nodeValue.indexOf(' ') !== -1) node.nodeValue = node.nodeValue.replace(/ +/g, ' ');
-      }
+      squashSpaces(el);
       var brs = [].slice.call(el.querySelectorAll('br'));
       for (var i = 0; i < brs.length; i++) {
         var br = brs[i];
@@ -836,9 +1077,87 @@
         if (lineBefore(br).length < WRAP_MIN) continue;                    // deliberate short line
         br.parentNode.replaceChild(document.createTextNode(' '), br);
       }
+      capBreaks(el);
+      tightenLists(el);
+      trimLineStarts(el);
+    }
+    // A list is a list, not eleven paragraphs. A template that writes its
+    // features one per line arrives with a blank line between every bullet,
+    // because CA turns the author's newline into a break and their blank line
+    // into a second one, and the drawer then spends a screen and a half on
+    // seven short items. Consecutive bullets close up to a single break; the
+    // blank line above the first one stays, so the list still reads as a block
+    // separated from the sentence that introduces it.
+    var BULLET = /^[-*\u2022\u00b7]\s+/;
+    function tightenLists(el) {
+      var brs = [].slice.call(el.querySelectorAll('br'));
+      for (var i = 0; i < brs.length; i++) {
+        var br = brs[i];
+        if (!br.parentNode) continue;
+        var after = meaningAfter(br);
+        if (!isBr(after) || !after.parentNode) continue;
+        if (!BULLET.test(lineBefore(br))) continue;
+        if (!BULLET.test(lineAfter(after))) continue;
+        after.parentNode.removeChild(after);
+      }
+    }
+    // the text of the line this break opens, up to the next break
+    function lineAfter(br) {
+      var s = '', n = br.nextSibling;
+      while (n && n.nodeName !== 'BR') { s += (n.textContent || ''); n = n.nextSibling; }
+      return s.replace(/\s+/g, ' ').trim();
+    }
+    // Every run of whitespace becomes one plain space, non-breaking spaces
+    // included. That is what a browser already does to an ordinary space, so
+    // the only thing this changes is the character CA writes for indentation:
+    // it turns a leading tab or four spaces in the template into &nbsp; runs,
+    // which do NOT collapse, and the drawer then prints the author's plain-text
+    // indent as a real indent halfway down a paragraph.
+    function squashSpaces(el) {
+      var walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+      var node, re = new RegExp('[' + NBSP + '\\s]+', 'g');
+      while ((node = walk.nextNode())) {
+        if (re.test(node.nodeValue)) { re.lastIndex = 0; node.nodeValue = node.nodeValue.replace(re, ' '); }
+        re.lastIndex = 0;
+      }
+    }
+    // One blank line between paragraphs, never four. A template written in a
+    // plain-text box carries its own blank lines, CA turns each newline into a
+    // <br>, and a paragraph break authored as one blank line arrives as two
+    // breaks while one written with three arrives as four. The drawer then
+    // scrolls past acres of nothing. Two breaks is the blank line; the rest go.
+    function capBreaks(el) {
+      var brs = [].slice.call(el.querySelectorAll('br'));
+      for (var i = 0; i < brs.length; i++) {
+        var br = brs[i];
+        if (!br.parentNode) continue;
+        var run = 1, n = meaningAfter(br);
+        while (isBr(n)) {
+          run++;
+          var next = meaningAfter(n);
+          if (run > 2) { n.parentNode.removeChild(n); run--; }
+          n = next;
+        }
+      }
+    }
+    // A line that starts with a space starts with an indent the reader can see,
+    // because a <br> ends the line but does not restart the collapsing the way
+    // the start of a block does. The indent was CA's rendering of the author's
+    // plain-text layout, not something the author asked the drawer to draw, so
+    // every line here begins at the margin its neighbours begin at.
+    function trimLineStarts(el) {
+      var first = el.firstChild;
+      while (first && first.nodeType === 1 && first.firstChild) first = first.firstChild;
+      if (first && first.nodeType === 3) first.nodeValue = first.nodeValue.replace(/^\s+/, '');
+      var brs = [].slice.call(el.querySelectorAll('br'));
+      for (var i = 0; i < brs.length; i++) {
+        var n = brs[i].nextSibling;
+        while (n && n.nodeType === 1 && n.nodeName !== 'BR' && n.firstChild) n = n.firstChild;
+        if (n && n.nodeType === 3) n.nodeValue = n.nodeValue.replace(/^[ \t]+/, '');
+      }
     }
     function isBr(n) { return !!n && n.nodeName === 'BR'; }
-    function blankText(n) { return n && n.nodeType === 3 && !/[^\s ]/.test(n.nodeValue); }
+    function blankText(n) { return n && n.nodeType === 3 && !new RegExp('[^\\s' + NBSP + ']').test(n.nodeValue); }
     function meaningBefore(n) { n = n.previousSibling; while (blankText(n)) n = n.previousSibling; return n; }
     function meaningAfter(n) { n = n.nextSibling; while (blankText(n)) n = n.nextSibling; return n; }
     // the text of the line this break ends, back to the previous break. Reading
@@ -910,7 +1229,7 @@
       document.body.__asgaDrawerDetails = true;
       var host = document.getElementById('sidenavContent') || document.querySelector('.sidenav');
       if (!host) return;
-      new MutationObserver(function () { fixDrawerDetails(); addReadmeButton(); cardSections(); renameFavourite(); fixDrawerIcon(); fixMaintainerIcon(); fixRepoDrawer(); drawerReady(); })
+      new MutationObserver(function () { fixDrawerDetails(); addReadmeButton(); cardSections(); renameFavourite(); fixDrawerIcon(); fixMaintainerIcon(); fixRepoDrawer(); pruneShots(); drawerReady(); })
         .observe(host, { childList: true, subtree: true });
       fixDrawerDetails();
       addReadmeButton();
@@ -919,6 +1238,7 @@
       fixDrawerIcon();
       fixMaintainerIcon();
       fixRepoDrawer();
+      pruneShots();
       wireDrawerNav();
       drawerReady();
     }
@@ -1079,6 +1399,13 @@
       }
       var img = document.createElement('img');
       if (cls) img.className = cls;
+      // Marks this as a card's own icon, which is the only kind fitIconInk()
+      // may rescale: the drawer's icon is CA's, it carries its plate on the
+      // image itself, and scaling it would scale that plate too. Set here
+      // rather than tested through the DOM, because an icon already in the
+      // browser's cache is measured in the same tick it is created, before
+      // this element has been appended to anything.
+      img.dataset.asgaCardIcon = '1';
       var ghAvatar = ghAvatarFor(a);
       img.src = a.ic || ghAvatar || ICON_FALLBACK;
       img.loading = 'lazy';
@@ -1697,7 +2024,9 @@
         // this lands, and writing into a detached cell would be invisible at
         // best and wrong at worst
         if (!document.contains(cell)) return;
-        if (!ts) { cell.textContent = 'N/A'; return; }
+        // Same test the card applies: a push time the registry dates in the
+        // future is not one this drawer will print.
+        if (!ts || ts > Math.floor(Date.now() / 1000)) { cell.textContent = 'N/A'; return; }
         app.lu = ts; app.lk = 'r';
         setLuCell(cell, ts, 'r');
       };
@@ -1966,33 +2295,17 @@
       return dateSpan('asga-tile-added', CAL_ICON, 'Added', a.fs, false, false, short);
     }
 
-    // Why this app is in the results. The search reads an app's whole overview,
-    // and the card only ever prints the first sentence or two of it, so a
-    // result could match on a passage the reader cannot see and the list then
-    // looks like it is returning anything at all. When the words that matched
-    // are not in what the card would print, the card prints the passage that
-    // did instead, with those words marked. The snippet is cut on word
-    // boundaries so it never opens or closes mid-word.
-    function matchSnippet(a, words) {
-      if (!words.length) return null;
-      var shown = (a.de || '').toLowerCase();
-      var missing = words.filter(function (w) { return shown.indexOf(w) < 0; });
-      if (!missing.length) return null;              // the card already shows why
-      var full = ((a.de || '') + ' ' + (a.sx || '')).replace(/\s+/g, ' ').trim();
-      var hay = full.toLowerCase();
-      var at = -1;
-      for (var i = 0; i < missing.length && at < 0; i++) at = hay.indexOf(missing[i]);
-      if (at < 0) return null;                        // matched a field, not the prose
-      var start = Math.max(0, at - 60);
-      var end = Math.min(full.length, at + 120);
-      if (start > 0) { var sp = full.indexOf(' ', start); if (sp > -1 && sp < at) start = sp + 1; }
-      if (end < full.length) { var ep = full.lastIndexOf(' ', end); if (ep > at) end = ep; }
-      return (start > 0 ? '…' : '') + full.slice(start, end) + (end < full.length ? '…' : '');
-    }
-
-    // Built as text nodes and marked spans rather than as a string of markup,
-    // because every character of this came out of a public feed and none of it
-    // may be parsed as HTML.
+    // The card's blurb with the searched words marked. Built as text nodes and
+    // marked spans rather than as a string of markup, because every character
+    // of this came out of a public feed and none of it may be parsed as HTML.
+    //
+    // Marking is all it does. An earlier version replaced the blurb with a
+    // window cut around a word found somewhere in the app's searchable text,
+    // and that text is not prose: applist.php builds it from the maintainer's
+    // name, the template's extra search terms and the overview joined together,
+    // so a search for a maintainer landed in the name and printed the sentence
+    // fragment that happened to sit beside it. The card said something the app
+    // never said. It prints the blurb now, and only the blurb.
     function fillSnippet(el, text, words) {
       el.textContent = '';
       var low = text.toLowerCase();
@@ -2153,8 +2466,10 @@
 
       var iconWrap = document.createElement('div');
       iconWrap.className = 'asga-tile-icon';
-      iconWrap.appendChild(appIcon(a, ''));
+      var icon = appIcon(a, '');
+      iconWrap.appendChild(icon);
       head.appendChild(iconWrap);
+      stripFromIcon(icon, strip);
 
       // The name gets the whole width of the card, on a band of its own above
       // the icon row, rather than the slot beside the icon that the stat rail
@@ -2281,8 +2596,11 @@
       // lining up with its neighbours.
       var desc = document.createElement('div');
       desc.className = 'asga-tile-desc';
-      var snip = matchSnippet(a, searchWords());
-      if (snip) { desc.classList.add('asga-tile-desc-hit'); fillSnippet(desc, snip, searchWords()); }
+      // A search marks the words it matched, and changes nothing else. The card
+      // prints the app's own blurb whether or not a search is running, so the
+      // reader is never shown a sentence the app does not actually say.
+      var qwords = searchWords();
+      if (qwords.length) fillSnippet(desc, a.de || '', qwords);
       else desc.textContent = a.de || '';
       tile.appendChild(desc);
 
@@ -2351,12 +2669,13 @@
       }
       btns.appendChild(mtBtn);
       // An app already on this server has nothing for Install to do, so it gets
-      // a plain marker instead. asga-btn-installed matches none of the click
-      // handler's button branches, which is what leaves a click on it falling
-      // through to the Info/Install drawer like the rest of the card.
-      if (a.ri && installedSet && installedSet.has(stripTag(a.ri))) {
+      // a plain marker instead: grey, arrow cursor, no hover, and inert under
+      // the click handler below. It used to fall through to the Info drawer,
+      // which made a marker of a fact behave like a button after all.
+      if (isInstalled(a)) {
         var instBtn = mkBtn('Installed', 'asga-btn-installed');
         instBtn.title = 'Already installed on this server';
+        instBtn.setAttribute('aria-disabled', 'true');
         btns.appendChild(instBtn);
       } else {
         var ib = mkBtn('Install', 'asga-install');
@@ -2469,9 +2788,18 @@
       wrap.insertAdjacentHTML('afterbegin', icon);
       var txt = document.createElement('span');
       txt.className = 'asga-datetext';
-      if (!ts) {
+      // A date later than today is not a date this app can have reached, so it
+      // is shown as no date rather than as a fact. It reaches the card from a
+      // plugin version numbered ahead of the calendar, or from a registry with
+      // a bad clock; either way printing it would have the store claim an app
+      // was updated in the future. Compared by calendar day, so an app updated
+      // an hour ago in a timezone ahead of this server still reads as today.
+      var future = ts && dayGap(ts, Math.floor(Date.now() / 1000)) < 0;
+      if (!ts || future) {
         wrap.classList.add('asga-stat-none');
-        wrap.title = word + ' date is not in the app catalog';
+        wrap.title = future
+          ? word + ' reads ' + absDate(ts, false) + ', which has not happened yet'
+          : word + ' date is not in the app catalog';
         txt.textContent = 'N/A';
       } else {
         if (dayGap(ts, Math.floor(Date.now() / 1000)) <= 0) wrap.classList.add('asga-date-today');
@@ -2878,7 +3206,10 @@
     // no longer belongs to this walk (or, worse, a different app that has
     // since reused the same DOM node).
     function paintFilledDate(a, ts, gen) {
-      a.lu = ts; a.lk = 'r';
+      // A push time the registry dates in the future never enters the catalog
+      // entry, so nothing downstream of this (the drawer's own Last Update
+      // row reads the same field) can print it either.
+      if (ts && ts <= Math.floor(Date.now() / 1000)) { a.lu = ts; a.lk = 'r'; }
       try {
         if (gen !== renderGen) return;
         if (typeof CSS === 'undefined' || !CSS.escape) return;

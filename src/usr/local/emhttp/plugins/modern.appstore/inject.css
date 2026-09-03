@@ -639,18 +639,27 @@ body.dark .asga-settings-select { color-scheme: dark; }
   white-space: nowrap; overflow: hidden;
 }
 /* One plate behind every icon, on the card, in the drawer and in the repo
-   list: a dark grey mixed from the theme, 76% page to 24% text (about #505050
-   on the dark theme, #c2c2c2 on the white), a step above the card so the
-   artwork stands off it. Until 2026.09.04g the dark artwork a fifth of the
-   catalog ships got a near-white plate of its own, and two plates in one row
-   read as two kinds of card; 04g's mid grey then washed the bright artwork
-   out, so the plate went darker again in 04i. */
+   list: a grey mixed from the theme, 87% page to 13% text (about #3b3a3a on
+   the dark theme, #d6d6d6 on the white), one step off the page so the
+   artwork stands away from it without the plate becoming a shape of its own.
+   Until 2026.09.04g the dark artwork a fifth of the catalog ships got a
+   near-white plate of its own, and two plates in one row read as two kinds of
+   card; 04g's mid grey then washed the bright artwork out, and the 76% step
+   that replaced it still read as a light tile carrying a small picture. */
 body.asga-active {
-  --asga-icon-plate: color-mix(in srgb, var(--background-color, #1d1b1b) 76%, var(--text-color, #f2f2f2));
+  --asga-icon-plate: color-mix(in srgb, var(--background-color, #1d1b1b) 87%, var(--text-color, #f2f2f2));
 }
 .asga-tile-icon {
   position: relative; z-index: 1;
   width: var(--asga-icon-side); height: var(--asga-icon-side);
+  /* The plate is drawn here rather than on the artwork itself, because an icon
+     measured by icontone.php is scaled to bring its artwork up to the plate's
+     edge, and a background painted on the thing being scaled would be scaled
+     with it and spill past the corner. Clipped here for the same reason: an
+     icon drawn on a flat field of its own is enlarged until that field covers
+     the plate, and the corner radius is what stops it being a square. */
+  background: var(--asga-icon-plate);
+  overflow: hidden;
   /* Pulled up over the strip's bottom edge rather than sitting under it, so
      the icon reads as the thing the strip is naming rather than as a second,
      unrelated row. */
@@ -666,9 +675,18 @@ body.asga-active {
    icon look printed on the strip instead of resting on it. The shadow above
    does the rest of the separating. */
 .asga-tile-icon img {
+  /* 2px is the margin an icon keeps while nothing is known about it. Once
+     icontone.php has read where its artwork stops, fitIconInk() takes the
+     margin over: it scales and centres the artwork so every card carries the
+     same gap between the mark and the plate, whatever empty canvas the file
+     was saved with. Roughly a third of the catalog's icons are drawn inside a
+     margin of their own, and beside one that is not they read as a small
+     picture on a large tile. */
   width: 100%; height: 100%; object-fit: contain; border-radius: 12px; box-sizing: border-box;
-  background: var(--asga-icon-plate); border: 0; padding: 5px;
+  border: 0; padding: 2px;
 }
+/* Measured: the transform owns the margin now, so the flat one comes off. */
+.asga-tile-icon img.asga-icon-fit { padding: 0; }
 /* An app whose template names no picture but does name a FontAwesome glyph
    (117 apps have no icon and 59 of those carry one; see appIcon in inject.js).
    It wears the same plate the picture beside it would have, so a row of cards
@@ -679,8 +697,8 @@ body.asga-active {
 .asga-tile-icon .asga-icon-fa {
   display: flex; align-items: center; justify-content: center;
   width: 100%; height: 100%; box-sizing: border-box; border-radius: 12px;
-  background: var(--asga-icon-plate); border: 0;
-  font-size: calc(var(--asga-icon-side) * 0.44); line-height: 1;
+  border: 0;
+  font-size: calc(var(--asga-icon-side) * 0.56); line-height: 1;
   color: color-mix(in srgb, var(--text-color, #f2f2f2) 66%, transparent);
 }
 /* The strip that opens the card: full bleed past the band's own side inset,
@@ -867,20 +885,17 @@ body.asga-active {
    lost by the overlap. */
 .asga-kind-plugin { color: #ff8c2f; }
 
-/* A description showing WHY an app matched, rather than what the app is. The
-   search reads an app's whole overview and the card prints only its opening,
-   so a result could match on a passage the reader cannot see and the list then
-   looks like it is returning anything at all. The matched words carry the
-   accent; nothing else changes, so a result still occupies the card's own
-   description slot and never grows a band its neighbours do not have. */
-.asga-tile-desc-hit { font-style: italic; }
+/* The searched words, marked where they fall in the card's own blurb. The
+   accent is the only change: the card keeps printing what the app says about
+   itself, so a search never puts a sentence on a card that the app did not
+   write. Marking happens in place, so a matched result occupies the same
+   description slot as every other card and grows no band of its own. */
 .asga-hit { color: #ff8c2f; font-weight: 600; font-style: normal; }
 
-/* Three lines. The facts moved up into the strip and the description took the
-   band they left, and applist.php now folds sentences in until the blurb has
-   at least 170 characters, so most cards fill all three. The clamp is what
-   keeps the button rows aligned: a card whose blurb runs longer is cut at the
-   third line rather than growing a line its neighbours do not have. */
+/* Three lines, holding the blurb's first two sentences. The clamp is what
+   keeps the button rows aligned, and it is also what ends a second sentence
+   that runs past the band: the text stops on an ellipsis at the third line
+   rather than the card growing a line its neighbours do not have. */
 .asga-tile-desc {
   font-size: clamp(12px, calc(var(--cw) * 0.031), 15px); line-height: 1.5; color: color-mix(in srgb, var(--text-color, #f2f2f2) 92%, var(--background-color, #1d1b1b)); margin: 0;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
@@ -1017,12 +1032,14 @@ body.asga-active {
 /* Installed is the one button on the card with nothing to do, so it is the
    one drawn grey: the plain pill dimmed, no accent on hover. It used to share
    the pinned green, which made the one card a reader cannot install look like
-   the one card reporting good news. The click still falls through to the
-   drawer, so the cursor stays. */
+   the one card reporting good news. It is also the one pill that does
+   nothing when clicked: the arrow cursor and the dead hover say so before the
+   click does, and tileClick() stops at it rather than opening the drawer
+   behind it. */
 .asga-btn.asga-btn-installed {
-  color: color-mix(in srgb, var(--text-color, #f2f2f2) 55%, var(--background-color, #1d1b1b));
+  color: color-mix(in srgb, var(--text-color, #f2f2f2) 48%, var(--background-color, #1d1b1b));
   background: rgba(127, 127, 127, 0.06); border-color: rgba(127, 127, 127, 0.22);
-  font-weight: 600; cursor: pointer;
+  font-weight: 600; cursor: default;
 }
 /* two classes beats the generic hover above at one, so these win the cascade
    without relying on source order. They only lift the same fill: a button that
@@ -1030,8 +1047,11 @@ body.asga-active {
 .asga-btn.asga-pinned:hover {
   background: rgba(106, 196, 127, 0.22); border-color: rgba(106, 196, 127, 0.55);
 }
+/* Nothing moves under the pointer, because nothing happens when it is
+   pressed. Declared rather than left to the generic hover above, which would
+   light it like a pill that does something. */
 .asga-btn.asga-btn-installed:hover {
-  background: rgba(127, 127, 127, 0.10); border-color: rgba(127, 127, 127, 0.3);
+  background: rgba(127, 127, 127, 0.06); border-color: rgba(127, 127, 127, 0.22);
 }
 
 /* support dropdown */

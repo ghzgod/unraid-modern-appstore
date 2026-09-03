@@ -137,7 +137,7 @@ function clip($s, $max) {
 // whitespace and then an uppercase letter, a digit, or the end of the
 // string. Requiring what comes AFTER the punctuation, not just the
 // punctuation itself, is what stops it cutting inside an abbreviation.
-function first_sentence($s) {
+function lead_sentences($s) {
     $s = trim((string)$s);
     if ($s === '') return $s;
 
@@ -174,24 +174,29 @@ function first_sentence($s) {
     $sentence = null;
     if ($end !== null) {
         $sentence = substr($s, 0, $end + 1);
-        // Fold sentences in until the blurb is long enough to fill the three
-        // lines the card gives it. One sentence used to be the cut, and most
-        // ran a line and a half; 170 characters is what three lines hold at
-        // the narrowest card, and the 300 cap below still applies.
+        // The blurb stops after the second sentence, and takes the second
+        // whenever there is one. It used to keep folding sentences in until it
+        // had 170 characters, which is what three lines of the card hold, and
+        // that let a blurb of short sentences run to four or five of them: the
+        // card clipped the tail mid-thought and the reader was left with a
+        // sentence that had no end. Two is a whole thought and a qualifier, and
+        // where two still overrun the band the card's own clamp ends them on an
+        // ellipsis rather than the text being cut to fit a count of characters.
         foreach ($candidates as $cand) {
-            if ($charlen($sentence) >= 170) break;
             if ($cand[1] <= $end || $skip($cand[1])) continue;
-            $next = substr($s, 0, $cand[1] + 1);
-            if ($charlen($next) > 300) break;
-            $sentence = $next;
+            $sentence = substr($s, 0, $cand[1] + 1);
             $end = $cand[1];
+            break;
         }
     }
 
-    // No sentence boundary found, or the one settled on runs too long for a
-    // card: fall back to a hard cap, same as clip(), but trimmed back to the
-    // last space first so it never lands mid-word the way clip() can.
-    if ($sentence === null || $charlen($sentence) > 300) {
+    // No sentence boundary found, or two sentences that run past anything a
+    // card could be asked to hold: fall back to a hard cap, same as clip(), but
+    // trimmed back to the last space first so it never lands mid-word the way
+    // clip() can. The ceiling is generous because the clamp, not this, is what
+    // decides where the visible text ends; it is here so one template with a
+    // 900-character opening sentence cannot bloat the payload for everyone.
+    if ($sentence === null || $charlen($sentence) > 420) {
         $max = 300;
         if ($charlen($s) <= $max) return $s;
         $cut = $mb ? mb_substr($s, 0, $max - 1) : substr($s, 0, $max - 1);
@@ -242,18 +247,31 @@ function card_category($feed, $stored) {
 // back out. Only the day is meaningful there, so the grid renders it without a
 // time. Returns 'v'. Semver-style plugin versions (1.3.13) yield nothing rather
 // than a guess.
+//
+// A version number is only a release date while it is not in the future. The
+// convention is a convention, not a fact, and a maintainer who numbers a
+// release ahead of the calendar (or past a run of same-day releases) publishes
+// a version that reads as a date nothing has reached yet. One plugin in the
+// current 3,600-app catalog does exactly that. Shown as-is it claimed to have
+// been updated two days from now, which is not a date this app store can print
+// and stay honest, so a future date is treated as no date at all and the card
+// says N/A. It self-corrects the moment the calendar catches the version up.
+// The registry push time below gets the same test, since a container registry
+// can be handed a bad clock the same way.
 function last_update(array $t) {
+    $now = time();
     if (!empty($t['Plugin'])) {
         $v = (string)($t['pluginVersion'] ?? '');
         if (preg_match('/^(20\d{2})\.(0[1-9]|1[0-2])\.(0[1-9]|[12]\d|3[01])(?![\d])/', $v, $m)) {
-            return [(int)mktime(0, 0, 0, (int)$m[2], (int)$m[3], (int)$m[1]), 'v'];
+            $ts = (int)mktime(0, 0, 0, (int)$m[2], (int)$m[3], (int)$m[1]);
+            return $ts > $now ? [0, ''] : [$ts, 'v'];
         }
         return [0, ''];
     }
     $tag = strtolower(explode(':', trim((string)($t['Repository'] ?? '')))[1] ?? '');
     if ($tag !== '' && $tag !== 'latest') return [0, ''];
     $lu = (int)($t['LastUpdate'] ?? 0);
-    return $lu > 1 ? [$lu, 'r'] : [0, ''];
+    return ($lu > 1 && $lu <= $now) ? [$lu, 'r'] : [0, ''];
 }
 
 // CA gates the install behind an "Attention" confirm whenever a template
@@ -484,11 +502,11 @@ foreach ($tmpl as $t) {
     }
 
     // description: prefer our stored copy, fall back to CA's Overview; cut to
-    // its opening sentences, enough for the card's three lines, to keep the payload lean.
-    // See first_sentence() above for why a sentence cut beats a character cut.
+    // its first two sentences, which is what the card's band is for.
+    // See lead_sentences() above for why a sentence cut beats a character cut.
     $desc = $mine['de'] ?? ($t['Overview'] ?? '');
     $desc = trim(preg_replace('/\s+/', ' ', strip_tags($desc)));
-    $desc = first_sentence($desc);
+    $desc = lead_sentences($desc);
 
     // Text the grid searches but never shows. Community Applications matches a
     // query against the app's FULL description and against ExtraSearchTerms, a
@@ -583,6 +601,13 @@ foreach ($tmpl as $t) {
         'pn'  => $t['SortName'] ?? $name,                    // exact SortName, CA's pin key part 2
         'rp'  => $mine['rp'] ?? '',                          // owner/repo, for the icon fallback
         'ty'  => !empty($t['Plugin']) ? 'plugin' : 'docker', // app type
+        // The .plg filename this app installs as, which is the key Unraid's
+        // own /var/log/plugins record is named for (see pinned.php). CA's feed
+        // never carries it directly, but it names each plugin's template after
+        // it, so the template's own filename is where it is read from.
+        'pk'  => !empty($t['Plugin'])
+                 ? strtolower(preg_replace('/\.xml$/i', '', basename((string)($t['TemplatePath'] ?? ''))))
+                 : '',
         'pu'  => $t['PluginURL'] ?? '',                      // plugin .plg url (plugins install differently)
         's'   => isset($mine['s']) ? $mine['s'] : null,
         'dl'  => $dl,

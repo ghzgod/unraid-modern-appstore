@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.09.04i">
+<!ENTITY version "2026.09.04j">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
@@ -14,6 +14,46 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" support="&support;">
 
 <CHANGES>
+##2026.09.04j
+- A search marks the words it matched inside a card's own blurb instead of
+  replacing the blurb with a passage cut from elsewhere. That passage came out
+  of the searchable text, which is the maintainer's name, the template's extra
+  search terms and the overview joined together, so a search for a maintainer
+  landed on the name and printed whatever sentence fragment sat beside it. The
+  card said something the app never said.
+- A card's blurb stops after its second sentence. It used to keep folding
+  sentences in until it had 170 characters, which let a blurb of short
+  sentences run to five of them and lose its tail mid-thought. Where two
+  sentences still overrun the band, the card ends them on an ellipsis.
+- An app whose screenshot no longer resolves shows no screenshot. Community
+  Applications writes the picture straight out of the template and never checks
+  it, and a fair number of those links now answer 404, so the page-wide error
+  handler painted a 200px placeholder that the gallery rule then stretched
+  across the whole drawer as a giant question mark. Roughly one template in ten
+  is affected, agent-zero and Appwrite among them.
+- The drawer's description reads as paragraphs. An author's plain-text indent
+  arrived as runs of &nbsp;, which do not collapse, and a blank line arrived as
+  three or four breaks, so a description printed indented halfway down and
+  spread over acres of nothing. Indentation goes, a paragraph break is one
+  blank line, and a list of bullets closes up instead of putting a blank line
+  between every item.
+- Every card's strip wears its icon's colour, whatever order the pictures
+  arrive in. The colour was applied from inside the icon's load handler, which
+  an already-cached icon fires before the card exists and a lazily-loaded one
+  below the fold does not fire at all, so the top of the grid went grey on a
+  second visit and the bottom stayed grey until it was scrolled to.
+- The artwork inside an icon is measured and centred, so two icons that differ
+  only in the margin their author baked in land on the card at the same size.
+  SVGs, which cannot be rasterised on the server, are measured in the browser
+  and the answer is cached with the rest.
+- An app already installed shows a grey Installed button that does nothing,
+  in place of Install. CA's own check compares the feed's redirector URL with
+  the installed plugin's and matched none of the 308 plugins in the catalog;
+  matching on the .plg filename finds them.
+- A release date in the future reads N/A. A plugin's version is read as its
+  release date, and a version numbered ahead of today printed as a date that
+  has not happened yet.
+
 ##2026.09.04i
 - Project and Support open the template's link exactly as the maintainer
   published it, as CA does. 2026.09.04g had the plugin resolve and repair
@@ -1880,7 +1920,7 @@ function clip($s, $max) {
 // whitespace and then an uppercase letter, a digit, or the end of the
 // string. Requiring what comes AFTER the punctuation, not just the
 // punctuation itself, is what stops it cutting inside an abbreviation.
-function first_sentence($s) {
+function lead_sentences($s) {
     $s = trim((string)$s);
     if ($s === '') return $s;
 
@@ -1917,24 +1957,29 @@ function first_sentence($s) {
     $sentence = null;
     if ($end !== null) {
         $sentence = substr($s, 0, $end + 1);
-        // Fold sentences in until the blurb is long enough to fill the three
-        // lines the card gives it. One sentence used to be the cut, and most
-        // ran a line and a half; 170 characters is what three lines hold at
-        // the narrowest card, and the 300 cap below still applies.
+        // The blurb stops after the second sentence, and takes the second
+        // whenever there is one. It used to keep folding sentences in until it
+        // had 170 characters, which is what three lines of the card hold, and
+        // that let a blurb of short sentences run to four or five of them: the
+        // card clipped the tail mid-thought and the reader was left with a
+        // sentence that had no end. Two is a whole thought and a qualifier, and
+        // where two still overrun the band the card's own clamp ends them on an
+        // ellipsis rather than the text being cut to fit a count of characters.
         foreach ($candidates as $cand) {
-            if ($charlen($sentence) >= 170) break;
             if ($cand[1] <= $end || $skip($cand[1])) continue;
-            $next = substr($s, 0, $cand[1] + 1);
-            if ($charlen($next) > 300) break;
-            $sentence = $next;
+            $sentence = substr($s, 0, $cand[1] + 1);
             $end = $cand[1];
+            break;
         }
     }
 
-    // No sentence boundary found, or the one settled on runs too long for a
-    // card: fall back to a hard cap, same as clip(), but trimmed back to the
-    // last space first so it never lands mid-word the way clip() can.
-    if ($sentence === null || $charlen($sentence) > 300) {
+    // No sentence boundary found, or two sentences that run past anything a
+    // card could be asked to hold: fall back to a hard cap, same as clip(), but
+    // trimmed back to the last space first so it never lands mid-word the way
+    // clip() can. The ceiling is generous because the clamp, not this, is what
+    // decides where the visible text ends; it is here so one template with a
+    // 900-character opening sentence cannot bloat the payload for everyone.
+    if ($sentence === null || $charlen($sentence) > 420) {
         $max = 300;
         if ($charlen($s) <= $max) return $s;
         $cut = $mb ? mb_substr($s, 0, $max - 1) : substr($s, 0, $max - 1);
@@ -1985,18 +2030,31 @@ function card_category($feed, $stored) {
 // back out. Only the day is meaningful there, so the grid renders it without a
 // time. Returns 'v'. Semver-style plugin versions (1.3.13) yield nothing rather
 // than a guess.
+//
+// A version number is only a release date while it is not in the future. The
+// convention is a convention, not a fact, and a maintainer who numbers a
+// release ahead of the calendar (or past a run of same-day releases) publishes
+// a version that reads as a date nothing has reached yet. One plugin in the
+// current 3,600-app catalog does exactly that. Shown as-is it claimed to have
+// been updated two days from now, which is not a date this app store can print
+// and stay honest, so a future date is treated as no date at all and the card
+// says N/A. It self-corrects the moment the calendar catches the version up.
+// The registry push time below gets the same test, since a container registry
+// can be handed a bad clock the same way.
 function last_update(array $t) {
+    $now = time();
     if (!empty($t['Plugin'])) {
         $v = (string)($t['pluginVersion'] ?? '');
         if (preg_match('/^(20\d{2})\.(0[1-9]|1[0-2])\.(0[1-9]|[12]\d|3[01])(?![\d])/', $v, $m)) {
-            return [(int)mktime(0, 0, 0, (int)$m[2], (int)$m[3], (int)$m[1]), 'v'];
+            $ts = (int)mktime(0, 0, 0, (int)$m[2], (int)$m[3], (int)$m[1]);
+            return $ts > $now ? [0, ''] : [$ts, 'v'];
         }
         return [0, ''];
     }
     $tag = strtolower(explode(':', trim((string)($t['Repository'] ?? '')))[1] ?? '');
     if ($tag !== '' && $tag !== 'latest') return [0, ''];
     $lu = (int)($t['LastUpdate'] ?? 0);
-    return $lu > 1 ? [$lu, 'r'] : [0, ''];
+    return ($lu > 1 && $lu <= $now) ? [$lu, 'r'] : [0, ''];
 }
 
 // CA gates the install behind an "Attention" confirm whenever a template
@@ -2227,11 +2285,11 @@ foreach ($tmpl as $t) {
     }
 
     // description: prefer our stored copy, fall back to CA's Overview; cut to
-    // its opening sentences, enough for the card's three lines, to keep the payload lean.
-    // See first_sentence() above for why a sentence cut beats a character cut.
+    // its first two sentences, which is what the card's band is for.
+    // See lead_sentences() above for why a sentence cut beats a character cut.
     $desc = $mine['de'] ?? ($t['Overview'] ?? '');
     $desc = trim(preg_replace('/\s+/', ' ', strip_tags($desc)));
-    $desc = first_sentence($desc);
+    $desc = lead_sentences($desc);
 
     // Text the grid searches but never shows. Community Applications matches a
     // query against the app's FULL description and against ExtraSearchTerms, a
@@ -2326,6 +2384,13 @@ foreach ($tmpl as $t) {
         'pn'  => $t['SortName'] ?? $name,                    // exact SortName, CA's pin key part 2
         'rp'  => $mine['rp'] ?? '',                          // owner/repo, for the icon fallback
         'ty'  => !empty($t['Plugin']) ? 'plugin' : 'docker', // app type
+        // The .plg filename this app installs as, which is the key Unraid's
+        // own /var/log/plugins record is named for (see pinned.php). CA's feed
+        // never carries it directly, but it names each plugin's template after
+        // it, so the template's own filename is where it is read from.
+        'pk'  => !empty($t['Plugin'])
+                 ? strtolower(preg_replace('/\.xml$/i', '', basename((string)($t['TemplatePath'] ?? ''))))
+                 : '',
         'pu'  => $t['PluginURL'] ?? '',                      // plugin .plg url (plugins install differently)
         's'   => isset($mine['s']) ? $mine['s'] : null,
         'dl'  => $dl,
@@ -2424,9 +2489,9 @@ echo json_encode(
  * renders them itself. This endpoint returns the membership sets so the grid can
  * filter to them.
  *
- * READ-ONLY. Reads CA's pinned file and the user's Docker templates; writes
- * nothing. CA keys each pin as "<image ref>&<SortName>"
- * (e.g. "leppermesiah/belot:latest&Belot").
+ * READ-ONLY. Reads CA's pinned file, the user's Docker templates and Unraid's
+ * own record of installed plugins; writes nothing. CA keys each pin as
+ * "<image ref>&<SortName>" (e.g. "leppermesiah/belot:latest&Belot").
  */
 header('Content-Type: application/json');
 
@@ -2452,7 +2517,42 @@ foreach (glob('/boot/config/plugins/dockerMan/templates-user/*.xml') ?: [] as $x
     }
 }
 
-echo json_encode(['pinned' => $pinned, 'installed' => array_keys($installed)]);
+// installed plugins: Unraid records every installed plugin as a file in
+// /var/log/plugins named for the .plg itself, and CA's app feed names each
+// plugin's template after that same .plg
+// (/tmp/GitHub/AppFeed/plugins/modern.appstore.xml for modern.appstore.plg),
+// so the filename is the key both sides share.
+//
+// CA's own checkInstalledPlugin() does not use it. It compares the feed's
+// PluginURL against the installed file's, and the feed now publishes those as
+// opaque ca.unraid.net/cdn blobs that no installed file carries: on a server
+// with 46 plugins installed, CA reports 0 of the catalog's 308 plugins as
+// installed. That is why every plugin here showed an Install button, including
+// ones the server was already running.
+//
+// A .plg name is a single flat namespace: two plugins that share one cannot
+// both be installed, so a name that matches is the app that occupies it.
+$plugins = [];
+$pluginsNorm = [];
+foreach (glob('/var/log/plugins/*.plg') ?: [] as $p) {
+    $b = strtolower(preg_replace('/\.plg$/i', '', basename($p)));
+    if ($b === '') continue;
+    $plugins[$b] = true;
+    // Punctuation-stripped, for the few feed templates that spell a name with
+    // different separators than the .plg does: unassigned.devices.plus.xml
+    // against unassigned.devices-plus.plg. Kept as its own list rather than
+    // folded into the one above, so a loose form can never be mistaken for an
+    // exact filename match.
+    $n = preg_replace('/[^a-z0-9]/', '', $b);
+    if ($n !== '') $pluginsNorm[$n] = true;
+}
+
+echo json_encode([
+    'pinned'      => $pinned,
+    'installed'   => array_keys($installed),
+    'plugins'     => array_keys($plugins),
+    'pluginsNorm' => array_keys($pluginsNorm),
+]);
 ]]>
 </INLINE>
 </FILE>
@@ -2827,10 +2927,22 @@ respond($ts, $src, false);
  * canvas taints it and the pixels cannot be read back. The server has no such
  * restriction.
  *
- * POST u=<JSON array of icon urls> (form-encoded, with the webGui's csrf_token) -> {"<icon url>": [<0-255 mean luminance>, <6-hex colour, or empty string>]}
+ * It also measures where the artwork inside the file actually starts and
+ * stops. The catalog's icons are not framed alike: some are drawn to the edge
+ * of their canvas, others sit in a wide transparent or flat-coloured margin
+ * baked into the file. Drawn at one size on one plate, the second kind reads
+ * as a small picture on a big tile beside a neighbour that fills its own. The
+ * grid scales each icon by this box so the gap between the artwork and the
+ * plate's edge is the same on every card, whatever the file was drawn with.
  *
- * An icon that cannot be fetched or decoded answers [-1, ''], which the caller
- * reads as "leave this tile alone" rather than asking again on every render.
+ * POST u=<JSON array of icon urls> (form-encoded, with the webGui's csrf_token) -> {"<icon url>": [<0-255 mean luminance>, <6-hex colour, or empty string>, <[x0,y0,x1,y1] in thousandths of the image, or null>]}
+ *
+ * An icon that cannot be fetched or decoded answers [-1, '', null], which the
+ * caller reads as "leave this tile alone" rather than asking again on every
+ * render. A null box on its own means the artwork's edge could not be read
+ * with confidence, and the icon is drawn exactly as it always was. The box
+ * reads "svg" instead for an icon this cannot rasterise, which asks the grid
+ * to measure that one itself; see the ?svg= passthrough below.
  *
  * Answers are cached to the addon's data directory on flash and kept: an
  * icon's artwork does not change, and artwork that does arrives under a new
@@ -2839,13 +2951,78 @@ respond($ts, $src, false);
  * Only URLs the catalog actually names are ever fetched, so this endpoint
  * cannot be pointed at anything else on the network.
  */
-header('Content-Type: application/json');
-
 $dataDir   = '/boot/config/plugins/modern.appstore';
-// New file: the old cache's entries are plain integers and would be misread
-// as a [lum, colour] pair.
-$cacheFile = $dataDir . '/icontone5.json';
+// New file each time the record's shape changes: the v5 cache's entries are
+// [lum, colour] pairs with no artwork box, and v6's null box means both "this
+// is a photograph and has no margin to trim" and "this is an SVG and could not
+// be rasterised", which are now two different answers.
+$cacheFile = $dataDir . '/icontone7.json';
 $appsFile  = __DIR__ . '/apps.json';
+
+/**
+ * Whether the catalog actually names this icon.
+ *
+ * Without it either entry point would fetch whatever URL a caller handed it,
+ * from a host sitting inside the user's own network.
+ */
+function iconKnown(string $u, string $appsFile): bool {
+    static $known = null;
+    if ($known === null) {
+        $known = [];
+        $apps = json_decode(@file_get_contents($appsFile), true);
+        foreach (($apps['apps'] ?? []) as $a) {
+            if (!empty($a['ic'])) $known[$a['ic']] = true;
+        }
+    }
+    if (isset($known[$u])) return true;
+    // the grid falls back to a maintainer's GitHub avatar when a template
+    // names no icon of its own, and those are built rather than listed
+    return (bool)preg_match('#^https://github\.com/[A-Za-z0-9._-]+\.png(\?size=\d+(&retry=1)?)?$#', $u);
+}
+
+/**
+ * GET ?svg=<icon url> -> that icon's own bytes, from this server's address.
+ *
+ * GD cannot rasterise an SVG and Unraid ships nothing that can, so an SVG icon
+ * is the one kind whose artwork this file cannot measure. The browser can: it
+ * draws the picture already. What it cannot do is read the result back, because
+ * ca.unraid.net and the maintainers' own hosts send no CORS header, and drawing
+ * one of their images to a canvas taints it.
+ *
+ * Served from here it is same-origin, so the canvas stays readable and the grid
+ * measures the artwork itself. The bytes are passed through untouched and only
+ * for a URL the catalog names, which is the same restriction the POST below
+ * works under.
+ */
+if (isset($_GET['svg'])) {
+    $u = (string)$_GET['svg'];
+    if (!iconKnown($u, $appsFile)) { http_response_code(404); exit; }
+    $ch = curl_init($u);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_FOLLOWLOCATION => true,
+        CURLOPT_MAXREDIRS      => 3,
+        CURLOPT_CONNECTTIMEOUT => 4,
+        CURLOPT_TIMEOUT        => 8,
+        CURLOPT_USERAGENT      => 'unraid-modern-appstore',
+    ]);
+    $body = curl_exec($ch);
+    $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    // Only an SVG is ever served back, whatever the far end decided to send,
+    // so this cannot be used to pull an arbitrary document through the webGui.
+    $head = ltrim(substr((string)$body, 0, 64), "\xEF\xBB\xBF \t\r\n");
+    if ($code !== 200 || $body === false || $head === '' || $head[0] !== '<' || strlen($body) > 262144) {
+        http_response_code(404);
+        exit;
+    }
+    header('Content-Type: image/svg+xml');
+    header('Cache-Control: public, max-age=86400');
+    echo $body;
+    exit;
+}
+
+header('Content-Type: application/json');
 
 // the webGui only lets a form-encoded POST through with its csrf token, so
 // the request now arrives as a field rather than a raw JSON body
@@ -2872,20 +3049,9 @@ foreach ($want as $u) {
     else $todo[] = $u;
 }
 
-// Only icons the catalog actually names. Without this the endpoint would fetch
-// whatever URL a caller handed it, from a host sitting inside the user's own
-// network.
 if ($todo) {
-    $known = [];
-    $apps = json_decode(@file_get_contents($appsFile), true);
-    foreach (($apps['apps'] ?? []) as $a) {
-        if (!empty($a['ic'])) $known[$a['ic']] = true;
-    }
-    $todo = array_values(array_filter($todo, function ($u) use ($known) {
-        if (isset($known[$u])) return true;
-        // the grid falls back to a maintainer's GitHub avatar when a template
-        // names no icon of its own, and those are built rather than listed
-        return (bool)preg_match('#^https://github\.com/[A-Za-z0-9._-]+\.png(\?size=\d+(&retry=1)?)?$#', $u);
+    $todo = array_values(array_filter($todo, function ($u) use ($appsFile) {
+        return iconKnown($u, $appsFile);
     }));
 }
 
@@ -2939,17 +3105,21 @@ function fetchTone(array $urls) {
 
 /**
  * Scales the image to 16x16 for luminance (unchanged from before) and to
- * 24x24 for colour, and answers both together. Returns [-1, ''] on failure.
+ * 24x24 for colour, measures the artwork's own edges at up to 128px, and
+ * answers all three together. Returns [-1, '', null] on failure.
  */
 function toneOf($body) {
-    if (!$body || strlen($body) > 4194304) return [-1, ''];
+    if (!$body || strlen($body) > 4194304) return [-1, '', null];
     // An SVG is text that opens with a tag; a raster opens with its magic
     // bytes. Searching the head for "<svg" instead matched a PNG that carried
     // an SVG inside its metadata chunk and read that as the whole icon.
     $head = ltrim(substr($body, 0, 64), "\xEF\xBB\xBF \t\r\n");
-    if ($head !== '' && $head[0] === '<') return svgTone($body);
+    // An SVG's artwork cannot be measured here; the grid measures it in a
+    // canvas instead, through the ?svg= passthrough above. 'svg' is the record
+    // that tells it to.
+    if ($head !== '' && $head[0] === '<') { $t = svgTone($body); $t[2] = ($t[0] === -1) ? null : 'svg'; return $t; }
     $im = @imagecreatefromstring($body);
-    if (!$im) return [-1, ''];
+    if (!$im) return [-1, '', null];
     if (!imageistruecolor($im)) @imagepalettetotruecolor($im);
 
     $lumSrc = @imagescale($im, 16, 16);
@@ -2972,8 +3142,98 @@ function toneOf($body) {
     $colour = colourOf($colSrc);
     if ($colSrc !== $im) imagedestroy($colSrc);
 
+    $box = inkBox($im);
+
     imagedestroy($im);
-    return [$lum, $colour];
+    return [$lum, $colour, $box];
+}
+
+/**
+ * Where the artwork inside the file begins and ends, as [x0,y0,x1,y1] in
+ * thousandths of the image's own width and height, or null when it cannot be
+ * read with confidence.
+ *
+ * What counts as background is decided by the four corners, because that is
+ * the only part of an icon that is background in every icon that has any:
+ *
+ *   - all four transparent  -> the margin is transparent, and the artwork is
+ *     every pixel that is not
+ *   - all four opaque and the same colour -> the icon is drawn on a flat
+ *     field, and the artwork is every pixel that differs from it
+ *   - anything else -> the image runs to its own edge, or is a photograph, or
+ *     is something this cannot describe. It answers null and the icon is left
+ *     exactly as it is, rather than being cropped on a guess.
+ *
+ * The tolerance is deliberately loose on the corner agreement (a gradient
+ * field is still a field) and tight on what counts as artwork, so a JPEG's
+ * ringing around a logo is background and the logo is not.
+ */
+function inkBox($im) {
+    $w0 = imagesx($im); $h0 = imagesy($im);
+    if ($w0 < 8 || $h0 < 8) return null;
+    // An icon is being measured, not read: a 512px source costs sixteen times
+    // the pixels of a 128px one and answers the same question.
+    $src = $im; $scaled = false;
+    $mx = max($w0, $h0);
+    if ($mx > 128) {
+        $s = @imagescale($im, (int)max(1, round($w0 * 128 / $mx)), (int)max(1, round($h0 * 128 / $mx)));
+        if ($s) { $src = $s; $scaled = true; }
+    }
+    $w = imagesx($src); $h = imagesy($src);
+
+    $corners = [
+        imagecolorat($src, 0, 0), imagecolorat($src, $w - 1, 0),
+        imagecolorat($src, 0, $h - 1), imagecolorat($src, $w - 1, $h - 1),
+    ];
+    $clear = 0; $solid = 0;
+    foreach ($corners as $p) {
+        $a = ($p >> 24) & 0x7F;
+        if ($a > 96) $clear++;
+        elseif ($a <= 32) $solid++;
+    }
+    $bg = null;                                  // null = transparent background
+    if ($clear !== 4) {
+        if ($solid !== 4) { if ($scaled) imagedestroy($src); return null; }
+        $r = $g = $b = 0;
+        foreach ($corners as $p) { $r += ($p >> 16) & 0xFF; $g += ($p >> 8) & 0xFF; $b += $p & 0xFF; }
+        $bg = [$r / 4, $g / 4, $b / 4];
+        foreach ($corners as $p) {
+            $d = sqrt(pow((($p >> 16) & 0xFF) - $bg[0], 2) + pow((($p >> 8) & 0xFF) - $bg[1], 2) + pow(($p & 0xFF) - $bg[2], 2));
+            if ($d > 28) { if ($scaled) imagedestroy($src); return null; }
+        }
+    }
+
+    $x0 = $w; $y0 = $h; $x1 = -1; $y1 = -1; $ink = 0;
+    for ($y = 0; $y < $h; $y++) {
+        for ($x = 0; $x < $w; $x++) {
+            $p = imagecolorat($src, $x, $y);
+            if ((($p >> 24) & 0x7F) > 96) continue;              // transparent is never artwork
+            if ($bg !== null) {
+                $d = sqrt(pow((($p >> 16) & 0xFF) - $bg[0], 2) + pow((($p >> 8) & 0xFF) - $bg[1], 2) + pow(($p & 0xFF) - $bg[2], 2));
+                if ($d <= 40) continue;
+            }
+            $ink++;
+            if ($x < $x0) $x0 = $x;
+            if ($x > $x1) $x1 = $x;
+            if ($y < $y0) $y0 = $y;
+            if ($y > $y1) $y1 = $y;
+        }
+    }
+    if ($scaled) imagedestroy($src);
+
+    // Nothing found, or so little that the box is noise rather than a mark:
+    // scaling a stray anti-aliased pixel up to fill the plate would be worse
+    // than leaving the icon alone.
+    if ($x1 < $x0 || $y1 < $y0) return null;
+    if ($ink < ($w * $h) * 0.003) return null;
+    if (($x1 - $x0 + 1) < $w * 0.06 || ($y1 - $y0 + 1) < $h * 0.06) return null;
+
+    return [
+        (int)round($x0 * 1000 / $w),
+        (int)round($y0 * 1000 / $h),
+        (int)round(($x1 + 1) * 1000 / $w),
+        (int)round(($y1 + 1) * 1000 / $h),
+    ];
 }
 
 /**
@@ -3902,6 +4162,12 @@ echo json_encode(['error' => 'method not allowed']);
     var scanAsked = {};           // path -> 1, so a page is only auto-scanned once
     var scanInFlight = false, scanPending = false, scanTimer = null;
     var pinnedSet = null, installedSet = null;
+    // Installed plugins, keyed by the .plg filename they occupy, plus the
+    // punctuation-stripped form of the same name for the handful of feed
+    // templates spelled with different separators. Both come from
+    // pinned.php; see the comment there for why CA's own answer cannot be
+    // used and why the filename is the key.
+    var installedPlugins = null, installedPluginsNorm = null;
     // how many days of the plugin's own star-history snapshots this install
     // has. The year trending windows are built from this now, since GitHub
     // restricted the endpoints that used to backfill a year-ago baseline
@@ -3934,6 +4200,23 @@ echo json_encode(['error' => 'method not allowed']);
     var caSpecial = false;
     var CA_SPECIAL = /^(previous_apps|prev_docker|prev_plugins|action_centre)$/;
     function stripTag(ri) { return (ri || '').toLowerCase().split(':')[0]; }
+    // Whether this server already has the app. The two kinds of app answer it
+    // from different records, and neither is CA's: a Docker app matches on the
+    // image its user template names, a plugin on the .plg filename it occupies
+    // in /var/log/plugins. A plugin's own image ref is the cdn-wrapped .plg
+    // URL, so it can never match a Docker image and every plugin in the store
+    // used to show an Install button, the maintainer's own installed ones
+    // included.
+    function isInstalled(a) {
+      if (!a) return false;
+      if (a.ty === 'plugin') {
+        if (!a.pk || !installedPlugins) return false;
+        if (installedPlugins.has(a.pk)) return true;
+        var n = a.pk.replace(/[^a-z0-9]/g, '');
+        return !!n && !!installedPluginsNorm && installedPluginsNorm.has(n);
+      }
+      return !!(a.ri && installedSet && installedSet.has(stripTag(a.ri)));
+    }
     // Template path of the app whose drawer is open. The drawer is CA's and CA
     // never tells us which app it just painted, so the path we handed
     // showSidebarApp is kept here for fixDrawerDetails() to look the app back
@@ -3947,8 +4230,20 @@ echo json_encode(['error' => 'method not allowed']);
     function loadViews(cb) {
       fetch(PREFIX + 'pinned.php?_=' + Date.now())
         .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (j) { pinnedSet = new Set((j && j.pinned) || []); installedSet = new Set((j && j.installed) || []); cb && cb(); })
-        .catch(function () { pinnedSet = pinnedSet || new Set(); installedSet = installedSet || new Set(); cb && cb(); });
+        .then(function (j) {
+          pinnedSet = new Set((j && j.pinned) || []);
+          installedSet = new Set((j && j.installed) || []);
+          installedPlugins = new Set((j && j.plugins) || []);
+          installedPluginsNorm = new Set((j && j.pluginsNorm) || []);
+          cb && cb();
+        })
+        .catch(function () {
+          pinnedSet = pinnedSet || new Set();
+          installedSet = installedSet || new Set();
+          installedPlugins = installedPlugins || new Set();
+          installedPluginsNorm = installedPluginsNorm || new Set();
+          cb && cb();
+        });
     }
 
     // Every trending sort ranks by GitHub stars; they differ only in the window.
@@ -4152,7 +4447,7 @@ echo json_encode(['error' => 'method not allowed']);
     // Every answer is held in localStorage, so a second visit asks for nothing.
     // Each answer now also carries a representative colour of the icon, which
     // paintTone hands to the tile's strip.
-    var TONE_KEY = 'asga_icontone_v5';
+    var TONE_KEY = 'asga_icontone_v7';
     var TONE_DARK = 78;   // 0-255 mean luminance; below this needs a plate
     var toneMap = {};
     try { toneMap = JSON.parse(localStorage.getItem(TONE_KEY) || '{}') || {}; } catch (e) { toneMap = {}; }
@@ -4168,17 +4463,164 @@ echo json_encode(['error' => 'method not allowed']);
       if (val == null || val === -1) return;
       var lum = Array.isArray(val) ? val[0] : val;
       var col = Array.isArray(val) ? val[1] : '';
+      if (Array.isArray(val)) fitIconInk(img, val[2]);
       if (lum >= 0) img.dataset.tone = (lum < TONE_DARK) ? 'dark' : 'lit';
       // the strip wears the icon's own colour, so the card's top reads as the
       // app rather than as its kind
-      if (col && /^[0-9a-f]{6}$/i.test(col)) {
+      var rgb = hexToRgb(col);
+      if (rgb) {
+        // Written onto the image before anything is looked up through the DOM,
+        // because much of the time there is no DOM to look through yet: an icon
+        // the browser already holds fires its load in the same tick the element
+        // was created, which is before the card has appended it, so closest()
+        // finds nothing and the strip keeps the default tint.
+        img.dataset.asgaStrip = rgb;
         var tile = img.closest && img.closest('.asga-tile');
         var strip = tile && tile.querySelector('.asga-tile-strip');
-        if (strip) {
-          strip.style.setProperty('--asga-strip-rgb',
-            parseInt(col.slice(0, 2), 16) + ', ' + parseInt(col.slice(2, 4), 16) + ', ' + parseInt(col.slice(4, 6), 16));
-        }
+        if (strip) strip.style.setProperty('--asga-strip-rgb', rgb);
       }
+    }
+    function hexToRgb(col) {
+      if (!col || !/^[0-9a-f]{6}$/i.test(col)) return '';
+      return parseInt(col.slice(0, 2), 16) + ', ' + parseInt(col.slice(2, 4), 16) + ', ' + parseInt(col.slice(4, 6), 16);
+    }
+    // The strip's colour, asked for by icon URL rather than waited for on the
+    // picture. Tones are keyed by that URL and most of them are already in
+    // storage by the time a card is built, so the answer is usually there for
+    // the asking, and asking is what keeps a strip from depending on when its
+    // icon loads. Icons are lazy: below the fold one does not load until it is
+    // scrolled to, so a strip that waited for the load event stayed grey for
+    // every card the reader had not reached yet, and a card whose icon was
+    // cached could be painted before it had a strip to paint. Both are the same
+    // dependency, and this removes it.
+    function toneRgb(url) {
+      var rec = url ? toneMap[url] : undefined;
+      return hexToRgb(Array.isArray(rec) ? rec[1] : '');
+    }
+    function stripFromIcon(icon, strip) {
+      if (!icon || !strip) return;
+      var rgb = (icon.dataset && icon.dataset.asgaStrip) || toneRgb(icon.getAttribute && icon.getAttribute('src'));
+      if (rgb) strip.style.setProperty('--asga-strip-rgb', rgb);
+    }
+    // How much of the plate the artwork is given, and how far a small mark
+    // may be enlarged to get there. The pad is a fraction of the plate rather
+    // than a pixel count, so an icon keeps the same proportions at every card
+    // width. The cap exists because a mark drawn 40px across inside a 512px
+    // canvas goes soft long before it fills a tile, and a soft icon is worse
+    // than a small one.
+    var ICON_INK_PAD = 0.05;
+    var ICON_INK_MAX = 2.4;
+    // Scale and centre an icon on the artwork icontone.php found inside it,
+    // rather than on the canvas it was saved with. Two icons that differ only
+    // in how much empty margin their author baked in then land on the card at
+    // the same size, with the same gap to the plate's edge.
+    //
+    // Everything here is in fractions of the plate's side, and the transform
+    // is written in percentages and a scale factor, so it survives a change of
+    // card width without being recomputed. The plate itself is drawn on the
+    // wrapper rather than on this image, because scaling the image scales
+    // whatever is painted behind it too.
+    function fitIconInk(img, box) {
+      if (!img || !img.dataset || img.dataset.asgaCardIcon !== '1') return;
+      // 'svg' means icontone.php could not rasterise this one and is asking
+      // the browser, which draws it anyway, to measure it instead.
+      if (box === 'svg') { measureSvgInk(img); return; }
+      if (!Array.isArray(box) || box.length !== 4) return;
+      var nw = img.naturalWidth, nh = img.naturalHeight;
+      if (!nw || !nh) return;
+      applyInk(img, box, nw, nh);
+    }
+    function applyInk(img, box, nw, nh) {
+      // where object-fit: contain lands an image of this shape inside the
+      // square plate, in fractions of the plate's side
+      var dw = nw >= nh ? 1 : nw / nh;
+      var dh = nh >= nw ? 1 : nh / nw;
+      var ox = (1 - dw) / 2, oy = (1 - dh) / 2;
+      var x0 = ox + (box[0] / 1000) * dw, x1 = ox + (box[2] / 1000) * dw;
+      var y0 = oy + (box[1] / 1000) * dh, y1 = oy + (box[3] / 1000) * dh;
+      var iw = x1 - x0, ih = y1 - y0;
+      if (!(iw > 0.02) || !(ih > 0.02)) return;
+      var room = 1 - 2 * ICON_INK_PAD;
+      var s = Math.min(room / iw, room / ih, ICON_INK_MAX);
+      var tx = -s * ((x0 + x1) / 2 - 0.5) * 100;
+      var ty = -s * ((y0 + y1) / 2 - 0.5) * 100;
+      img.classList.add('asga-icon-fit');
+      img.style.transform = 'translate(' + tx.toFixed(2) + '%, ' + ty.toFixed(2) + '%) scale(' + s.toFixed(3) + ')';
+    }
+    // An SVG icon, drawn into a canvas of our own and read back for the same
+    // artwork box icontone.php works out for every other kind. It has to come
+    // through this server's own address to be readable: the maintainers' hosts
+    // and ca.unraid.net send no CORS header, and an image from either taints
+    // the canvas it is drawn on. icontone.php's ?svg= passthrough is what makes
+    // it same-origin.
+    //
+    // The answer is written back into the tone record, so it is measured once
+    // per icon per browser and read from storage after that.
+    var svgInkAsked = {};
+    function measureSvgInk(img) {
+      var url = img.currentSrc || img.src || '';
+      if (!url || svgInkAsked[url]) return;
+      svgInkAsked[url] = 1;
+      var probe = new Image();
+      probe.onload = function () {
+        var box = null, aw = probe.naturalWidth || 0, ah = probe.naturalHeight || 0;
+        // A viewBox-only SVG reports no intrinsic size, and a canvas draw of
+        // one is empty unless it is given a concrete one. Anything that does
+        // report a size is drawn at its own shape, because that is the shape
+        // object-fit: contain will letterbox on the card, and a box measured
+        // out of a squashed drawing would not describe it.
+        if (!aw || !ah) { aw = ah = 96; }
+        var side = Math.max(aw, ah);
+        var cw = Math.max(8, Math.round(aw * 96 / side));
+        var ch = Math.max(8, Math.round(ah * 96 / side));
+        try {
+          var cv = document.createElement('canvas');
+          cv.width = cw; cv.height = ch;
+          var cx = cv.getContext('2d');
+          cx.clearRect(0, 0, cw, ch);
+          cx.drawImage(probe, 0, 0, cw, ch);
+          var d = cx.getImageData(0, 0, cw, ch).data;
+          var x0 = cw, y0 = ch, x1 = -1, y1 = -1, ink = 0;
+          for (var y = 0; y < ch; y++) {
+            for (var x = 0; x < cw; x++) {
+              if (d[(y * cw + x) * 4 + 3] < 48) continue;
+              ink++;
+              if (x < x0) x0 = x;
+              if (x > x1) x1 = x;
+              if (y < y0) y0 = y;
+              if (y > y1) y1 = y;
+            }
+          }
+          if (x1 >= x0 && y1 >= y0 && ink > cw * ch * 0.003) {
+            box = [Math.round(x0 * 1000 / cw), Math.round(y0 * 1000 / ch),
+                   Math.round((x1 + 1) * 1000 / cw), Math.round((y1 + 1) * 1000 / ch)];
+          }
+        } catch (e) { box = null; }
+        if (!box) return;
+        rememberInk(url, box);
+        applyInkByUrl(url, box);
+      };
+      probe.onerror = function () {};
+      probe.src = PREFIX + 'icontone.php?svg=' + encodeURIComponent(url);
+    }
+    // Applied to whichever cards are showing this icon now, rather than to the
+    // element that asked. Measuring an SVG takes a round trip, and a render in
+    // the meantime replaces every tile, so the element that started this is
+    // often no longer the one on screen.
+    function applyInkByUrl(url, box) {
+      var live = document.querySelectorAll('#asga-grid .asga-tile-icon img');
+      for (var i = 0; i < live.length; i++) {
+        var im = live[i];
+        if ((im.currentSrc || im.src) === url) applyInk(im, box, im.naturalWidth || 1, im.naturalHeight || 1);
+      }
+    }
+    // Fold a measured box into the icon's tone record so the next page load
+    // reads it from storage instead of drawing the picture again.
+    function rememberInk(url, box) {
+      var rec = toneMap[url];
+      if (!Array.isArray(rec)) return;
+      rec[2] = box;
+      try { localStorage.setItem(TONE_KEY, JSON.stringify(keepableTones())); } catch (e) {}
     }
     // Bound on load rather than on creation, because a card swaps in the
     // maintainer's GitHub avatar when a template's own icon 404s and the tone
@@ -4228,7 +4670,8 @@ echo json_encode(['error' => 'method not allowed']);
             delete tonePending[u];
           });
           // lum here still holds whatever icontone.php answered: -1 on
-          // failure, or the [luminance, colour] pair, both handled by paintTone.
+          // failure, or the [luminance, colour, artwork box] record, both
+          // handled by paintTone.
           // The -1 answers stay in toneMap for this page load only and are
           // left out of what goes to storage.
           try { localStorage.setItem(TONE_KEY, JSON.stringify(keepableTones())); } catch (e) {}
@@ -4405,7 +4848,7 @@ echo json_encode(['error' => 'method not allowed']);
       var opt = optFor(view.sort);
       var list = APPS.filter(function (a) {
         if (view.special === 'pinned') { if (!pinnedSet || !pinnedSet.has((a.ri || '') + '&' + (a.pn || ''))) return false; }
-        else if (view.special === 'installed') { if (!installedSet || !installedSet.has(stripTag(a.ri))) return false; }
+        else if (view.special === 'installed') { if (!isInstalled(a)) return false; }
         // The Installed list is exempt: an app already on the server is a
         // fact to show, whatever CA now says about compatibility.
         if (hideIncompatible && a.xc && view.special !== 'installed') return false;
@@ -4461,6 +4904,10 @@ echo json_encode(['error' => 'method not allowed']);
       var btn = el.closest ? el.closest('.asga-btn') : null;
       if (btn) {
         e.stopPropagation();
+        // Installed is a statement, not a control. Stopping here rather than
+        // falling through is what makes it unclickable; Info, one pill along,
+        // is the button for reading about an app already on the server.
+        if (btn.classList.contains('asga-btn-installed')) return;
         if (btn.classList.contains('asga-install')) {
           installApp(tile);
         } else if (btn.classList.contains('asga-project')) {
@@ -4598,6 +5045,65 @@ echo json_encode(['error' => 'method not allowed']);
         openLightbox(srcs, Math.max(0, items.indexOf(scr)));
       }, true);
     }
+    // A preview that is not there. CA writes the screenshot straight out of the
+    // template into both the <img> and the lightbox link beside it, and it
+    // never checks that the picture still exists. Plenty no longer do: the URLs
+    // are ca.unraid.net/cdn redirectors and a fair number of them answer 404
+    // now, which is what agent-zero's does. The page-wide error handler then
+    // paints the Docker question mark over the failure, and because .screen is
+    // a full-width rule that 200px placeholder is stretched across the whole
+    // drawer as a giant grey question mark, sitting under Additional
+    // Requirements where it reads as part of the requirement. Clicking it opens
+    // a lightbox onto the same 404, so it looks broken twice.
+    //
+    // A missing picture is not a picture. The link goes, and the bare <div> CA
+    // wrapped the gallery in goes with it when nothing is left inside, so the
+    // drawer closes up rather than keeping an empty band. This is by state
+    // rather than by app: any template whose screenshot has rotted gets the
+    // same treatment, and one that still resolves is untouched.
+    //
+    // Three things have to be watched because the substitution can land before
+    // or after this runs: the src as it stands, the img's own error event, and
+    // any later rewrite of src by CA's handler.
+    function pruneShots() {
+      if (!isOn()) return;
+      var links = [].slice.call(document.querySelectorAll('#sidenavContent a.screenshot'));
+      for (var i = 0; i < links.length; i++) watchShot(links[i]);
+    }
+    function watchShot(link) {
+      if (link.__asgaShot || link.classList.contains('popupIcon')) return;
+      link.__asgaShot = true;
+      // a video preview is a YouTube thumbnail, which is served by YouTube and
+      // does not go through CA's redirectors at all
+      if (link.classList.contains('mfp-iframe')) return;
+      // img.screen is CA's gallery picture and nothing else. The maintainer's
+      // avatar is wrapped in a link of this same class, and it fails to load
+      // often enough (511 of CA's repositories publish no icon) that matching
+      // on the link alone would delete the maintainer's portrait along with the
+      // rotted screenshots. fixMaintainerIcon already answers that one, with a
+      // drawn glyph rather than a hole.
+      var img = link.querySelector('img.screen');
+      if (!img) return;
+      var check = function () {
+        var src = img.getAttribute('src') || '';
+        if (src.indexOf('question.png') >= 0) { dropShot(link); return true; }
+        if (img.complete && img.naturalWidth === 0) { dropShot(link); return true; }
+        return false;
+      };
+      if (check()) return;
+      img.addEventListener('error', function () { dropShot(link); });
+      img.addEventListener('load', check);
+      new MutationObserver(check).observe(img, { attributes: true, attributeFilter: ['src'] });
+    }
+    function dropShot(link) {
+      var box = link.parentNode;
+      if (!box) return;
+      box.removeChild(link);
+      // CA wraps the whole gallery in an unclassed div of its own, so an empty
+      // one is the gallery and nothing else, and it is safe to take with it.
+      if (!box.className && !box.id && box.children.length === 0 && box.parentNode) box.parentNode.removeChild(box);
+    }
+
     // CA's slide-out drawer carries a Maintainer block with three buttons
     // (ca_repoSearchPopUp/repoPopup/ca_favouriteRepo), which our drawer already
     // renders and styles. All Apps runs CA's own repo search by default, which
@@ -4657,6 +5163,7 @@ echo json_encode(['error' => 'method not allowed']);
     // how a template writes a list ("Port: 8080" on its own line), and joining
     // those would be the same vandalism in the other direction.
     var WRAP_MIN = 60;
+    var NBSP = '\u00a0';
     function wireDescriptionTidy() {
       if (document.body.__asgaDescTidy) return;
       document.body.__asgaDescTidy = true;
@@ -4672,13 +5179,7 @@ echo json_encode(['error' => 'method not allowed']);
       var el = document.querySelector('#sidenavContent .popupDescription');
       if (!el || el.__asgaTidied) return;
       el.__asgaTidied = true;
-      // the indent first: &nbsp; does not collapse the way a space does, so it
-      // has to become one before the lines are joined
-      var walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
-      var node;
-      while ((node = walk.nextNode())) {
-        if (node.nodeValue.indexOf(' ') !== -1) node.nodeValue = node.nodeValue.replace(/ +/g, ' ');
-      }
+      squashSpaces(el);
       var brs = [].slice.call(el.querySelectorAll('br'));
       for (var i = 0; i < brs.length; i++) {
         var br = brs[i];
@@ -4687,9 +5188,87 @@ echo json_encode(['error' => 'method not allowed']);
         if (lineBefore(br).length < WRAP_MIN) continue;                    // deliberate short line
         br.parentNode.replaceChild(document.createTextNode(' '), br);
       }
+      capBreaks(el);
+      tightenLists(el);
+      trimLineStarts(el);
+    }
+    // A list is a list, not eleven paragraphs. A template that writes its
+    // features one per line arrives with a blank line between every bullet,
+    // because CA turns the author's newline into a break and their blank line
+    // into a second one, and the drawer then spends a screen and a half on
+    // seven short items. Consecutive bullets close up to a single break; the
+    // blank line above the first one stays, so the list still reads as a block
+    // separated from the sentence that introduces it.
+    var BULLET = /^[-*\u2022\u00b7]\s+/;
+    function tightenLists(el) {
+      var brs = [].slice.call(el.querySelectorAll('br'));
+      for (var i = 0; i < brs.length; i++) {
+        var br = brs[i];
+        if (!br.parentNode) continue;
+        var after = meaningAfter(br);
+        if (!isBr(after) || !after.parentNode) continue;
+        if (!BULLET.test(lineBefore(br))) continue;
+        if (!BULLET.test(lineAfter(after))) continue;
+        after.parentNode.removeChild(after);
+      }
+    }
+    // the text of the line this break opens, up to the next break
+    function lineAfter(br) {
+      var s = '', n = br.nextSibling;
+      while (n && n.nodeName !== 'BR') { s += (n.textContent || ''); n = n.nextSibling; }
+      return s.replace(/\s+/g, ' ').trim();
+    }
+    // Every run of whitespace becomes one plain space, non-breaking spaces
+    // included. That is what a browser already does to an ordinary space, so
+    // the only thing this changes is the character CA writes for indentation:
+    // it turns a leading tab or four spaces in the template into &nbsp; runs,
+    // which do NOT collapse, and the drawer then prints the author's plain-text
+    // indent as a real indent halfway down a paragraph.
+    function squashSpaces(el) {
+      var walk = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, null);
+      var node, re = new RegExp('[' + NBSP + '\\s]+', 'g');
+      while ((node = walk.nextNode())) {
+        if (re.test(node.nodeValue)) { re.lastIndex = 0; node.nodeValue = node.nodeValue.replace(re, ' '); }
+        re.lastIndex = 0;
+      }
+    }
+    // One blank line between paragraphs, never four. A template written in a
+    // plain-text box carries its own blank lines, CA turns each newline into a
+    // <br>, and a paragraph break authored as one blank line arrives as two
+    // breaks while one written with three arrives as four. The drawer then
+    // scrolls past acres of nothing. Two breaks is the blank line; the rest go.
+    function capBreaks(el) {
+      var brs = [].slice.call(el.querySelectorAll('br'));
+      for (var i = 0; i < brs.length; i++) {
+        var br = brs[i];
+        if (!br.parentNode) continue;
+        var run = 1, n = meaningAfter(br);
+        while (isBr(n)) {
+          run++;
+          var next = meaningAfter(n);
+          if (run > 2) { n.parentNode.removeChild(n); run--; }
+          n = next;
+        }
+      }
+    }
+    // A line that starts with a space starts with an indent the reader can see,
+    // because a <br> ends the line but does not restart the collapsing the way
+    // the start of a block does. The indent was CA's rendering of the author's
+    // plain-text layout, not something the author asked the drawer to draw, so
+    // every line here begins at the margin its neighbours begin at.
+    function trimLineStarts(el) {
+      var first = el.firstChild;
+      while (first && first.nodeType === 1 && first.firstChild) first = first.firstChild;
+      if (first && first.nodeType === 3) first.nodeValue = first.nodeValue.replace(/^\s+/, '');
+      var brs = [].slice.call(el.querySelectorAll('br'));
+      for (var i = 0; i < brs.length; i++) {
+        var n = brs[i].nextSibling;
+        while (n && n.nodeType === 1 && n.nodeName !== 'BR' && n.firstChild) n = n.firstChild;
+        if (n && n.nodeType === 3) n.nodeValue = n.nodeValue.replace(/^[ \t]+/, '');
+      }
     }
     function isBr(n) { return !!n && n.nodeName === 'BR'; }
-    function blankText(n) { return n && n.nodeType === 3 && !/[^\s ]/.test(n.nodeValue); }
+    function blankText(n) { return n && n.nodeType === 3 && !new RegExp('[^\\s' + NBSP + ']').test(n.nodeValue); }
     function meaningBefore(n) { n = n.previousSibling; while (blankText(n)) n = n.previousSibling; return n; }
     function meaningAfter(n) { n = n.nextSibling; while (blankText(n)) n = n.nextSibling; return n; }
     // the text of the line this break ends, back to the previous break. Reading
@@ -4761,7 +5340,7 @@ echo json_encode(['error' => 'method not allowed']);
       document.body.__asgaDrawerDetails = true;
       var host = document.getElementById('sidenavContent') || document.querySelector('.sidenav');
       if (!host) return;
-      new MutationObserver(function () { fixDrawerDetails(); addReadmeButton(); cardSections(); renameFavourite(); fixDrawerIcon(); fixMaintainerIcon(); fixRepoDrawer(); drawerReady(); })
+      new MutationObserver(function () { fixDrawerDetails(); addReadmeButton(); cardSections(); renameFavourite(); fixDrawerIcon(); fixMaintainerIcon(); fixRepoDrawer(); pruneShots(); drawerReady(); })
         .observe(host, { childList: true, subtree: true });
       fixDrawerDetails();
       addReadmeButton();
@@ -4770,6 +5349,7 @@ echo json_encode(['error' => 'method not allowed']);
       fixDrawerIcon();
       fixMaintainerIcon();
       fixRepoDrawer();
+      pruneShots();
       wireDrawerNav();
       drawerReady();
     }
@@ -4930,6 +5510,13 @@ echo json_encode(['error' => 'method not allowed']);
       }
       var img = document.createElement('img');
       if (cls) img.className = cls;
+      // Marks this as a card's own icon, which is the only kind fitIconInk()
+      // may rescale: the drawer's icon is CA's, it carries its plate on the
+      // image itself, and scaling it would scale that plate too. Set here
+      // rather than tested through the DOM, because an icon already in the
+      // browser's cache is measured in the same tick it is created, before
+      // this element has been appended to anything.
+      img.dataset.asgaCardIcon = '1';
       var ghAvatar = ghAvatarFor(a);
       img.src = a.ic || ghAvatar || ICON_FALLBACK;
       img.loading = 'lazy';
@@ -5548,7 +6135,9 @@ echo json_encode(['error' => 'method not allowed']);
         // this lands, and writing into a detached cell would be invisible at
         // best and wrong at worst
         if (!document.contains(cell)) return;
-        if (!ts) { cell.textContent = 'N/A'; return; }
+        // Same test the card applies: a push time the registry dates in the
+        // future is not one this drawer will print.
+        if (!ts || ts > Math.floor(Date.now() / 1000)) { cell.textContent = 'N/A'; return; }
         app.lu = ts; app.lk = 'r';
         setLuCell(cell, ts, 'r');
       };
@@ -5817,33 +6406,17 @@ echo json_encode(['error' => 'method not allowed']);
       return dateSpan('asga-tile-added', CAL_ICON, 'Added', a.fs, false, false, short);
     }
 
-    // Why this app is in the results. The search reads an app's whole overview,
-    // and the card only ever prints the first sentence or two of it, so a
-    // result could match on a passage the reader cannot see and the list then
-    // looks like it is returning anything at all. When the words that matched
-    // are not in what the card would print, the card prints the passage that
-    // did instead, with those words marked. The snippet is cut on word
-    // boundaries so it never opens or closes mid-word.
-    function matchSnippet(a, words) {
-      if (!words.length) return null;
-      var shown = (a.de || '').toLowerCase();
-      var missing = words.filter(function (w) { return shown.indexOf(w) < 0; });
-      if (!missing.length) return null;              // the card already shows why
-      var full = ((a.de || '') + ' ' + (a.sx || '')).replace(/\s+/g, ' ').trim();
-      var hay = full.toLowerCase();
-      var at = -1;
-      for (var i = 0; i < missing.length && at < 0; i++) at = hay.indexOf(missing[i]);
-      if (at < 0) return null;                        // matched a field, not the prose
-      var start = Math.max(0, at - 60);
-      var end = Math.min(full.length, at + 120);
-      if (start > 0) { var sp = full.indexOf(' ', start); if (sp > -1 && sp < at) start = sp + 1; }
-      if (end < full.length) { var ep = full.lastIndexOf(' ', end); if (ep > at) end = ep; }
-      return (start > 0 ? '…' : '') + full.slice(start, end) + (end < full.length ? '…' : '');
-    }
-
-    // Built as text nodes and marked spans rather than as a string of markup,
-    // because every character of this came out of a public feed and none of it
-    // may be parsed as HTML.
+    // The card's blurb with the searched words marked. Built as text nodes and
+    // marked spans rather than as a string of markup, because every character
+    // of this came out of a public feed and none of it may be parsed as HTML.
+    //
+    // Marking is all it does. An earlier version replaced the blurb with a
+    // window cut around a word found somewhere in the app's searchable text,
+    // and that text is not prose: applist.php builds it from the maintainer's
+    // name, the template's extra search terms and the overview joined together,
+    // so a search for a maintainer landed in the name and printed the sentence
+    // fragment that happened to sit beside it. The card said something the app
+    // never said. It prints the blurb now, and only the blurb.
     function fillSnippet(el, text, words) {
       el.textContent = '';
       var low = text.toLowerCase();
@@ -6004,8 +6577,10 @@ echo json_encode(['error' => 'method not allowed']);
 
       var iconWrap = document.createElement('div');
       iconWrap.className = 'asga-tile-icon';
-      iconWrap.appendChild(appIcon(a, ''));
+      var icon = appIcon(a, '');
+      iconWrap.appendChild(icon);
       head.appendChild(iconWrap);
+      stripFromIcon(icon, strip);
 
       // The name gets the whole width of the card, on a band of its own above
       // the icon row, rather than the slot beside the icon that the stat rail
@@ -6132,8 +6707,11 @@ echo json_encode(['error' => 'method not allowed']);
       // lining up with its neighbours.
       var desc = document.createElement('div');
       desc.className = 'asga-tile-desc';
-      var snip = matchSnippet(a, searchWords());
-      if (snip) { desc.classList.add('asga-tile-desc-hit'); fillSnippet(desc, snip, searchWords()); }
+      // A search marks the words it matched, and changes nothing else. The card
+      // prints the app's own blurb whether or not a search is running, so the
+      // reader is never shown a sentence the app does not actually say.
+      var qwords = searchWords();
+      if (qwords.length) fillSnippet(desc, a.de || '', qwords);
       else desc.textContent = a.de || '';
       tile.appendChild(desc);
 
@@ -6202,12 +6780,13 @@ echo json_encode(['error' => 'method not allowed']);
       }
       btns.appendChild(mtBtn);
       // An app already on this server has nothing for Install to do, so it gets
-      // a plain marker instead. asga-btn-installed matches none of the click
-      // handler's button branches, which is what leaves a click on it falling
-      // through to the Info/Install drawer like the rest of the card.
-      if (a.ri && installedSet && installedSet.has(stripTag(a.ri))) {
+      // a plain marker instead: grey, arrow cursor, no hover, and inert under
+      // the click handler below. It used to fall through to the Info drawer,
+      // which made a marker of a fact behave like a button after all.
+      if (isInstalled(a)) {
         var instBtn = mkBtn('Installed', 'asga-btn-installed');
         instBtn.title = 'Already installed on this server';
+        instBtn.setAttribute('aria-disabled', 'true');
         btns.appendChild(instBtn);
       } else {
         var ib = mkBtn('Install', 'asga-install');
@@ -6320,9 +6899,18 @@ echo json_encode(['error' => 'method not allowed']);
       wrap.insertAdjacentHTML('afterbegin', icon);
       var txt = document.createElement('span');
       txt.className = 'asga-datetext';
-      if (!ts) {
+      // A date later than today is not a date this app can have reached, so it
+      // is shown as no date rather than as a fact. It reaches the card from a
+      // plugin version numbered ahead of the calendar, or from a registry with
+      // a bad clock; either way printing it would have the store claim an app
+      // was updated in the future. Compared by calendar day, so an app updated
+      // an hour ago in a timezone ahead of this server still reads as today.
+      var future = ts && dayGap(ts, Math.floor(Date.now() / 1000)) < 0;
+      if (!ts || future) {
         wrap.classList.add('asga-stat-none');
-        wrap.title = word + ' date is not in the app catalog';
+        wrap.title = future
+          ? word + ' reads ' + absDate(ts, false) + ', which has not happened yet'
+          : word + ' date is not in the app catalog';
         txt.textContent = 'N/A';
       } else {
         if (dayGap(ts, Math.floor(Date.now() / 1000)) <= 0) wrap.classList.add('asga-date-today');
@@ -6729,7 +7317,10 @@ echo json_encode(['error' => 'method not allowed']);
     // no longer belongs to this walk (or, worse, a different app that has
     // since reused the same DOM node).
     function paintFilledDate(a, ts, gen) {
-      a.lu = ts; a.lk = 'r';
+      // A push time the registry dates in the future never enters the catalog
+      // entry, so nothing downstream of this (the drawer's own Last Update
+      // row reads the same field) can print it either.
+      if (ts && ts <= Math.floor(Date.now() / 1000)) { a.lu = ts; a.lk = 'r'; }
       try {
         if (gen !== renderGen) return;
         if (typeof CSS === 'undefined' || !CSS.escape) return;
@@ -8936,18 +9527,27 @@ body.dark .asga-settings-select { color-scheme: dark; }
   white-space: nowrap; overflow: hidden;
 }
 /* One plate behind every icon, on the card, in the drawer and in the repo
-   list: a dark grey mixed from the theme, 76% page to 24% text (about #505050
-   on the dark theme, #c2c2c2 on the white), a step above the card so the
-   artwork stands off it. Until 2026.09.04g the dark artwork a fifth of the
-   catalog ships got a near-white plate of its own, and two plates in one row
-   read as two kinds of card; 04g's mid grey then washed the bright artwork
-   out, so the plate went darker again in 04i. */
+   list: a grey mixed from the theme, 87% page to 13% text (about #3b3a3a on
+   the dark theme, #d6d6d6 on the white), one step off the page so the
+   artwork stands away from it without the plate becoming a shape of its own.
+   Until 2026.09.04g the dark artwork a fifth of the catalog ships got a
+   near-white plate of its own, and two plates in one row read as two kinds of
+   card; 04g's mid grey then washed the bright artwork out, and the 76% step
+   that replaced it still read as a light tile carrying a small picture. */
 body.asga-active {
-  --asga-icon-plate: color-mix(in srgb, var(--background-color, #1d1b1b) 76%, var(--text-color, #f2f2f2));
+  --asga-icon-plate: color-mix(in srgb, var(--background-color, #1d1b1b) 87%, var(--text-color, #f2f2f2));
 }
 .asga-tile-icon {
   position: relative; z-index: 1;
   width: var(--asga-icon-side); height: var(--asga-icon-side);
+  /* The plate is drawn here rather than on the artwork itself, because an icon
+     measured by icontone.php is scaled to bring its artwork up to the plate's
+     edge, and a background painted on the thing being scaled would be scaled
+     with it and spill past the corner. Clipped here for the same reason: an
+     icon drawn on a flat field of its own is enlarged until that field covers
+     the plate, and the corner radius is what stops it being a square. */
+  background: var(--asga-icon-plate);
+  overflow: hidden;
   /* Pulled up over the strip's bottom edge rather than sitting under it, so
      the icon reads as the thing the strip is naming rather than as a second,
      unrelated row. */
@@ -8963,9 +9563,18 @@ body.asga-active {
    icon look printed on the strip instead of resting on it. The shadow above
    does the rest of the separating. */
 .asga-tile-icon img {
+  /* 2px is the margin an icon keeps while nothing is known about it. Once
+     icontone.php has read where its artwork stops, fitIconInk() takes the
+     margin over: it scales and centres the artwork so every card carries the
+     same gap between the mark and the plate, whatever empty canvas the file
+     was saved with. Roughly a third of the catalog's icons are drawn inside a
+     margin of their own, and beside one that is not they read as a small
+     picture on a large tile. */
   width: 100%; height: 100%; object-fit: contain; border-radius: 12px; box-sizing: border-box;
-  background: var(--asga-icon-plate); border: 0; padding: 5px;
+  border: 0; padding: 2px;
 }
+/* Measured: the transform owns the margin now, so the flat one comes off. */
+.asga-tile-icon img.asga-icon-fit { padding: 0; }
 /* An app whose template names no picture but does name a FontAwesome glyph
    (117 apps have no icon and 59 of those carry one; see appIcon in inject.js).
    It wears the same plate the picture beside it would have, so a row of cards
@@ -8976,8 +9585,8 @@ body.asga-active {
 .asga-tile-icon .asga-icon-fa {
   display: flex; align-items: center; justify-content: center;
   width: 100%; height: 100%; box-sizing: border-box; border-radius: 12px;
-  background: var(--asga-icon-plate); border: 0;
-  font-size: calc(var(--asga-icon-side) * 0.44); line-height: 1;
+  border: 0;
+  font-size: calc(var(--asga-icon-side) * 0.56); line-height: 1;
   color: color-mix(in srgb, var(--text-color, #f2f2f2) 66%, transparent);
 }
 /* The strip that opens the card: full bleed past the band's own side inset,
@@ -9164,20 +9773,17 @@ body.asga-active {
    lost by the overlap. */
 .asga-kind-plugin { color: #ff8c2f; }
 
-/* A description showing WHY an app matched, rather than what the app is. The
-   search reads an app's whole overview and the card prints only its opening,
-   so a result could match on a passage the reader cannot see and the list then
-   looks like it is returning anything at all. The matched words carry the
-   accent; nothing else changes, so a result still occupies the card's own
-   description slot and never grows a band its neighbours do not have. */
-.asga-tile-desc-hit { font-style: italic; }
+/* The searched words, marked where they fall in the card's own blurb. The
+   accent is the only change: the card keeps printing what the app says about
+   itself, so a search never puts a sentence on a card that the app did not
+   write. Marking happens in place, so a matched result occupies the same
+   description slot as every other card and grows no band of its own. */
 .asga-hit { color: #ff8c2f; font-weight: 600; font-style: normal; }
 
-/* Three lines. The facts moved up into the strip and the description took the
-   band they left, and applist.php now folds sentences in until the blurb has
-   at least 170 characters, so most cards fill all three. The clamp is what
-   keeps the button rows aligned: a card whose blurb runs longer is cut at the
-   third line rather than growing a line its neighbours do not have. */
+/* Three lines, holding the blurb's first two sentences. The clamp is what
+   keeps the button rows aligned, and it is also what ends a second sentence
+   that runs past the band: the text stops on an ellipsis at the third line
+   rather than the card growing a line its neighbours do not have. */
 .asga-tile-desc {
   font-size: clamp(12px, calc(var(--cw) * 0.031), 15px); line-height: 1.5; color: color-mix(in srgb, var(--text-color, #f2f2f2) 92%, var(--background-color, #1d1b1b)); margin: 0;
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
@@ -9314,12 +9920,14 @@ body.asga-active {
 /* Installed is the one button on the card with nothing to do, so it is the
    one drawn grey: the plain pill dimmed, no accent on hover. It used to share
    the pinned green, which made the one card a reader cannot install look like
-   the one card reporting good news. The click still falls through to the
-   drawer, so the cursor stays. */
+   the one card reporting good news. It is also the one pill that does
+   nothing when clicked: the arrow cursor and the dead hover say so before the
+   click does, and tileClick() stops at it rather than opening the drawer
+   behind it. */
 .asga-btn.asga-btn-installed {
-  color: color-mix(in srgb, var(--text-color, #f2f2f2) 55%, var(--background-color, #1d1b1b));
+  color: color-mix(in srgb, var(--text-color, #f2f2f2) 48%, var(--background-color, #1d1b1b));
   background: rgba(127, 127, 127, 0.06); border-color: rgba(127, 127, 127, 0.22);
-  font-weight: 600; cursor: pointer;
+  font-weight: 600; cursor: default;
 }
 /* two classes beats the generic hover above at one, so these win the cascade
    without relying on source order. They only lift the same fill: a button that
@@ -9327,8 +9935,11 @@ body.asga-active {
 .asga-btn.asga-pinned:hover {
   background: rgba(106, 196, 127, 0.22); border-color: rgba(106, 196, 127, 0.55);
 }
+/* Nothing moves under the pointer, because nothing happens when it is
+   pressed. Declared rather than left to the generic hover above, which would
+   light it like a pill that does something. */
 .asga-btn.asga-btn-installed:hover {
-  background: rgba(127, 127, 127, 0.10); border-color: rgba(127, 127, 127, 0.3);
+  background: rgba(127, 127, 127, 0.06); border-color: rgba(127, 127, 127, 0.22);
 }
 
 /* support dropdown */
