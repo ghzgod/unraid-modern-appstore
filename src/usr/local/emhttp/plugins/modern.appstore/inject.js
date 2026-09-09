@@ -51,6 +51,11 @@
     var scanAsked = {};           // path -> 1, so a page is only auto-scanned once
     var scanInFlight = false, scanPending = false, scanTimer = null;
     var pinnedSet = null, installedSet = null;
+    // Docker-installed image ref (tag stripped) -> the user template it was
+    // read from, so an installed container's card offers Edit (a link into
+    // Unraid's own container editor) instead of an inert Installed marker.
+    // From pinned.php; empty for plugins, which have no container to edit.
+    var installedEdit = null;
     // Installed plugins, keyed by the .plg filename they occupy, plus the
     // punctuation-stripped form of the same name for the handful of feed
     // templates spelled with different separators. Both come from
@@ -106,6 +111,13 @@
       }
       return !!(a.ri && installedSet && installedSet.has(stripTag(a.ri)));
     }
+    // The user template of an installed Docker container, for the Edit link.
+    // Only Docker apps have one: a plugin's "installed" record is a .plg name,
+    // not a container template, so it keeps the plain Installed marker.
+    function installedTemplate(a) {
+      if (!a || a.ty === 'plugin' || !a.ri || !installedEdit) return '';
+      return installedEdit[stripTag(a.ri)] || '';
+    }
     // Template path of the app whose drawer is open. The drawer is CA's and CA
     // never tells us which app it just painted, so the path we handed
     // showSidebarApp is kept here for fixDrawerDetails() to look the app back
@@ -122,6 +134,7 @@
         .then(function (j) {
           pinnedSet = new Set((j && j.pinned) || []);
           installedSet = new Set((j && j.installed) || []);
+          installedEdit = (j && j.installedEdit) || {};
           installedPlugins = new Set((j && j.plugins) || []);
           installedPluginsNorm = new Set((j && j.pluginsNorm) || []);
           cb && cb();
@@ -129,6 +142,7 @@
         .catch(function () {
           pinnedSet = pinnedSet || new Set();
           installedSet = installedSet || new Set();
+          installedEdit = installedEdit || {};
           installedPlugins = installedPlugins || new Set();
           installedPluginsNorm = installedPluginsNorm || new Set();
           cb && cb();
@@ -799,6 +813,13 @@
         if (btn.classList.contains('asga-btn-installed')) return;
         if (btn.classList.contains('asga-install')) {
           installApp(tile);
+        } else if (btn.classList.contains('asga-edit')) {
+          // Unraid's own Docker page edits a container by navigating to
+          // /Docker/UpdateContainer?xmlTemplate=edit:<template path> (its
+          // editContainer()); the path is passed raw there, so it is here too.
+          // Opened in a new tab, like Install, so the store stays put behind it.
+          var ep = tile.getAttribute('data-editpath');
+          if (ep) openExt('/Docker/UpdateContainer?xmlTemplate=edit:' + ep);
         } else if (btn.classList.contains('asga-project')) {
           openExt(tile.getAttribute('data-project'));
         } else if (btn.classList.contains('asga-support')) {
@@ -2668,15 +2689,24 @@
         mtBtn.title = 'This app\'s template names no maintainer repository';
       }
       btns.appendChild(mtBtn);
-      // An app already on this server has nothing for Install to do, so it gets
-      // a plain marker instead: grey, arrow cursor, no hover, and inert under
-      // the click handler below. It used to fall through to the Info drawer,
-      // which made a marker of a fact behave like a button after all.
+      // An app already on this server has nothing for Install to do. A Docker
+      // container gets an Edit button instead, linking to Unraid's own
+      // container editor (see tileClick); an installed plugin, which has no
+      // container template to open, keeps the plain grey Installed marker:
+      // arrow cursor, no hover, inert under the click handler below.
       if (isInstalled(a)) {
-        var instBtn = mkBtn('Installed', 'asga-btn-installed');
-        instBtn.title = 'Already installed on this server';
-        instBtn.setAttribute('aria-disabled', 'true');
-        btns.appendChild(instBtn);
+        var ep = installedTemplate(a);
+        if (ep) {
+          var edBtn = mkBtn('Edit', 'asga-edit');
+          edBtn.title = 'Edit this container’s settings in Unraid';
+          tile.setAttribute('data-editpath', ep);
+          btns.appendChild(edBtn);
+        } else {
+          var instBtn = mkBtn('Installed', 'asga-btn-installed');
+          instBtn.title = 'Already installed on this server';
+          instBtn.setAttribute('aria-disabled', 'true');
+          btns.appendChild(instBtn);
+        }
       } else {
         var ib = mkBtn('Install', 'asga-install');
         // Docker down: the card still lists the app and still opens its Info

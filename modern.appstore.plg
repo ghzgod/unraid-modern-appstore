@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.09.02c">
+<!ENTITY version "2026.09.09">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
@@ -14,7 +14,7 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" support="&support;">
 
 <CHANGES>
-##2026.09.02c
+##2026.09.09
 - The version this package publishes is dated the day it is built. It had been
   a hand-typed string in the build script, and the date field was being
   incremented as though it were a serial number, so ten releases went out
@@ -2525,13 +2525,20 @@ if (is_file($file)) {
     }
 }
 
-// installed: image refs (repo, tag stripped) from the user's Docker templates
+// installed: image refs (repo, tag stripped) from the user's Docker
+// templates, plus the template file each one was read from so the grid can
+// turn the Installed marker into an Edit link to Unraid's own container
+// editor (/Docker/UpdateContainer?xmlTemplate=edit:<template path>, the same
+// target the Docker page's own Edit menu opens). Two containers off one image
+// collapse to one key here, so the link opens whichever template was globbed
+// last; that is the same last-wins the Installed set already lived with.
 $installed = [];
+$installedEdit = [];
 foreach (glob('/boot/config/plugins/dockerMan/templates-user/*.xml') ?: [] as $x) {
     $c = @file_get_contents($x);
     if ($c !== false && preg_match('#<Repository>([^<]+)</Repository>#', $c, $m)) {
         $repo = strtolower(trim($m[1]));
-        if ($repo !== '') { $repo = explode(':', $repo)[0]; $installed[$repo] = true; }
+        if ($repo !== '') { $repo = explode(':', $repo)[0]; $installed[$repo] = true; $installedEdit[$repo] = $x; }
     }
 }
 
@@ -2566,10 +2573,11 @@ foreach (glob('/var/log/plugins/*.plg') ?: [] as $p) {
 }
 
 echo json_encode([
-    'pinned'      => $pinned,
-    'installed'   => array_keys($installed),
-    'plugins'     => array_keys($plugins),
-    'pluginsNorm' => array_keys($pluginsNorm),
+    'pinned'        => $pinned,
+    'installed'     => array_keys($installed),
+    'installedEdit' => $installedEdit,
+    'plugins'       => array_keys($plugins),
+    'pluginsNorm'   => array_keys($pluginsNorm),
 ]);
 ]]>
 </INLINE>
@@ -3714,16 +3722,25 @@ echo json_encode([
  * bytes (HTTP 206), 160 times less than pulling the whole 328KB file down
  * just to read one line near its top.
  *
- * Caching policy: once the cache already says an update is available there
- * is nothing left to learn by asking again, an update is an update whether
- * it is one version old or five, so that answer is served straight back and
- * no request is made at all until the installed version itself changes.
- * That comparison is always against a fresh read of the .plg, never a
- * cached one, so a plugin update picked up between requests is noticed on
- * the very next call without this file having to track it separately. Only
- * while this server is reported up to date does it re-check GitHub at all,
- * and even then no more often than every 6 hours, which is what stops a
- * plugin that is already current from hitting GitHub on every page load.
+ * Caching policy: one throttle governs every case. A fetched answer is
+ * reused for up to 6 hours before GitHub is asked again, which is what
+ * stops a plugin that is already current from hitting GitHub on every page
+ * load. The comparison itself is always against a fresh read of the .plg,
+ * never a cached one, so a plugin update picked up between requests is
+ * noticed on the very next call without this file having to track it
+ * separately.
+ *
+ * There used to be a second shortcut: once the cache showed this server
+ * behind, it never re-fetched at all until the installed version changed,
+ * on the theory that an update is an update whether it is one version old
+ * or five. That theory breaks the moment the published version can move
+ * backwards, which this plugin's does. Versions are dates, and a run of
+ * releases was mis-dated 2026.09.04 while the day was the 2nd; correcting
+ * the clock dropped the newest published version below a 2026.09.04x the
+ * cache had already recorded as "latest". The behind-shortcut then served
+ * that dead version forever, showing a permanent update to something GitHub
+ * no longer publishes. The throttle alone bounds staleness in both
+ * directions, so a backwards move self-corrects on the next check.
  *
  * READ-ONLY with respect to everything except its own cache file,
  * /boot/config/plugins/modern.appstore/latest.json. A failed fetch (network
@@ -3834,17 +3851,16 @@ if (is_file($cache_file)) {
 $latest    = ($cache && isset($cache['latest'])) ? (string)$cache['latest'] : '';
 $checkedAt = ($cache && isset($cache['checkedAt'])) ? (int)$cache['checkedAt'] : 0;
 
-// The two skip conditions below are the whole caching policy. Versions are
-// date strings like 2026.08.23d and 2026.08.29, so a plain strcmp orders
-// them correctly: a letter suffix sorts after the bare date it extends, and
-// a longer string sorts after its own prefix.
+// One throttle is the whole caching policy: a cached answer, whether it
+// shows this server current or behind, is reused until it is 6 hours stale,
+// then GitHub is asked again. Versions are date strings like 2026.08.23d and
+// 2026.08.29, so a plain strcmp orders them correctly: a letter suffix sorts
+// after the bare date it extends, and a longer string sorts after its own
+// prefix. Nothing here trusts a "behind" cache indefinitely, because the
+// published date can move backwards (see the header note), and a cache that
+// never re-checks would then show a phantom update forever.
 $need_fetch = true;
-if ($installed !== '' && $latest !== '' && strcmp($installed, $latest) < 0) {
-    // cache already shows this server behind; that fact does not change by
-    // asking GitHub again, so nothing is fetched until $installed itself does
-    $need_fetch = false;
-} elseif ($latest !== '' && $checkedAt > 0 && (time() - $checkedAt) < $throttle_sec) {
-    // cache shows current, and it is not yet 6 hours stale; too soon to re-ask
+if ($latest !== '' && $checkedAt > 0 && (time() - $checkedAt) < $throttle_sec) {
     $need_fetch = false;
 }
 
@@ -4180,6 +4196,11 @@ echo json_encode(['error' => 'method not allowed']);
     var scanAsked = {};           // path -> 1, so a page is only auto-scanned once
     var scanInFlight = false, scanPending = false, scanTimer = null;
     var pinnedSet = null, installedSet = null;
+    // Docker-installed image ref (tag stripped) -> the user template it was
+    // read from, so an installed container's card offers Edit (a link into
+    // Unraid's own container editor) instead of an inert Installed marker.
+    // From pinned.php; empty for plugins, which have no container to edit.
+    var installedEdit = null;
     // Installed plugins, keyed by the .plg filename they occupy, plus the
     // punctuation-stripped form of the same name for the handful of feed
     // templates spelled with different separators. Both come from
@@ -4235,6 +4256,13 @@ echo json_encode(['error' => 'method not allowed']);
       }
       return !!(a.ri && installedSet && installedSet.has(stripTag(a.ri)));
     }
+    // The user template of an installed Docker container, for the Edit link.
+    // Only Docker apps have one: a plugin's "installed" record is a .plg name,
+    // not a container template, so it keeps the plain Installed marker.
+    function installedTemplate(a) {
+      if (!a || a.ty === 'plugin' || !a.ri || !installedEdit) return '';
+      return installedEdit[stripTag(a.ri)] || '';
+    }
     // Template path of the app whose drawer is open. The drawer is CA's and CA
     // never tells us which app it just painted, so the path we handed
     // showSidebarApp is kept here for fixDrawerDetails() to look the app back
@@ -4251,6 +4279,7 @@ echo json_encode(['error' => 'method not allowed']);
         .then(function (j) {
           pinnedSet = new Set((j && j.pinned) || []);
           installedSet = new Set((j && j.installed) || []);
+          installedEdit = (j && j.installedEdit) || {};
           installedPlugins = new Set((j && j.plugins) || []);
           installedPluginsNorm = new Set((j && j.pluginsNorm) || []);
           cb && cb();
@@ -4258,6 +4287,7 @@ echo json_encode(['error' => 'method not allowed']);
         .catch(function () {
           pinnedSet = pinnedSet || new Set();
           installedSet = installedSet || new Set();
+          installedEdit = installedEdit || {};
           installedPlugins = installedPlugins || new Set();
           installedPluginsNorm = installedPluginsNorm || new Set();
           cb && cb();
@@ -4928,6 +4958,13 @@ echo json_encode(['error' => 'method not allowed']);
         if (btn.classList.contains('asga-btn-installed')) return;
         if (btn.classList.contains('asga-install')) {
           installApp(tile);
+        } else if (btn.classList.contains('asga-edit')) {
+          // Unraid's own Docker page edits a container by navigating to
+          // /Docker/UpdateContainer?xmlTemplate=edit:<template path> (its
+          // editContainer()); the path is passed raw there, so it is here too.
+          // Opened in a new tab, like Install, so the store stays put behind it.
+          var ep = tile.getAttribute('data-editpath');
+          if (ep) openExt('/Docker/UpdateContainer?xmlTemplate=edit:' + ep);
         } else if (btn.classList.contains('asga-project')) {
           openExt(tile.getAttribute('data-project'));
         } else if (btn.classList.contains('asga-support')) {
@@ -6797,15 +6834,24 @@ echo json_encode(['error' => 'method not allowed']);
         mtBtn.title = 'This app\'s template names no maintainer repository';
       }
       btns.appendChild(mtBtn);
-      // An app already on this server has nothing for Install to do, so it gets
-      // a plain marker instead: grey, arrow cursor, no hover, and inert under
-      // the click handler below. It used to fall through to the Info drawer,
-      // which made a marker of a fact behave like a button after all.
+      // An app already on this server has nothing for Install to do. A Docker
+      // container gets an Edit button instead, linking to Unraid's own
+      // container editor (see tileClick); an installed plugin, which has no
+      // container template to open, keeps the plain grey Installed marker:
+      // arrow cursor, no hover, inert under the click handler below.
       if (isInstalled(a)) {
-        var instBtn = mkBtn('Installed', 'asga-btn-installed');
-        instBtn.title = 'Already installed on this server';
-        instBtn.setAttribute('aria-disabled', 'true');
-        btns.appendChild(instBtn);
+        var ep = installedTemplate(a);
+        if (ep) {
+          var edBtn = mkBtn('Edit', 'asga-edit');
+          edBtn.title = 'Edit this container’s settings in Unraid';
+          tile.setAttribute('data-editpath', ep);
+          btns.appendChild(edBtn);
+        } else {
+          var instBtn = mkBtn('Installed', 'asga-btn-installed');
+          instBtn.title = 'Already installed on this server';
+          instBtn.setAttribute('aria-disabled', 'true');
+          btns.appendChild(instBtn);
+        }
       } else {
         var ib = mkBtn('Install', 'asga-install');
         // Docker down: the card still lists the app and still opens its Info
@@ -9934,6 +9980,17 @@ body.asga-active {
 .asga-btn.asga-pinned {
   color: #6ac47f; background: rgba(106, 196, 127, 0.15); border-color: rgba(106, 196, 127, 0.4);
   font-weight: 600; cursor: pointer;
+}
+/* Edit replaces Installed on a card whose container is on the server. It wears
+   the same positive green as pinned, "this is already true", but unlike the
+   inert Installed marker it does something: it opens Unraid's container editor,
+   so it takes the pointer cursor and a real hover. */
+.asga-btn.asga-edit {
+  color: #6ac47f; background: rgba(106, 196, 127, 0.15); border-color: rgba(106, 196, 127, 0.4);
+  font-weight: 600; cursor: pointer;
+}
+.asga-btn.asga-edit:hover {
+  background: rgba(106, 196, 127, 0.22); border-color: rgba(106, 196, 127, 0.55);
 }
 /* Installed is the one button on the card with nothing to do, so it is the
    one drawn grey: the plain pill dimmed, no accent on hover. It used to share
