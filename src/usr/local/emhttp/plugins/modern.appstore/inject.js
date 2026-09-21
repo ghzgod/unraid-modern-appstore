@@ -2163,7 +2163,8 @@
       fetch('/plugins/community.applications/include/exec.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'action=createXML&type=default&xml=' + encodeURIComponent(p),
+        // exec.php sits behind the same CSRF check as every other POST
+        body: 'action=createXML&type=default&xml=' + encodeURIComponent(p) + '&csrf_token=' + encodeURIComponent(window.csrf_token || ''),
         credentials: 'same-origin'
       }).then(function (r) { return r.json(); }).then(function (r) {
         if (r && r.status === 'ok') openTemplate(p);
@@ -2231,7 +2232,8 @@
       var batch = paths.slice(0, 60);
       fetch(PREFIX + 'addeddate.php', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        // JSON body: the CSRF token travels in a header (see scanpage below)
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.csrf_token || '' },
         body: JSON.stringify({ p: batch })
       }).then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) {
@@ -3289,7 +3291,9 @@
       scanInFlight = true;
       fetch(PREFIX + 'scanpage.php', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        // a JSON body leaves $_POST empty, so the webGui reads its CSRF token
+        // from this header instead; without it the POST is refused with a 403
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.csrf_token || '' },
         body: JSON.stringify({ paths: want, force: !!force })
       })
         .then(function (r) { return r.ok ? r.json() : null; })
