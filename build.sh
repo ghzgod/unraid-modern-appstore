@@ -67,7 +67,7 @@ PLUGIN_URL="https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main
 SUPPORT_URL="https://github.com/ghzgod/unraid-modern-appstore"
 
 # --- payload files (order: php, js, css, pages, readme) --------------------
-FILES=(fetch_stars.php refresh.php cancel.php newscan.php scanpage.php applist.php pinned.php lastupdate.php icontone.php addeddate.php about.php latest.php config.php settings.php inject.js inject.css ModernAppStore.page ModernAppStoreLoader.page README.md)
+FILES=(fetch_stars.php refresh.php cancel.php newscan.php scanpage.php applist.php pinned.php lastupdate.php ghcrdl.php icontone.php addeddate.php about.php latest.php config.php settings.php inject.js inject.css ModernAppStore.page ModernAppStoreLoader.page README.md)
 
 # guard: CDATA cannot contain ]]>
 for f in "${FILES[@]}"; do
@@ -108,6 +108,18 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- An installed Docker app's card has an Edit button that opens the container's
+  settings in Unraid.
+- The update arrow in the toolbar no longer shows when this plugin is already
+  current.
+- Updated dates are refreshed from the image's registry when the store's copy
+  is out of date.
+- Apps hosted on GitHub's container registry show their download count.
+- An app's Added date is the day its maintainer published it, so apps the
+  store picked up in the same batch no longer share one date.
+- Refreshing star counts for the apps on screen works again.
+
+##2026.09.02b
 - The version this package publishes is dated the day it is built. It had been
   a hand-typed string in the build script, and the date field was being
   incremented as though it were a serial number, so ten releases went out
@@ -137,7 +149,7 @@ cat <<XMLHEAD
   it, and a fair number of those links now answer 404, so the page-wide error
   handler painted a 200px placeholder that the gallery rule then stretched
   across the whole drawer as a giant question mark. Roughly one template in ten
-  is affected, agent-zero and Appwrite among them.
+  is affected.
 - The drawer's description reads as paragraphs. An author's plain-text indent
   arrived as runs of non-breaking spaces, which do not collapse the way an
   ordinary space does, and a blank line arrived as three or four breaks, so a
@@ -180,9 +192,8 @@ cat <<XMLHEAD
 
 ##2026.09.04g
 - Project and Support open the page itself. Both used to open CA's
-  https://ca.unraid.net/cdn/ redirector, and for seven apps (binhex-paseo,
-  code-server, Crafty, Deluge, Emby, get_iplayer, Overseerr) that redirector
-  answers with a doubled scheme, https://https://github.com/..., which no
+  https://ca.unraid.net/cdn/ redirector, and for a handful of apps that
+  redirector answers with a doubled scheme, https://https://github.com/..., which no
   browser can open. The scan now resolves every Project and Support link once
   and stores where it lands, repairing a doubled scheme on the way; the page
   repairs stored links written before this release; and a click repairs
@@ -302,7 +313,7 @@ cat <<XMLHEAD
 - Show All Apps on a maintainer used to filter the grid through a hidden mode
   that left the search box empty, so there was no way back to the full catalog
   short of reloading. It writes a qualifier into the search box now,
-  maintainer:atribe, or the quoted form when a name carries a space, so the
+  maintainer:NAME, or the quoted form when a name carries a space, so the
   filter is something you can see, edit and clear. It combines with ordinary
   search terms too: maintainer:Unraid nvidia narrows within that maintainer.
   The match is exact rather than a text search, which matters more than it
@@ -343,8 +354,7 @@ cat <<XMLHEAD
   wrote the software. Community Applications carries both, and they disagree on
   2,722 of the 3,873 displayable apps, so seven cards in ten were showing one
   person's face beside another one's name and naming someone the drawer, one
-  click away, never mentioned. Grafana read "grafana" on the card and "atribe"
-  in its own maintainer panel; both say atribe now.
+  click away, never mentioned. Both now name the publisher.
 - A download or star figure nobody measured no longer reads as the number
   nought. Only 4 apps in the catalog have a download count Community
   Applications measured as zero and only 164 have a repository with genuinely
@@ -366,8 +376,8 @@ cat <<XMLHEAD
 - An app whose template names no icon draws the glyph its author chose instead
   of a question mark. 117 apps have no icon and 59 of those name a glyph, which
   the stock drawer draws and this grid used to throw away. The two icon fonts
-  are told apart, so Unassigned Devices Preclear draws the mark the stock
-  drawer leaves as a blank square.
+  are told apart, so a glyph from the second font draws instead of the blank
+  square the stock drawer leaves.
 - The maintainer's readme is a button in the drawer, on the 721 apps that name
   one. Neither this plugin nor the stock drawer linked it before.
 - The maintainer profile's Statistics gains the total stars of everything that
@@ -599,8 +609,8 @@ cat <<XMLHEAD
   across the name, author, repository, image, categories, the full description
   and those hidden keywords.
 - Apps whose name matches are listed ahead of apps that only mention the word
-  further down their description, so a search for "plex" no longer buries Plex
-  under everything that talks about it. The chosen Sort By still orders each of
+  further down their description, so searching for an app by name no longer
+  buries it under everything that talks about it. The chosen Sort By still orders each of
   the two groups.
 - Clearing the search with Community Applications' own X button now clears the
   grid with it. CA empties the box through jQuery, which fires no input event,
@@ -870,9 +880,8 @@ cat <<XMLHEAD
   10-star baseline floor keeps trivial repos (2->4 stars) out of the top.
 - Fix: derive each app's repo from its Project URL only, not Support. Support
   URLs are "get help" links that template authors routinely point at an umbrella
-  project's issues/discussions page (every Immich component links to
-  github.com/immich-app/immich), which mis-attributed that repo's ~108k stars to
-  unrelated components (immich-postgres, immich-redis, etc.). Also ignores GitHub
+  project's issues/discussions page, so every component of a multi-container
+  project inherited the main repository's stars. Also ignores GitHub
   non-repo paths (issues/discussions/org pages).
 - Fix (critical): store data on the flash (/boot/config/plugins/modern.appstore)
   instead of /mnt/user/appdata. The install hook created its data dir under

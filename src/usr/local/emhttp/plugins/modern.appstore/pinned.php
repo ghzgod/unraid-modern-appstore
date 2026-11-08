@@ -25,13 +25,20 @@ if (is_file($file)) {
     }
 }
 
-// installed: image refs (repo, tag stripped) from the user's Docker templates
+// installed: image refs (repo, tag stripped) from the user's Docker
+// templates, plus the template file each one was read from so the grid can
+// turn the Installed marker into an Edit link to Unraid's own container
+// editor (/Docker/UpdateContainer?xmlTemplate=edit:<template path>, the same
+// target the Docker page's own Edit menu opens). Two containers off one image
+// collapse to one key here, so the link opens whichever template was globbed
+// last; that is the same last-wins the Installed set already lived with.
 $installed = [];
+$installedEdit = [];
 foreach (glob('/boot/config/plugins/dockerMan/templates-user/*.xml') ?: [] as $x) {
     $c = @file_get_contents($x);
     if ($c !== false && preg_match('#<Repository>([^<]+)</Repository>#', $c, $m)) {
         $repo = strtolower(trim($m[1]));
-        if ($repo !== '') { $repo = explode(':', $repo)[0]; $installed[$repo] = true; }
+        if ($repo !== '') { $repo = explode(':', $repo)[0]; $installed[$repo] = true; $installedEdit[$repo] = $x; }
     }
 }
 
@@ -66,8 +73,9 @@ foreach (glob('/var/log/plugins/*.plg') ?: [] as $p) {
 }
 
 echo json_encode([
-    'pinned'      => $pinned,
-    'installed'   => array_keys($installed),
-    'plugins'     => array_keys($plugins),
-    'pluginsNorm' => array_keys($pluginsNorm),
+    'pinned'        => $pinned,
+    'installed'     => array_keys($installed),
+    'installedEdit' => $installedEdit,
+    'plugins'       => array_keys($plugins),
+    'pluginsNorm'   => array_keys($pluginsNorm),
 ]);

@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.09.02c">
+<!ENTITY version "2026.11.08f">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
@@ -14,7 +14,19 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" support="&support;">
 
 <CHANGES>
-##2026.09.02c
+##2026.11.08f
+- An installed Docker app's card has an Edit button that opens the container's
+  settings in Unraid.
+- The update arrow in the toolbar no longer shows when this plugin is already
+  current.
+- Updated dates are refreshed from the image's registry when the store's copy
+  is out of date.
+- Apps hosted on GitHub's container registry show their download count.
+- An app's Added date is the day its maintainer published it, so apps the
+  store picked up in the same batch no longer share one date.
+- Refreshing star counts for the apps on screen works again.
+
+##2026.09.02b
 - The version this package publishes is dated the day it is built. It had been
   a hand-typed string in the build script, and the date field was being
   incremented as though it were a serial number, so ten releases went out
@@ -44,7 +56,7 @@
   it, and a fair number of those links now answer 404, so the page-wide error
   handler painted a 200px placeholder that the gallery rule then stretched
   across the whole drawer as a giant question mark. Roughly one template in ten
-  is affected, agent-zero and Appwrite among them.
+  is affected.
 - The drawer's description reads as paragraphs. An author's plain-text indent
   arrived as runs of non-breaking spaces, which do not collapse the way an
   ordinary space does, and a blank line arrived as three or four breaks, so a
@@ -87,9 +99,8 @@
 
 ##2026.09.04g
 - Project and Support open the page itself. Both used to open CA's
-  https://ca.unraid.net/cdn/ redirector, and for seven apps (binhex-paseo,
-  code-server, Crafty, Deluge, Emby, get_iplayer, Overseerr) that redirector
-  answers with a doubled scheme, https://https://github.com/..., which no
+  https://ca.unraid.net/cdn/ redirector, and for a handful of apps that
+  redirector answers with a doubled scheme, https://https://github.com/..., which no
   browser can open. The scan now resolves every Project and Support link once
   and stores where it lands, repairing a doubled scheme on the way; the page
   repairs stored links written before this release; and a click repairs
@@ -209,7 +220,7 @@
 - Show All Apps on a maintainer used to filter the grid through a hidden mode
   that left the search box empty, so there was no way back to the full catalog
   short of reloading. It writes a qualifier into the search box now,
-  maintainer:atribe, or the quoted form when a name carries a space, so the
+  maintainer:NAME, or the quoted form when a name carries a space, so the
   filter is something you can see, edit and clear. It combines with ordinary
   search terms too: maintainer:Unraid nvidia narrows within that maintainer.
   The match is exact rather than a text search, which matters more than it
@@ -250,8 +261,7 @@
   wrote the software. Community Applications carries both, and they disagree on
   2,722 of the 3,873 displayable apps, so seven cards in ten were showing one
   person's face beside another one's name and naming someone the drawer, one
-  click away, never mentioned. Grafana read "grafana" on the card and "atribe"
-  in its own maintainer panel; both say atribe now.
+  click away, never mentioned. Both now name the publisher.
 - A download or star figure nobody measured no longer reads as the number
   nought. Only 4 apps in the catalog have a download count Community
   Applications measured as zero and only 164 have a repository with genuinely
@@ -273,8 +283,8 @@
 - An app whose template names no icon draws the glyph its author chose instead
   of a question mark. 117 apps have no icon and 59 of those name a glyph, which
   the stock drawer draws and this grid used to throw away. The two icon fonts
-  are told apart, so Unassigned Devices Preclear draws the mark the stock
-  drawer leaves as a blank square.
+  are told apart, so a glyph from the second font draws instead of the blank
+  square the stock drawer leaves.
 - The maintainer's readme is a button in the drawer, on the 721 apps that name
   one. Neither this plugin nor the stock drawer linked it before.
 - The maintainer profile's Statistics gains the total stars of everything that
@@ -506,8 +516,8 @@
   across the name, author, repository, image, categories, the full description
   and those hidden keywords.
 - Apps whose name matches are listed ahead of apps that only mention the word
-  further down their description, so a search for "plex" no longer buries Plex
-  under everything that talks about it. The chosen Sort By still orders each of
+  further down their description, so searching for an app by name no longer
+  buries it under everything that talks about it. The chosen Sort By still orders each of
   the two groups.
 - Clearing the search with Community Applications' own X button now clears the
   grid with it. CA empties the box through jQuery, which fires no input event,
@@ -777,9 +787,8 @@
   10-star baseline floor keeps trivial repos (2->4 stars) out of the top.
 - Fix: derive each app's repo from its Project URL only, not Support. Support
   URLs are "get help" links that template authors routinely point at an umbrella
-  project's issues/discussions page (every Immich component links to
-  github.com/immich-app/immich), which mis-attributed that repo's ~108k stars to
-  unrelated components (immich-postgres, immich-redis, etc.). Also ignores GitHub
+  project's issues/discussions page, so every component of a multi-container
+  project inherited the main repository's stars. Also ignores GitHub
   non-repo paths (issues/discussions/org pages).
 - Fix (critical): store data on the flash (/boot/config/plugins/modern.appstore)
   instead of /mnt/user/appdata. The install hook created its data dir under
@@ -1829,6 +1838,7 @@ echo json_encode(['scanned' => count($valid), 'stars' => $out ?: (object)[]], JS
  *   fk = 'e' when CA's FirstSeen was the sentinel 1 rather than a real date, meaning
  *        the app existed before CA started keeping records; '' otherwise
  *   lu = last-update unix ts (0 if unknown)   lk = its source: 'r' registry push, 'v' plugin version
+ *   ls = when CA last checked the registry for lu (0 when lu is not CA's registry date)
  *   sa = last star-fetch attempt for this app's repo (0 = never tried)
  *   sx = text the grid searches but never shows (full description + hidden keywords)
  *   rn = CA's RepoName (or Repo), verbatim and unclipped: the maintainer key CA's own All Apps button filters by
@@ -2421,6 +2431,10 @@ foreach ($tmpl as $t) {
         'fx'  => $fx,                                        // 1 when fs is CA's floor rather than a date it recorded
         'lu'  => $lu,
         'lk'  => $lk,
+        // When CA last asked the registry for lu. CA re-checks rarely (1,944 of
+        // 3,353 docker dates came from a check over a week old), so the grid
+        // re-asks the registry itself once this is more than a day old.
+        'ls'  => $lk === 'r' ? (int)($t['LastUpdateScan'] ?? 0) : 0,
         'sa'  => $fetchedAt[strtolower($mine['rp'] ?? '')] ?? 0,
         'ca'  => $mine['ca'] ?? null,
         't1'  => $mine['t1'] ?? null,
@@ -2525,13 +2539,20 @@ if (is_file($file)) {
     }
 }
 
-// installed: image refs (repo, tag stripped) from the user's Docker templates
+// installed: image refs (repo, tag stripped) from the user's Docker
+// templates, plus the template file each one was read from so the grid can
+// turn the Installed marker into an Edit link to Unraid's own container
+// editor (/Docker/UpdateContainer?xmlTemplate=edit:<template path>, the same
+// target the Docker page's own Edit menu opens). Two containers off one image
+// collapse to one key here, so the link opens whichever template was globbed
+// last; that is the same last-wins the Installed set already lived with.
 $installed = [];
+$installedEdit = [];
 foreach (glob('/boot/config/plugins/dockerMan/templates-user/*.xml') ?: [] as $x) {
     $c = @file_get_contents($x);
     if ($c !== false && preg_match('#<Repository>([^<]+)</Repository>#', $c, $m)) {
         $repo = strtolower(trim($m[1]));
-        if ($repo !== '') { $repo = explode(':', $repo)[0]; $installed[$repo] = true; }
+        if ($repo !== '') { $repo = explode(':', $repo)[0]; $installed[$repo] = true; $installedEdit[$repo] = $x; }
     }
 }
 
@@ -2566,10 +2587,11 @@ foreach (glob('/var/log/plugins/*.plg') ?: [] as $p) {
 }
 
 echo json_encode([
-    'pinned'      => $pinned,
-    'installed'   => array_keys($installed),
-    'plugins'     => array_keys($plugins),
-    'pluginsNorm' => array_keys($pluginsNorm),
+    'pinned'        => $pinned,
+    'installed'     => array_keys($installed),
+    'installedEdit' => $installedEdit,
+    'plugins'       => array_keys($plugins),
+    'pluginsNorm'   => array_keys($pluginsNorm),
 ]);
 ]]>
 </INLINE>
@@ -2618,7 +2640,7 @@ const DOCKERHUB_HOSTS = ['registry-1.docker.io', 'docker.io', 'index.docker.io',
 const CACHE_DIR = '/tmp/modern.appstore';
 const CACHE_FILE = CACHE_DIR . '/registry_dates.json';
 const CACHE_MAX = 4000;
-const TTL_HIT = 86400;   // a resolved date does not change; a day between refetches is plenty
+const TTL_HIT = 86400;   // a date moves only when the image is pushed again; re-asked once a day
 const TTL_MISS = 21600;  // an unresolved image is retried sooner, in case the registry was only briefly down
 
 /**
@@ -2926,6 +2948,107 @@ try {
 
 cache_save($key, $ts);
 respond($ts, $src, false);
+]]>
+</INLINE>
+</FILE>
+
+<FILE Name="/usr/local/emhttp/plugins/modern.appstore/ghcrdl.php">
+<INLINE>
+<![CDATA[
+<?php
+/**
+ * Unraid Modern App Store: download count for an image on GitHub's container
+ * registry.
+ *
+ * Community Applications only counts Docker Hub pulls, so 1,273 of the 1,649
+ * ghcr.io apps in its feed carry no download figure at all and their cards
+ * read N/A. GitHub publishes the figure on the package's own public page
+ * ("Total downloads", exact value in the title attribute), and
+ * github.com/users/<owner>/packages/container/package/<name> reaches that page
+ * for user and organisation owners alike. There is no anonymous API for it.
+ *
+ * READ-ONLY with respect to everything the plugin and CA own. The only thing
+ * written is this endpoint's own cache under /tmp, which never reaches flash.
+ *
+ * GET ghcrdl.php?repo=ghcr.io/<owner>/<name>[:tag]
+ * -> {"n": <int, or null when unresolved>, "cached": <bool>}
+ */
+header('Content-Type: application/json');
+error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
+ini_set('display_errors', '0');
+
+const CACHE_DIR  = '/tmp/modern.appstore';
+const CACHE_FILE = CACHE_DIR . '/ghcr_downloads.json';
+const CACHE_MAX  = 4000;
+const TTL_HIT    = 86400;   // a running total; once a day is plenty
+const TTL_MISS   = 21600;   // a page that did not answer is retried sooner
+
+function respond($n, bool $cached): void {
+    echo json_encode(['n' => $n, 'cached' => $cached]);
+    exit;
+}
+
+// The only untrusted input, and it becomes part of an outbound URL, so the
+// host is fixed and the owner and name are held to GitHub's own character
+// sets before anything is fetched.
+$repo = strtolower(trim((string)($_GET['repo'] ?? '')));
+$repo = preg_replace('~:[^/]*$~', '', $repo);
+if (!preg_match('~^ghcr\.io/([a-z0-9](?:[a-z0-9-]{0,38}))/([a-z0-9][a-z0-9._/-]{0,199})$~', $repo, $m)) respond(null, false);
+$owner = $m[1];
+$name  = $m[2];
+
+$map = json_decode((string)@file_get_contents(CACHE_FILE), true);
+if (!is_array($map)) $map = [];
+if (isset($map[$repo])) {
+    $e = $map[$repo];
+    $ttl = ($e['n'] ?? null) === null ? TTL_MISS : TTL_HIT;
+    if (time() - (int)($e['at'] ?? 0) < $ttl) respond($e['n'] ?? null, true);
+}
+
+$url = 'https://github.com/users/' . $owner . '/packages/container/package/' . rawurlencode($name);
+$ch = curl_init($url);
+curl_setopt_array($ch, [
+    CURLOPT_RETURNTRANSFER => true,
+    CURLOPT_FOLLOWLOCATION => true,
+    CURLOPT_MAXREDIRS      => 3,
+    CURLOPT_PROTOCOLS      => CURLPROTO_HTTPS,
+    CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS,
+    CURLOPT_CONNECTTIMEOUT => 4,
+    CURLOPT_TIMEOUT        => 8,
+    CURLOPT_USERAGENT      => 'unraid-modern-appstore',
+]);
+$body = curl_exec($ch);
+$code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+$host = parse_url((string)curl_getinfo($ch, CURLINFO_EFFECTIVE_URL), PHP_URL_HOST);
+curl_close($ch);
+
+$n = null;
+if ($body !== false && $code === 200 && $host === 'github.com'
+    && preg_match('~Total downloads</span>\s*<h3[^>]*\btitle="(\d+)"~', $body, $mm)) {
+    $n = (int)$mm[1];
+}
+
+// Re-read under lock so two cards resolving at once do not drop each other's
+// entry; pruned by age only once the map outgrows its cap.
+if (!is_dir(CACHE_DIR)) @mkdir(CACHE_DIR, 0755, true);
+$fh = @fopen(CACHE_FILE, 'c+');
+if ($fh !== false && flock($fh, LOCK_EX)) {
+    $cur = json_decode((string)stream_get_contents($fh), true);
+    if (!is_array($cur)) $cur = [];
+    $cur[$repo] = ['n' => $n, 'at' => time()];
+    if (count($cur) > CACHE_MAX) {
+        uasort($cur, function ($a, $b) { return ($a['at'] ?? 0) <=> ($b['at'] ?? 0); });
+        $cur = array_slice($cur, (int)(count($cur) / 2), null, true);
+    }
+    rewind($fh);
+    ftruncate($fh, 0);
+    fwrite($fh, json_encode($cur, JSON_UNESCAPED_SLASHES));
+    fflush($fh);
+    flock($fh, LOCK_UN);
+}
+if ($fh !== false) fclose($fh);
+
+respond($n, false);
 ]]>
 </INLINE>
 </FILE>
@@ -3414,8 +3537,14 @@ function hueToRgb($p, $q, $t) {
 <![CDATA[
 <?php
 /**
- * First-release date for a plugin whose FirstSeen date Community Applications
- * never recorded.
+ * The real arrival date for an app, where Community Applications' own one is
+ * missing or only approximate.
+ *
+ * Two cases. A plugin whose FirstSeen CA never recorded is dated from its own
+ * changelog, as described next. Any app CA did date is checked against its
+ * template's first commit in the maintainer's repository, because CA's date
+ * is the feed build that first carried it and those builds lump every app
+ * published since the previous one onto a single stamp. See publishedDates().
  *
  * CA writes FirstSeen as the integer 1 for an app whose arrival it never
  * logged, and its own skin floors anything below 1433649600 to the constant
@@ -3459,6 +3588,9 @@ $cacheFile = $dataDir . '/addeddate.json';
 // and where its .plg lives.
 $caTmp     = '/tmp/community.applications/tempFiles';
 $tmplFile  = "$caTmp/templates_new.json";
+// CA's skin floors every FirstSeen below this to a constant it manufactures.
+const FLOOR = 1433649600;
+const FEED_DIR = '/tmp/GitHub/AppFeed/';
 
 $req  = json_decode(file_get_contents('php://input'), true);
 $want = (is_array($req) && isset($req['p']) && is_array($req['p'])) ? $req['p'] : [];
@@ -3479,44 +3611,74 @@ foreach ($want as $p) {
     else $todo[] = $p;
 }
 
-// Only plugin paths the catalog actually names, fetched only at the PluginURL
-// the catalog itself recorded for them. Without this the endpoint would fetch
-// whatever URL a caller handed it, from a host sitting inside the user's own
-// network; anything CA's own templates do not list as a plugin with a
-// PluginURL is dropped here and never reaches curl.
-$pluginUrl = [];
+// Only paths the catalog actually names are ever looked up, and only at hosts
+// the catalog itself points to: a plugin's own PluginURL, or the GitHub
+// repository CA lists for the maintainer. Anything CA's templates do not name
+// is dropped here and never reaches curl.
+//
+// Which question an app gets depends on what CA recorded for it. An app whose
+// FirstSeen sits on CA's floor has no date at all, and for a plugin the
+// changelog below is the answer. An app CA did date still carries only the
+// timestamp of the feed build that first picked it up, and those builds run
+// every few days: 2,452 apps share their FirstSeen with up to 42 others,
+// because everything published since the previous build lands on one stamp.
+// Two apps published a day apart print the same date. For those the
+// template's first commit in the maintainer's repository is the real
+// arrival, and it is trusted only inside the window CA's own stamps allow:
+// after the previous build (or that build would have carried it) and no later
+// than the build that did.
+$plgTodo = [];
+$gitTodo = [];
 if ($todo) {
     // Despite the .json name CA writes this file PHP-serialized, so it is
     // unserialized first and only falls back to json_decode.
     $raw  = @file_get_contents($tmplFile);
     $tmpl = $raw !== false ? @unserialize($raw) : false;
     if (!is_array($tmpl)) $tmpl = $raw !== false ? json_decode($raw, true) : [];
+    $wanted = array_flip($todo);
+    $stamps = [];
     foreach ((array)$tmpl as $t) {
+        if (!is_array($t)) continue;
+        $fs = (int)($t['FirstSeen'] ?? 0);
+        if ($fs >= FLOOR) $stamps[$fs] = true;
         $p = (string)($t['Path'] ?? '');
-        if ($p === '') continue;
-        if (empty($t['Plugin'])) continue;
-        $u = trim((string)($t['PluginURL'] ?? ''));
-        if ($u === '') continue;
-        $pluginUrl[$p] = $u;
+        if ($p === '' || !isset($wanted[$p])) continue;
+        if ($fs < FLOOR) {
+            $u = trim((string)($t['PluginURL'] ?? ''));
+            if (!empty($t['Plugin']) && $u !== '') $plgTodo[$p] = $u;
+        } else {
+            $gitTodo[$p] = $t;
+        }
     }
-    $todo = array_values(array_filter($todo, function ($p) use ($pluginUrl) {
-        return isset($pluginUrl[$p]);
-    }));
+    $stamps = array_keys($stamps);
+    sort($stamps);
 }
 
-if ($todo) {
-    $urlByPath = [];
-    foreach ($todo as $p) $urlByPath[$p] = $pluginUrl[$p];
-
-    foreach (fetchFirstRelease($urlByPath) as $p => $ts) {
+$dirty = false;
+if ($plgTodo) {
+    foreach (fetchFirstRelease($plgTodo) as $p => $ts) {
         $val = $ts > 0 ? $ts : -1;
         $out[$p] = $val;
         $cache[$p] = $val;
+        $dirty = true;
     }
-    if (is_dir($dataDir) || @mkdir($dataDir, 0755, true)) {
-        $tmp = $cacheFile . '.tmp';
-        if (@file_put_contents($tmp, json_encode($cache)) !== false) @rename($tmp, $cacheFile);
+}
+if ($gitTodo) {
+    $repoUrl = [];
+    $rl = @unserialize((string)@file_get_contents("$caTmp/repositoryList.json"));
+    foreach ((array)$rl as $name => $r) if (is_array($r)) $repoUrl[(string)$name] = (string)($r['url'] ?? '');
+    $cfg   = @parse_ini_file("$dataDir/modern.appstore.cfg");
+    $token = trim((string)($cfg['TOKEN'] ?? ''));
+    foreach (publishedDates($gitTodo, $stamps, $repoUrl, $token) as $p => $val) {
+        // null is a rate limit or an outage: answered as unknown for now, but
+        // not written down, so the next visit asks again.
+        $out[$p] = $val ?? -1;
+        if ($val !== null) { $cache[$p] = $val; $dirty = true; }
     }
+}
+if ($dirty && (is_dir($dataDir) || @mkdir($dataDir, 0755, true))) {
+    $tmp = $cacheFile . '.tmp';
+    if (@file_put_contents($tmp, json_encode($cache)) !== false) @rename($tmp, $cacheFile);
 }
 
 echo json_encode($out);
@@ -3597,6 +3759,111 @@ function firstReleaseFrom(string $body): int {
         if ($best === 0 || $ts < $best) $best = $ts;
     }
     return $best;
+}
+
+/**
+ * When each template first appeared in its maintainer's GitHub repository,
+ * kept only inside CA's window for it. Two rounds of parallel requests to the
+ * GitHub API: the newest commit touching the file, whose Link header names the
+ * last page, and that last page, which holds the first. The author date is
+ * read rather than the committer date, because a rebase or a squash restamps
+ * the committer and template repositories get tidied that way often.
+ *
+ * Returns path => unix ts, -1 when there is no trustworthy answer, or null
+ * when GitHub could not be asked right now.
+ */
+function publishedDates(array $byPath, array $stamps, array $repoUrl, string $token): array {
+    $res = [];
+    $job = [];
+    foreach ($byPath as $p => $t) {
+        $fs = (int)$t['FirstSeen'];
+        $prev = 0;
+        foreach ($stamps as $s) { if ($s >= $fs) break; $prev = $s; }
+        $url  = $repoUrl[(string)($t['RepoName'] ?? '')] ?? '';
+        // CA's feed keeps each template at the path it has in the
+        // maintainer's repository, under its own checkout directory.
+        $file = (string)($t['TemplatePath'] ?? '');
+        $file = strncmp($file, FEED_DIR, strlen(FEED_DIR)) === 0 ? substr($file, strlen(FEED_DIR)) : '';
+        if ($prev === 0 || $file === '' || strpos($file, '..') !== false
+            || !preg_match('~^https://github\.com/([A-Za-z0-9-]{1,39})/([A-Za-z0-9._-]{1,100})~i', $url, $m)) {
+            $res[$p] = -1;
+            continue;
+        }
+        $repo = $m[1] . '/' . preg_replace('~\.git$~i', '', $m[2]);
+        $job[$p] = ['repo' => $repo, 'file' => $file, 'fs' => $fs, 'prev' => $prev];
+    }
+    if (!$job) return $res;
+
+    $first = [];
+    foreach ($job as $p => $j) {
+        $first[$p] = 'https://api.github.com/repos/' . $j['repo'] . '/commits?per_page=1&path=' . rawurlencode($j['file']);
+    }
+    $newest = ghMulti($first, $token);
+
+    $last = [];
+    foreach ($newest as $p => $r) {
+        if ($r['code'] !== 200) { $res[$p] = ghFailed($r['code']); continue; }
+        if (preg_match('~<(https://api\.github\.com/[^>]+)>;\s*rel="last"~', $r['link'], $m)) $last[$p] = $m[1];
+        else $res[$p] = inWindow($r['body'], $job[$p]);   // one commit, or none: not in this repository
+    }
+    foreach (ghMulti($last, $token) as $p => $r) {
+        $res[$p] = $r['code'] === 200 ? inWindow($r['body'], $job[$p]) : ghFailed($r['code']);
+    }
+    return $res;
+}
+
+// The one commit in a per_page=1 page, if it falls after the previous feed
+// build and no later than the one that first carried the app.
+function inWindow(string $body, array $j): int {
+    $d = json_decode($body, true);
+    $ts = strtotime((string)($d[0]['commit']['author']['date'] ?? ''));
+    return ($ts && $ts > $j['prev'] && $ts <= $j['fs']) ? $ts : -1;
+}
+
+// A missing or empty repository is an answer; a rate limit or an outage is not.
+function ghFailed(int $code): ?int {
+    return ($code === 0 || $code === 403 || $code === 429 || $code >= 500) ? null : -1;
+}
+
+function ghMulti(array $urls, string $token): array {
+    $res = [];
+    $hdr = ['Accept: application/vnd.github+json', 'X-GitHub-Api-Version: 2022-11-28'];
+    if ($token !== '') $hdr[] = 'Authorization: Bearer ' . $token;
+    foreach (array_chunk($urls, 20, true) as $chunk) {
+        $mh = curl_multi_init();
+        $hs = [];
+        foreach ($chunk as $k => $u) {
+            $link = '';
+            $c = curl_init($u);
+            curl_setopt_array($c, [
+                CURLOPT_RETURNTRANSFER => true,
+                CURLOPT_PROTOCOLS      => CURLPROTO_HTTPS,
+                CURLOPT_CONNECTTIMEOUT => 5,
+                CURLOPT_TIMEOUT        => 15,
+                CURLOPT_USERAGENT      => 'unraid-modern-appstore',
+                CURLOPT_HTTPHEADER     => $hdr,
+            ]);
+            $hs[$k] = ['h' => $c, 'link' => ''];
+            curl_setopt($c, CURLOPT_HEADERFUNCTION, function ($ch, $line) use (&$hs, $k) {
+                if (stripos($line, 'link:') === 0) $hs[$k]['link'] = trim(substr($line, 5));
+                return strlen($line);
+            });
+            curl_multi_add_handle($mh, $c);
+        }
+        $running = null;
+        do { curl_multi_exec($mh, $running); curl_multi_select($mh, 0.2); } while ($running > 0);
+        foreach ($hs as $k => $h) {
+            $res[$k] = [
+                'code' => (int)curl_getinfo($h['h'], CURLINFO_HTTP_CODE),
+                'body' => (string)curl_multi_getcontent($h['h']),
+                'link' => $h['link'],
+            ];
+            curl_multi_remove_handle($mh, $h['h']);
+            curl_close($h['h']);
+        }
+        curl_multi_close($mh);
+    }
+    return $res;
 }
 ]]>
 </INLINE>
@@ -3714,16 +3981,25 @@ echo json_encode([
  * bytes (HTTP 206), 160 times less than pulling the whole 328KB file down
  * just to read one line near its top.
  *
- * Caching policy: once the cache already says an update is available there
- * is nothing left to learn by asking again, an update is an update whether
- * it is one version old or five, so that answer is served straight back and
- * no request is made at all until the installed version itself changes.
- * That comparison is always against a fresh read of the .plg, never a
- * cached one, so a plugin update picked up between requests is noticed on
- * the very next call without this file having to track it separately. Only
- * while this server is reported up to date does it re-check GitHub at all,
- * and even then no more often than every 6 hours, which is what stops a
- * plugin that is already current from hitting GitHub on every page load.
+ * Caching policy: one throttle governs every case. A fetched answer is
+ * reused for up to 6 hours before GitHub is asked again, which is what
+ * stops a plugin that is already current from hitting GitHub on every page
+ * load. The comparison itself is always against a fresh read of the .plg,
+ * never a cached one, so a plugin update picked up between requests is
+ * noticed on the very next call without this file having to track it
+ * separately.
+ *
+ * There used to be a second shortcut: once the cache showed this server
+ * behind, it never re-fetched at all until the installed version changed,
+ * on the theory that an update is an update whether it is one version old
+ * or five. That theory breaks the moment the published version can move
+ * backwards, which this plugin's does. Versions are dates, and a run of
+ * releases was mis-dated 2026.09.04 while the day was the 2nd; correcting
+ * the clock dropped the newest published version below a 2026.09.04x the
+ * cache had already recorded as "latest". The behind-shortcut then served
+ * that dead version forever, showing a permanent update to something GitHub
+ * no longer publishes. The throttle alone bounds staleness in both
+ * directions, so a backwards move self-corrects on the next check.
  *
  * READ-ONLY with respect to everything except its own cache file,
  * /boot/config/plugins/modern.appstore/latest.json. A failed fetch (network
@@ -3834,17 +4110,16 @@ if (is_file($cache_file)) {
 $latest    = ($cache && isset($cache['latest'])) ? (string)$cache['latest'] : '';
 $checkedAt = ($cache && isset($cache['checkedAt'])) ? (int)$cache['checkedAt'] : 0;
 
-// The two skip conditions below are the whole caching policy. Versions are
-// date strings like 2026.08.23d and 2026.08.29, so a plain strcmp orders
-// them correctly: a letter suffix sorts after the bare date it extends, and
-// a longer string sorts after its own prefix.
+// One throttle is the whole caching policy: a cached answer, whether it
+// shows this server current or behind, is reused until it is 6 hours stale,
+// then GitHub is asked again. Versions are date strings like 2026.08.23d and
+// 2026.08.29, so a plain strcmp orders them correctly: a letter suffix sorts
+// after the bare date it extends, and a longer string sorts after its own
+// prefix. Nothing here trusts a "behind" cache indefinitely, because the
+// published date can move backwards (see the header note), and a cache that
+// never re-checks would then show a phantom update forever.
 $need_fetch = true;
-if ($installed !== '' && $latest !== '' && strcmp($installed, $latest) < 0) {
-    // cache already shows this server behind; that fact does not change by
-    // asking GitHub again, so nothing is fetched until $installed itself does
-    $need_fetch = false;
-} elseif ($latest !== '' && $checkedAt > 0 && (time() - $checkedAt) < $throttle_sec) {
-    // cache shows current, and it is not yet 6 hours stale; too soon to re-ask
+if ($latest !== '' && $checkedAt > 0 && (time() - $checkedAt) < $throttle_sec) {
     $need_fetch = false;
 }
 
@@ -4180,6 +4455,11 @@ echo json_encode(['error' => 'method not allowed']);
     var scanAsked = {};           // path -> 1, so a page is only auto-scanned once
     var scanInFlight = false, scanPending = false, scanTimer = null;
     var pinnedSet = null, installedSet = null;
+    // Docker-installed image ref (tag stripped) -> the user template it was
+    // read from, so an installed container's card offers Edit (a link into
+    // Unraid's own container editor) instead of an inert Installed marker.
+    // From pinned.php; empty for plugins, which have no container to edit.
+    var installedEdit = null;
     // Installed plugins, keyed by the .plg filename they occupy, plus the
     // punctuation-stripped form of the same name for the handful of feed
     // templates spelled with different separators. Both come from
@@ -4235,6 +4515,13 @@ echo json_encode(['error' => 'method not allowed']);
       }
       return !!(a.ri && installedSet && installedSet.has(stripTag(a.ri)));
     }
+    // The user template of an installed Docker container, for the Edit link.
+    // Only Docker apps have one: a plugin's "installed" record is a .plg name,
+    // not a container template, so it keeps the plain Installed marker.
+    function installedTemplate(a) {
+      if (!a || a.ty === 'plugin' || !a.ri || !installedEdit) return '';
+      return installedEdit[stripTag(a.ri)] || '';
+    }
     // Template path of the app whose drawer is open. The drawer is CA's and CA
     // never tells us which app it just painted, so the path we handed
     // showSidebarApp is kept here for fixDrawerDetails() to look the app back
@@ -4251,6 +4538,7 @@ echo json_encode(['error' => 'method not allowed']);
         .then(function (j) {
           pinnedSet = new Set((j && j.pinned) || []);
           installedSet = new Set((j && j.installed) || []);
+          installedEdit = (j && j.installedEdit) || {};
           installedPlugins = new Set((j && j.plugins) || []);
           installedPluginsNorm = new Set((j && j.pluginsNorm) || []);
           cb && cb();
@@ -4258,6 +4546,7 @@ echo json_encode(['error' => 'method not allowed']);
         .catch(function () {
           pinnedSet = pinnedSet || new Set();
           installedSet = installedSet || new Set();
+          installedEdit = installedEdit || {};
           installedPlugins = installedPlugins || new Set();
           installedPluginsNorm = installedPluginsNorm || new Set();
           cb && cb();
@@ -4928,6 +5217,13 @@ echo json_encode(['error' => 'method not allowed']);
         if (btn.classList.contains('asga-btn-installed')) return;
         if (btn.classList.contains('asga-install')) {
           installApp(tile);
+        } else if (btn.classList.contains('asga-edit')) {
+          // Unraid's own Docker page edits a container by navigating to
+          // /Docker/UpdateContainer?xmlTemplate=edit:<template path> (its
+          // editContainer()); the path is passed raw there, so it is here too.
+          // Opened in a new tab, like Install, so the store stays put behind it.
+          var ep = tile.getAttribute('data-editpath');
+          if (ep) openExt('/Docker/UpdateContainer?xmlTemplate=edit:' + ep);
         } else if (btn.classList.contains('asga-project')) {
           openExt(tile.getAttribute('data-project'));
         } else if (btn.classList.contains('asga-support')) {
@@ -5957,9 +6253,11 @@ echo json_encode(['error' => 'method not allowed']);
       // non-English server, since CA runs every one of these through tr().
       var addedRow = table.rows.length > 2 ? table.rows[2] : null;
       var addedCell = addedRow && addedRow.querySelector('.popupTableRight');
-      if (addedCell && app.fs) {
-        addedCell.textContent = absDate(app.fs, false) + ageBracket(app.fs, false);
-        addedCell.title = absDate(app.fs, app.fs > 1433649600);
+      // The same date the card shows, once addeddate.php has found a better one.
+      var addTs = addedMap[app.p] > 0 ? addedMap[app.p] : app.fs;
+      if (addedCell && addTs) {
+        addedCell.textContent = absDate(addTs, false) + ageBracket(addTs, false);
+        addedCell.title = absDate(addTs, app.fx !== 1 && addTs > 1433649600);
       }
 
       // The Last Update row is found by the id CA hangs on it rather than by
@@ -5988,7 +6286,7 @@ echo json_encode(['error' => 'method not allowed']);
           if (luLabel) luLabel.textContent = luLabel.textContent.replace(/\s*:\s*$/, '');
           if (addedRow && addedRow.parentNode) addedRow.parentNode.insertBefore(luRow, addedRow.nextSibling);
           if (app.lu) setLuCell(luCell, app.lu, app.lk);
-          else resolveLastUpdate(app, luCell);
+          if (!app.lu || luStale(app)) resolveLastUpdate(app, luCell);
         }
       }
 
@@ -6142,25 +6440,36 @@ echo json_encode(['error' => 'method not allowed']);
         ? 'Release date of this plugin\'s current version, read from the version number itself.'
         : 'When this app\'s image was last published to its container registry.\n' + absDate(ts, true);
     }
-    // Nothing in CA's feed, so ask the registry that actually hosts the image.
-    // The answer is written back onto the catalog entry as well, so the app's
-    // own card carries the date the next time the grid repaints.
+    // CA only re-checks a registry every week or so, so its LastUpdate goes
+    // stale the moment an image is pushed again. A CA date whose check is
+    // over a day old is asked of the registry again.
+    function luStale(a) {
+      return a.lk === 'r' && a.ls > 0 && Date.now() / 1000 - a.ls > 86400;
+    }
+    // Keeps the newer of what the app already carries and a registry answer.
+    // A push time dated in the future is never taken. True when it changed.
+    function takeNewerLu(a, ts) {
+      if (!ts || ts > Math.floor(Date.now() / 1000) || ts <= (a.lu || 0)) return false;
+      a.lu = ts; a.lk = 'r';
+      return true;
+    }
+    // Nothing in CA's feed, or CA's date is stale, so ask the registry that
+    // actually hosts the image. The answer is written back onto the catalog
+    // entry as well, so the app's own card carries the date the next time the
+    // grid repaints. A stale CA date stays on screen while the check runs.
     function resolveLastUpdate(app, cell) {
       var ref = app.ri || '';
-      if (!ref || app.ty !== 'docker') { cell.textContent = 'N/A'; return; }
+      if (!ref || app.ty !== 'docker') { if (!app.lu) cell.textContent = 'N/A'; return; }
       var done = function (ts) {
         // the drawer can be closed or already showing another app by the time
         // this lands, and writing into a detached cell would be invisible at
         // best and wrong at worst
         if (!document.contains(cell)) return;
-        // Same test the card applies: a push time the registry dates in the
-        // future is not one this drawer will print.
-        if (!ts || ts > Math.floor(Date.now() / 1000)) { cell.textContent = 'N/A'; return; }
-        app.lu = ts; app.lk = 'r';
-        setLuCell(cell, ts, 'r');
+        if (takeNewerLu(app, ts)) setLuCell(cell, app.lu, 'r');
+        else if (!app.lu) cell.textContent = 'N/A';
       };
       if (regDates[ref] != null) { done(regDates[ref]); return; }
-      cell.textContent = 'Checking…';
+      if (!app.lu) cell.textContent = 'Checking…';
       fetch(PREFIX + 'lastupdate.php?repo=' + encodeURIComponent(ref))
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) { var ts = (j && j.ts) || 0; regDates[ref] = ts; done(ts); })
@@ -6271,7 +6580,7 @@ echo json_encode(['error' => 'method not allowed']);
       fetch('/plugins/community.applications/include/exec.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'action=createXML&type=default&xml=' + encodeURIComponent(p),
+        body: csrfBody(new URLSearchParams({ action: 'createXML', type: 'default', xml: p })),
         credentials: 'same-origin'
       }).then(function (r) { return r.json(); }).then(function (r) {
         if (r && r.status === 'ok') openTemplate(p);
@@ -6317,17 +6626,18 @@ echo json_encode(['error' => 'method not allowed']);
       }
     }
 
-    // A real arrival date for the apps CA never recorded one for. Its own value
-    // for those is a constant its skin manufactures, so asking is worth a
-    // request: addeddate.php reads the oldest dated entry of a plugin's own
-    // changelog, and answers -1 when the changelog cannot prove it reaches a
-    // first release. The answers are cached on flash, so this costs a request
-    // once per app for the life of the install.
+    // A real arrival date, asked of addeddate.php for every app. For the apps
+    // CA never dated it reads a plugin's own changelog. For the rest it reads
+    // when the template was first committed to its maintainer's repository,
+    // because CA's date is the feed build that first carried the app and one
+    // build stamps every app published in the days since the last. Either
+    // answer is -1 when nothing trustworthy is found. Answers are cached on
+    // flash, so this costs a request once per app for the life of the install.
     var addedMap = {};
     var addedPending = {};
     var addedTimer = null;
     function queueAdded(a) {
-      if (!a || a.fx !== 1 || !a.p) return;
+      if (!a || !a.p || !a.fs) return;
       if (addedMap[a.p] !== undefined) return;
       addedPending[a.p] = true;
       if (!addedTimer) addedTimer = setTimeout(flushAdded, 200);
@@ -6339,7 +6649,7 @@ echo json_encode(['error' => 'method not allowed']);
       var batch = paths.slice(0, 60);
       fetch(PREFIX + 'addeddate.php', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.csrf_token || '' },
         body: JSON.stringify({ p: batch })
       }).then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) {
@@ -6387,6 +6697,12 @@ echo json_encode(['error' => 'method not allowed']);
       // Not one of the apps CA lost the date for: its own value stands.
       if (a.fx !== 1) {
         if (!a.fs) return null;
+        queueAdded(a);
+        var pub = addedMap[a.p];
+        if (pub > 0) {
+          var ps = dateSpan('asga-tile-added', CAL_ICON, 'Added', pub, false, true, short);
+          return ps;
+        }
         return dateSpan('asga-tile-added', CAL_ICON, 'Added', a.fs, false, a.fs > 1433649600, short);
       }
       queueAdded(a);
@@ -6797,15 +7113,24 @@ echo json_encode(['error' => 'method not allowed']);
         mtBtn.title = 'This app\'s template names no maintainer repository';
       }
       btns.appendChild(mtBtn);
-      // An app already on this server has nothing for Install to do, so it gets
-      // a plain marker instead: grey, arrow cursor, no hover, and inert under
-      // the click handler below. It used to fall through to the Info drawer,
-      // which made a marker of a fact behave like a button after all.
+      // An app already on this server has nothing for Install to do. A Docker
+      // container gets an Edit button instead, linking to Unraid's own
+      // container editor (see tileClick); an installed plugin, which has no
+      // container template to open, keeps the plain grey Installed marker:
+      // arrow cursor, no hover, inert under the click handler below.
       if (isInstalled(a)) {
-        var instBtn = mkBtn('Installed', 'asga-btn-installed');
-        instBtn.title = 'Already installed on this server';
-        instBtn.setAttribute('aria-disabled', 'true');
-        btns.appendChild(instBtn);
+        var ep = installedTemplate(a);
+        if (ep) {
+          var edBtn = mkBtn('Edit', 'asga-edit');
+          edBtn.title = 'Edit this container’s settings in Unraid';
+          tile.setAttribute('data-editpath', ep);
+          btns.appendChild(edBtn);
+        } else {
+          var instBtn = mkBtn('Installed', 'asga-btn-installed');
+          instBtn.title = 'Already installed on this server';
+          instBtn.setAttribute('aria-disabled', 'true');
+          btns.appendChild(instBtn);
+        }
       } else {
         var ib = mkBtn('Install', 'asga-install');
         // Docker down: the card still lists the app and still opens its Info
@@ -7005,6 +7330,9 @@ echo json_encode(['error' => 'method not allowed']);
         return ty === 'plugin'
           ? 'The app catalog has no install count for this plugin'
           : 'The app catalog has no pull count for this image. Counts come from Docker Hub, and this app is published somewhere else.';
+      }
+      if (dz === 'g') {
+        return dl.toLocaleString() + ' downloads of this app\'s image from GitHub\'s container registry, as its package page reports them';
       }
       if (dl === 0) {
         return ty === 'plugin'
@@ -7301,31 +7629,58 @@ echo json_encode(['error' => 'method not allowed']);
       try {
         var gen = renderGen;
         var queue = [];
+        var has = Object.prototype.hasOwnProperty;
         for (var i = 0; i < pageItemsNow.length; i++) {
           var a = pageItemsNow[i];
-          if (!a || a.lu || a.ty !== 'docker' || !a.ri) continue;
-          if (Object.prototype.hasOwnProperty.call(regDates, a.ri)) {
+          if (!a || a.ty !== 'docker' || !a.ri) continue;
+          if (!a.lu || luStale(a)) {
             // already asked this session; a real answer still needs painting
             // onto this card, since a freshly rendered tile has lost the text
-            if (regDates[a.ri]) paintFilledDate(a, regDates[a.ri], gen);
-            continue;
+            if (has.call(regDates, a.ri)) { if (regDates[a.ri]) paintFilledDate(a, regDates[a.ri], gen); }
+            else queue.push({ a: a, url: 'lastupdate.php', done: dateDone });
           }
-          queue.push(a);
+          if (needsGhcrCount(a) && !has.call(ghcrDl, a.ri)) {
+            queue.push({ a: a, url: 'ghcrdl.php', done: dlDone });
+          }
+        }
+        function dateDone(job, j) {
+          var ts = (j && j.ts) || 0; regDates[job.a.ri] = ts;
+          if (ts) paintFilledDate(job.a, ts, gen);
+        }
+        function dlDone(job, j) {
+          var n = (j && typeof j.n === 'number') ? j.n : null; ghcrDl[job.a.ri] = n;
+          if (n != null) paintFilledDl(job.a, n, gen);
         }
         var pump = function () {
           if (!queue.length) return;
-          fetchOne(queue.shift());
-        };
-        var fetchOne = function (a) {
-          var ref = a.ri;
-          fetch(PREFIX + 'lastupdate.php?repo=' + encodeURIComponent(ref))
+          var job = queue.shift();
+          fetch(PREFIX + job.url + '?repo=' + encodeURIComponent(job.a.ri))
             .then(function (r) { return r.ok ? r.json() : null; })
-            .then(function (j) { var ts = (j && j.ts) || 0; regDates[ref] = ts; if (ts) paintFilledDate(a, ts, gen); })
-            .catch(function () { regDates[ref] = 0; })
-            .then(function () { pump(); });
+            .catch(function () { return null; })
+            .then(function (j) { job.done(job, j); pump(); });
         };
         var n = Math.min(4, queue.length);
         for (var k = 0; k < n; k++) pump();
+      } catch (e) {}
+    }
+    // Community Applications counts Docker Hub pulls only, so an image on
+    // GitHub's container registry arrives with no figure. ghcrdl.php reads the
+    // total GitHub publishes on the package page. Cached per image for the
+    // session in ghcrDl (null once asked and unresolved), and written back onto
+    // the app so a repaint draws it straight away.
+    var ghcrDl = {};
+    function needsGhcrCount(a) {
+      return a.dl == null && a.dz !== 'b' && /^ghcr\.io\//i.test(a.ri || '');
+    }
+    function paintFilledDl(a, n, gen) {
+      a.dl = n; a.dz = 'g';
+      try {
+        if (gen !== renderGen) return;
+        if (typeof CSS === 'undefined' || !CSS.escape) return;
+        var tile = document.querySelector('#asga-grid .asga-tile[data-apppath="' + CSS.escape(a.p) + '"]');
+        var old = tile && tile.querySelector('.asga-stat-dl');
+        if (!old) return;
+        old.replaceWith(statSpan('asga-stat-dl', DL_ICON, a.dl, 'pull', downloadTitle(a.dl, a.ty, a.dz)));
       } catch (e) {}
     }
     // Writing the date onto the app record happens whether or not this page
@@ -7335,10 +7690,10 @@ echo json_encode(['error' => 'method not allowed']);
     // no longer belongs to this walk (or, worse, a different app that has
     // since reused the same DOM node).
     function paintFilledDate(a, ts, gen) {
-      // A push time the registry dates in the future never enters the catalog
-      // entry, so nothing downstream of this (the drawer's own Last Update
-      // row reads the same field) can print it either.
-      if (ts && ts <= Math.floor(Date.now() / 1000)) { a.lu = ts; a.lk = 'r'; }
+      // Only a newer, non-future push time enters the catalog entry (see
+      // takeNewerLu), so a registry answer older than CA's own date never
+      // replaces it and the tile is left as painted.
+      if (!takeNewerLu(a, ts)) return;
       try {
         if (gen !== renderGen) return;
         if (typeof CSS === 'undefined' || !CSS.escape) return;
@@ -7388,7 +7743,7 @@ echo json_encode(['error' => 'method not allowed']);
       scanInFlight = true;
       fetch(PREFIX + 'scanpage.php', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.csrf_token || '' },
         body: JSON.stringify({ paths: want, force: !!force })
       })
         .then(function (r) { return r.ok ? r.json() : null; })
@@ -8340,7 +8695,9 @@ echo json_encode(['error' => 'method not allowed']);
     // request still answers HTTP 200, but with a zero-length body and
     // nothing saved, which is otherwise indistinguishable from success. The
     // token is exposed as window.csrf_token on every webGui page, including
-    // this one, so it is appended to every settings.php POST here.
+    // this one. Form POSTs carry it in the body here; the JSON POSTs
+    // (addeddate.php, scanpage.php) send it as the X-CSRF-Token header,
+    // which the webGui's check reads too.
     function csrfBody(params) {
       if (window.csrf_token) params.set('csrf_token', window.csrf_token);
       return params.toString();
@@ -9934,6 +10291,17 @@ body.asga-active {
 .asga-btn.asga-pinned {
   color: #6ac47f; background: rgba(106, 196, 127, 0.15); border-color: rgba(106, 196, 127, 0.4);
   font-weight: 600; cursor: pointer;
+}
+/* Edit replaces Installed on a card whose container is on the server. It wears
+   the same positive green as pinned, "this is already true", but unlike the
+   inert Installed marker it does something: it opens Unraid's container editor,
+   so it takes the pointer cursor and a real hover. */
+.asga-btn.asga-edit {
+  color: #6ac47f; background: rgba(106, 196, 127, 0.15); border-color: rgba(106, 196, 127, 0.4);
+  font-weight: 600; cursor: pointer;
+}
+.asga-btn.asga-edit:hover {
+  background: rgba(106, 196, 127, 0.22); border-color: rgba(106, 196, 127, 0.55);
 }
 /* Installed is the one button on the card with nothing to do, so it is the
    one drawn grey: the plain pill dimmed, no accent on hover. It used to share

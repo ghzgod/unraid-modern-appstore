@@ -38,7 +38,7 @@ const DOCKERHUB_HOSTS = ['registry-1.docker.io', 'docker.io', 'index.docker.io',
 const CACHE_DIR = '/tmp/modern.appstore';
 const CACHE_FILE = CACHE_DIR . '/registry_dates.json';
 const CACHE_MAX = 4000;
-const TTL_HIT = 86400;   // a resolved date does not change; a day between refetches is plenty
+const TTL_HIT = 86400;   // a date moves only when the image is pushed again; re-asked once a day
 const TTL_MISS = 21600;  // an unresolved image is retried sooner, in case the registry was only briefly down
 
 /**

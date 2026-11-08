@@ -1029,6 +1029,17 @@ body.asga-active {
   color: #6ac47f; background: rgba(106, 196, 127, 0.15); border-color: rgba(106, 196, 127, 0.4);
   font-weight: 600; cursor: pointer;
 }
+/* Edit replaces Installed on a card whose container is on the server. It wears
+   the same positive green as pinned, "this is already true", but unlike the
+   inert Installed marker it does something: it opens Unraid's container editor,
+   so it takes the pointer cursor and a real hover. */
+.asga-btn.asga-edit {
+  color: #6ac47f; background: rgba(106, 196, 127, 0.15); border-color: rgba(106, 196, 127, 0.4);
+  font-weight: 600; cursor: pointer;
+}
+.asga-btn.asga-edit:hover {
+  background: rgba(106, 196, 127, 0.22); border-color: rgba(106, 196, 127, 0.55);
+}
 /* Installed is the one button on the card with nothing to do, so it is the
    one drawn grey: the plain pill dimmed, no accent on hover. It used to share
    the pinned green, which made the one card a reader cannot install look like

@@ -51,6 +51,11 @@
     var scanAsked = {};           // path -> 1, so a page is only auto-scanned once
     var scanInFlight = false, scanPending = false, scanTimer = null;
     var pinnedSet = null, installedSet = null;
+    // Docker-installed image ref (tag stripped) -> the user template it was
+    // read from, so an installed container's card offers Edit (a link into
+    // Unraid's own container editor) instead of an inert Installed marker.
+    // From pinned.php; empty for plugins, which have no container to edit.
+    var installedEdit = null;
     // Installed plugins, keyed by the .plg filename they occupy, plus the
     // punctuation-stripped form of the same name for the handful of feed
     // templates spelled with different separators. Both come from
@@ -106,6 +111,13 @@
       }
       return !!(a.ri && installedSet && installedSet.has(stripTag(a.ri)));
     }
+    // The user template of an installed Docker container, for the Edit link.
+    // Only Docker apps have one: a plugin's "installed" record is a .plg name,
+    // not a container template, so it keeps the plain Installed marker.
+    function installedTemplate(a) {
+      if (!a || a.ty === 'plugin' || !a.ri || !installedEdit) return '';
+      return installedEdit[stripTag(a.ri)] || '';
+    }
     // Template path of the app whose drawer is open. The drawer is CA's and CA
     // never tells us which app it just painted, so the path we handed
     // showSidebarApp is kept here for fixDrawerDetails() to look the app back
@@ -122,6 +134,7 @@
         .then(function (j) {
           pinnedSet = new Set((j && j.pinned) || []);
           installedSet = new Set((j && j.installed) || []);
+          installedEdit = (j && j.installedEdit) || {};
           installedPlugins = new Set((j && j.plugins) || []);
           installedPluginsNorm = new Set((j && j.pluginsNorm) || []);
           cb && cb();
@@ -129,6 +142,7 @@
         .catch(function () {
           pinnedSet = pinnedSet || new Set();
           installedSet = installedSet || new Set();
+          installedEdit = installedEdit || {};
           installedPlugins = installedPlugins || new Set();
           installedPluginsNorm = installedPluginsNorm || new Set();
           cb && cb();
@@ -799,6 +813,13 @@
         if (btn.classList.contains('asga-btn-installed')) return;
         if (btn.classList.contains('asga-install')) {
           installApp(tile);
+        } else if (btn.classList.contains('asga-edit')) {
+          // Unraid's own Docker page edits a container by navigating to
+          // /Docker/UpdateContainer?xmlTemplate=edit:<template path> (its
+          // editContainer()); the path is passed raw there, so it is here too.
+          // Opened in a new tab, like Install, so the store stays put behind it.
+          var ep = tile.getAttribute('data-editpath');
+          if (ep) openExt('/Docker/UpdateContainer?xmlTemplate=edit:' + ep);
         } else if (btn.classList.contains('asga-project')) {
           openExt(tile.getAttribute('data-project'));
         } else if (btn.classList.contains('asga-support')) {
@@ -1828,9 +1849,11 @@
       // non-English server, since CA runs every one of these through tr().
       var addedRow = table.rows.length > 2 ? table.rows[2] : null;
       var addedCell = addedRow && addedRow.querySelector('.popupTableRight');
-      if (addedCell && app.fs) {
-        addedCell.textContent = absDate(app.fs, false) + ageBracket(app.fs, false);
-        addedCell.title = absDate(app.fs, app.fs > 1433649600);
+      // The same date the card shows, once addeddate.php has found a better one.
+      var addTs = addedMap[app.p] > 0 ? addedMap[app.p] : app.fs;
+      if (addedCell && addTs) {
+        addedCell.textContent = absDate(addTs, false) + ageBracket(addTs, false);
+        addedCell.title = absDate(addTs, app.fx !== 1 && addTs > 1433649600);
       }
 
       // The Last Update row is found by the id CA hangs on it rather than by
@@ -1859,7 +1882,7 @@
           if (luLabel) luLabel.textContent = luLabel.textContent.replace(/\s*:\s*$/, '');
           if (addedRow && addedRow.parentNode) addedRow.parentNode.insertBefore(luRow, addedRow.nextSibling);
           if (app.lu) setLuCell(luCell, app.lu, app.lk);
-          else resolveLastUpdate(app, luCell);
+          if (!app.lu || luStale(app)) resolveLastUpdate(app, luCell);
         }
       }
 
@@ -2013,25 +2036,36 @@
         ? 'Release date of this plugin\'s current version, read from the version number itself.'
         : 'When this app\'s image was last published to its container registry.\n' + absDate(ts, true);
     }
-    // Nothing in CA's feed, so ask the registry that actually hosts the image.
-    // The answer is written back onto the catalog entry as well, so the app's
-    // own card carries the date the next time the grid repaints.
+    // CA only re-checks a registry every week or so, so its LastUpdate goes
+    // stale the moment an image is pushed again. A CA date whose check is
+    // over a day old is asked of the registry again.
+    function luStale(a) {
+      return a.lk === 'r' && a.ls > 0 && Date.now() / 1000 - a.ls > 86400;
+    }
+    // Keeps the newer of what the app already carries and a registry answer.
+    // A push time dated in the future is never taken. True when it changed.
+    function takeNewerLu(a, ts) {
+      if (!ts || ts > Math.floor(Date.now() / 1000) || ts <= (a.lu || 0)) return false;
+      a.lu = ts; a.lk = 'r';
+      return true;
+    }
+    // Nothing in CA's feed, or CA's date is stale, so ask the registry that
+    // actually hosts the image. The answer is written back onto the catalog
+    // entry as well, so the app's own card carries the date the next time the
+    // grid repaints. A stale CA date stays on screen while the check runs.
     function resolveLastUpdate(app, cell) {
       var ref = app.ri || '';
-      if (!ref || app.ty !== 'docker') { cell.textContent = 'N/A'; return; }
+      if (!ref || app.ty !== 'docker') { if (!app.lu) cell.textContent = 'N/A'; return; }
       var done = function (ts) {
         // the drawer can be closed or already showing another app by the time
         // this lands, and writing into a detached cell would be invisible at
         // best and wrong at worst
         if (!document.contains(cell)) return;
-        // Same test the card applies: a push time the registry dates in the
-        // future is not one this drawer will print.
-        if (!ts || ts > Math.floor(Date.now() / 1000)) { cell.textContent = 'N/A'; return; }
-        app.lu = ts; app.lk = 'r';
-        setLuCell(cell, ts, 'r');
+        if (takeNewerLu(app, ts)) setLuCell(cell, app.lu, 'r');
+        else if (!app.lu) cell.textContent = 'N/A';
       };
       if (regDates[ref] != null) { done(regDates[ref]); return; }
-      cell.textContent = 'Checking…';
+      if (!app.lu) cell.textContent = 'Checking…';
       fetch(PREFIX + 'lastupdate.php?repo=' + encodeURIComponent(ref))
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) { var ts = (j && j.ts) || 0; regDates[ref] = ts; done(ts); })
@@ -2142,7 +2176,7 @@
       fetch('/plugins/community.applications/include/exec.php', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: 'action=createXML&type=default&xml=' + encodeURIComponent(p),
+        body: csrfBody(new URLSearchParams({ action: 'createXML', type: 'default', xml: p })),
         credentials: 'same-origin'
       }).then(function (r) { return r.json(); }).then(function (r) {
         if (r && r.status === 'ok') openTemplate(p);
@@ -2188,17 +2222,18 @@
       }
     }
 
-    // A real arrival date for the apps CA never recorded one for. Its own value
-    // for those is a constant its skin manufactures, so asking is worth a
-    // request: addeddate.php reads the oldest dated entry of a plugin's own
-    // changelog, and answers -1 when the changelog cannot prove it reaches a
-    // first release. The answers are cached on flash, so this costs a request
-    // once per app for the life of the install.
+    // A real arrival date, asked of addeddate.php for every app. For the apps
+    // CA never dated it reads a plugin's own changelog. For the rest it reads
+    // when the template was first committed to its maintainer's repository,
+    // because CA's date is the feed build that first carried the app and one
+    // build stamps every app published in the days since the last. Either
+    // answer is -1 when nothing trustworthy is found. Answers are cached on
+    // flash, so this costs a request once per app for the life of the install.
     var addedMap = {};
     var addedPending = {};
     var addedTimer = null;
     function queueAdded(a) {
-      if (!a || a.fx !== 1 || !a.p) return;
+      if (!a || !a.p || !a.fs) return;
       if (addedMap[a.p] !== undefined) return;
       addedPending[a.p] = true;
       if (!addedTimer) addedTimer = setTimeout(flushAdded, 200);
@@ -2210,7 +2245,7 @@
       var batch = paths.slice(0, 60);
       fetch(PREFIX + 'addeddate.php', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.csrf_token || '' },
         body: JSON.stringify({ p: batch })
       }).then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) {
@@ -2258,6 +2293,12 @@
       // Not one of the apps CA lost the date for: its own value stands.
       if (a.fx !== 1) {
         if (!a.fs) return null;
+        queueAdded(a);
+        var pub = addedMap[a.p];
+        if (pub > 0) {
+          var ps = dateSpan('asga-tile-added', CAL_ICON, 'Added', pub, false, true, short);
+          return ps;
+        }
         return dateSpan('asga-tile-added', CAL_ICON, 'Added', a.fs, false, a.fs > 1433649600, short);
       }
       queueAdded(a);
@@ -2668,15 +2709,24 @@
         mtBtn.title = 'This app\'s template names no maintainer repository';
       }
       btns.appendChild(mtBtn);
-      // An app already on this server has nothing for Install to do, so it gets
-      // a plain marker instead: grey, arrow cursor, no hover, and inert under
-      // the click handler below. It used to fall through to the Info drawer,
-      // which made a marker of a fact behave like a button after all.
+      // An app already on this server has nothing for Install to do. A Docker
+      // container gets an Edit button instead, linking to Unraid's own
+      // container editor (see tileClick); an installed plugin, which has no
+      // container template to open, keeps the plain grey Installed marker:
+      // arrow cursor, no hover, inert under the click handler below.
       if (isInstalled(a)) {
-        var instBtn = mkBtn('Installed', 'asga-btn-installed');
-        instBtn.title = 'Already installed on this server';
-        instBtn.setAttribute('aria-disabled', 'true');
-        btns.appendChild(instBtn);
+        var ep = installedTemplate(a);
+        if (ep) {
+          var edBtn = mkBtn('Edit', 'asga-edit');
+          edBtn.title = 'Edit this container’s settings in Unraid';
+          tile.setAttribute('data-editpath', ep);
+          btns.appendChild(edBtn);
+        } else {
+          var instBtn = mkBtn('Installed', 'asga-btn-installed');
+          instBtn.title = 'Already installed on this server';
+          instBtn.setAttribute('aria-disabled', 'true');
+          btns.appendChild(instBtn);
+        }
       } else {
         var ib = mkBtn('Install', 'asga-install');
         // Docker down: the card still lists the app and still opens its Info
@@ -2876,6 +2926,9 @@
         return ty === 'plugin'
           ? 'The app catalog has no install count for this plugin'
           : 'The app catalog has no pull count for this image. Counts come from Docker Hub, and this app is published somewhere else.';
+      }
+      if (dz === 'g') {
+        return dl.toLocaleString() + ' downloads of this app\'s image from GitHub\'s container registry, as its package page reports them';
       }
       if (dl === 0) {
         return ty === 'plugin'
@@ -3172,31 +3225,58 @@
       try {
         var gen = renderGen;
         var queue = [];
+        var has = Object.prototype.hasOwnProperty;
         for (var i = 0; i < pageItemsNow.length; i++) {
           var a = pageItemsNow[i];
-          if (!a || a.lu || a.ty !== 'docker' || !a.ri) continue;
-          if (Object.prototype.hasOwnProperty.call(regDates, a.ri)) {
+          if (!a || a.ty !== 'docker' || !a.ri) continue;
+          if (!a.lu || luStale(a)) {
             // already asked this session; a real answer still needs painting
             // onto this card, since a freshly rendered tile has lost the text
-            if (regDates[a.ri]) paintFilledDate(a, regDates[a.ri], gen);
-            continue;
+            if (has.call(regDates, a.ri)) { if (regDates[a.ri]) paintFilledDate(a, regDates[a.ri], gen); }
+            else queue.push({ a: a, url: 'lastupdate.php', done: dateDone });
           }
-          queue.push(a);
+          if (needsGhcrCount(a) && !has.call(ghcrDl, a.ri)) {
+            queue.push({ a: a, url: 'ghcrdl.php', done: dlDone });
+          }
+        }
+        function dateDone(job, j) {
+          var ts = (j && j.ts) || 0; regDates[job.a.ri] = ts;
+          if (ts) paintFilledDate(job.a, ts, gen);
+        }
+        function dlDone(job, j) {
+          var n = (j && typeof j.n === 'number') ? j.n : null; ghcrDl[job.a.ri] = n;
+          if (n != null) paintFilledDl(job.a, n, gen);
         }
         var pump = function () {
           if (!queue.length) return;
-          fetchOne(queue.shift());
-        };
-        var fetchOne = function (a) {
-          var ref = a.ri;
-          fetch(PREFIX + 'lastupdate.php?repo=' + encodeURIComponent(ref))
+          var job = queue.shift();
+          fetch(PREFIX + job.url + '?repo=' + encodeURIComponent(job.a.ri))
             .then(function (r) { return r.ok ? r.json() : null; })
-            .then(function (j) { var ts = (j && j.ts) || 0; regDates[ref] = ts; if (ts) paintFilledDate(a, ts, gen); })
-            .catch(function () { regDates[ref] = 0; })
-            .then(function () { pump(); });
+            .catch(function () { return null; })
+            .then(function (j) { job.done(job, j); pump(); });
         };
         var n = Math.min(4, queue.length);
         for (var k = 0; k < n; k++) pump();
+      } catch (e) {}
+    }
+    // Community Applications counts Docker Hub pulls only, so an image on
+    // GitHub's container registry arrives with no figure. ghcrdl.php reads the
+    // total GitHub publishes on the package page. Cached per image for the
+    // session in ghcrDl (null once asked and unresolved), and written back onto
+    // the app so a repaint draws it straight away.
+    var ghcrDl = {};
+    function needsGhcrCount(a) {
+      return a.dl == null && a.dz !== 'b' && /^ghcr\.io\//i.test(a.ri || '');
+    }
+    function paintFilledDl(a, n, gen) {
+      a.dl = n; a.dz = 'g';
+      try {
+        if (gen !== renderGen) return;
+        if (typeof CSS === 'undefined' || !CSS.escape) return;
+        var tile = document.querySelector('#asga-grid .asga-tile[data-apppath="' + CSS.escape(a.p) + '"]');
+        var old = tile && tile.querySelector('.asga-stat-dl');
+        if (!old) return;
+        old.replaceWith(statSpan('asga-stat-dl', DL_ICON, a.dl, 'pull', downloadTitle(a.dl, a.ty, a.dz)));
       } catch (e) {}
     }
     // Writing the date onto the app record happens whether or not this page
@@ -3206,10 +3286,10 @@
     // no longer belongs to this walk (or, worse, a different app that has
     // since reused the same DOM node).
     function paintFilledDate(a, ts, gen) {
-      // A push time the registry dates in the future never enters the catalog
-      // entry, so nothing downstream of this (the drawer's own Last Update
-      // row reads the same field) can print it either.
-      if (ts && ts <= Math.floor(Date.now() / 1000)) { a.lu = ts; a.lk = 'r'; }
+      // Only a newer, non-future push time enters the catalog entry (see
+      // takeNewerLu), so a registry answer older than CA's own date never
+      // replaces it and the tile is left as painted.
+      if (!takeNewerLu(a, ts)) return;
       try {
         if (gen !== renderGen) return;
         if (typeof CSS === 'undefined' || !CSS.escape) return;
@@ -3259,7 +3339,7 @@
       scanInFlight = true;
       fetch(PREFIX + 'scanpage.php', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': window.csrf_token || '' },
         body: JSON.stringify({ paths: want, force: !!force })
       })
         .then(function (r) { return r.ok ? r.json() : null; })
@@ -4211,7 +4291,9 @@
     // request still answers HTTP 200, but with a zero-length body and
     // nothing saved, which is otherwise indistinguishable from success. The
     // token is exposed as window.csrf_token on every webGui page, including
-    // this one, so it is appended to every settings.php POST here.
+    // this one. Form POSTs carry it in the body here; the JSON POSTs
+    // (addeddate.php, scanpage.php) send it as the X-CSRF-Token header,
+    // which the webGui's check reads too.
     function csrfBody(params) {
       if (window.csrf_token) params.set('csrf_token', window.csrf_token);
       return params.toString();

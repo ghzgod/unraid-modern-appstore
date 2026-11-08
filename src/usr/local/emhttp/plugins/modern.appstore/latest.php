@@ -13,16 +13,25 @@
  * bytes (HTTP 206), 160 times less than pulling the whole 328KB file down
  * just to read one line near its top.
  *
- * Caching policy: once the cache already says an update is available there
- * is nothing left to learn by asking again, an update is an update whether
- * it is one version old or five, so that answer is served straight back and
- * no request is made at all until the installed version itself changes.
- * That comparison is always against a fresh read of the .plg, never a
- * cached one, so a plugin update picked up between requests is noticed on
- * the very next call without this file having to track it separately. Only
- * while this server is reported up to date does it re-check GitHub at all,
- * and even then no more often than every 6 hours, which is what stops a
- * plugin that is already current from hitting GitHub on every page load.
+ * Caching policy: one throttle governs every case. A fetched answer is
+ * reused for up to 6 hours before GitHub is asked again, which is what
+ * stops a plugin that is already current from hitting GitHub on every page
+ * load. The comparison itself is always against a fresh read of the .plg,
+ * never a cached one, so a plugin update picked up between requests is
+ * noticed on the very next call without this file having to track it
+ * separately.
+ *
+ * There used to be a second shortcut: once the cache showed this server
+ * behind, it never re-fetched at all until the installed version changed,
+ * on the theory that an update is an update whether it is one version old
+ * or five. That theory breaks the moment the published version can move
+ * backwards, which this plugin's does. Versions are dates, and a run of
+ * releases was mis-dated 2026.09.04 while the day was the 2nd; correcting
+ * the clock dropped the newest published version below a 2026.09.04x the
+ * cache had already recorded as "latest". The behind-shortcut then served
+ * that dead version forever, showing a permanent update to something GitHub
+ * no longer publishes. The throttle alone bounds staleness in both
+ * directions, so a backwards move self-corrects on the next check.
  *
  * READ-ONLY with respect to everything except its own cache file,
  * /boot/config/plugins/modern.appstore/latest.json. A failed fetch (network
@@ -133,17 +142,16 @@ if (is_file($cache_file)) {
 $latest    = ($cache && isset($cache['latest'])) ? (string)$cache['latest'] : '';
 $checkedAt = ($cache && isset($cache['checkedAt'])) ? (int)$cache['checkedAt'] : 0;
 
-// The two skip conditions below are the whole caching policy. Versions are
-// date strings like 2026.08.23d and 2026.08.29, so a plain strcmp orders
-// them correctly: a letter suffix sorts after the bare date it extends, and
-// a longer string sorts after its own prefix.
+// One throttle is the whole caching policy: a cached answer, whether it
+// shows this server current or behind, is reused until it is 6 hours stale,
+// then GitHub is asked again. Versions are date strings like 2026.08.23d and
+// 2026.08.29, so a plain strcmp orders them correctly: a letter suffix sorts
+// after the bare date it extends, and a longer string sorts after its own
+// prefix. Nothing here trusts a "behind" cache indefinitely, because the
+// published date can move backwards (see the header note), and a cache that
+// never re-checks would then show a phantom update forever.
 $need_fetch = true;
-if ($installed !== '' && $latest !== '' && strcmp($installed, $latest) < 0) {
-    // cache already shows this server behind; that fact does not change by
-    // asking GitHub again, so nothing is fetched until $installed itself does
-    $need_fetch = false;
-} elseif ($latest !== '' && $checkedAt > 0 && (time() - $checkedAt) < $throttle_sec) {
-    // cache shows current, and it is not yet 6 hours stale; too soon to re-ask
+if ($latest !== '' && $checkedAt > 0 && (time() - $checkedAt) < $throttle_sec) {
     $need_fetch = false;
 }
 
