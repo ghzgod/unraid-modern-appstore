@@ -32,6 +32,7 @@
  *   fk = 'e' when CA's FirstSeen was the sentinel 1 rather than a real date, meaning
  *        the app existed before CA started keeping records; '' otherwise
  *   lu = last-update unix ts (0 if unknown)   lk = its source: 'r' registry push, 'v' plugin version
+ *   ls = when CA last checked the registry for lu (0 when lu is not CA's registry date)
  *   sa = last star-fetch attempt for this app's repo (0 = never tried)
  *   sx = text the grid searches but never shows (full description + hidden keywords)
  *   rn = CA's RepoName (or Repo), verbatim and unclipped: the maintainer key CA's own All Apps button filters by
@@ -624,6 +625,10 @@ foreach ($tmpl as $t) {
         'fx'  => $fx,                                        // 1 when fs is CA's floor rather than a date it recorded
         'lu'  => $lu,
         'lk'  => $lk,
+        // When CA last asked the registry for lu. CA re-checks rarely (1,944 of
+        // 3,353 docker dates came from a check over a week old), so the grid
+        // re-asks the registry itself once this is more than a day old.
+        'ls'  => $lk === 'r' ? (int)($t['LastUpdateScan'] ?? 0) : 0,
         'sa'  => $fetchedAt[strtolower($mine['rp'] ?? '')] ?? 0,
         'ca'  => $mine['ca'] ?? null,
         't1'  => $mine['t1'] ?? null,

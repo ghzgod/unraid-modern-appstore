@@ -108,6 +108,26 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- A card's Updated date is checked against the image's own registry when
+  Community Applications' date is more than a day old. CA re-checks a registry
+  only every week or so, and 1,944 of the 3,353 Docker dates in its feed came
+  from a check over a week old, so an image pushed since then kept showing its
+  previous date: 0x1917/opengym read 7 days while Docker Hub had a release from
+  4 days earlier. The newer of the two dates is shown, on the card and in the
+  app drawer.
+
+##2026.09.09
+- An installed Docker app's card has an Edit button where the grey Installed
+  marker was. It opens the container's settings in Unraid's own editor, the
+  same page the Docker tab's Edit opens. Installed plugins keep the marker.
+- The update arrow in the toolbar no longer stays on when this plugin is
+  already current. The update check stopped asking GitHub once it believed
+  the server was behind, so when the published version moved backwards
+  (2026.09.04x to 2026.09.02c, when the dates were corrected) it kept
+  offering a version that no longer existed. It now re-checks every 6 hours
+  in every case.
+
+##2026.09.02b
 - The version this package publishes is dated the day it is built. It had been
   a hand-typed string in the build script, and the date field was being
   incremented as though it were a serial number, so ten releases went out

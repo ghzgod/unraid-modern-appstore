@@ -1880,7 +1880,7 @@
           if (luLabel) luLabel.textContent = luLabel.textContent.replace(/\s*:\s*$/, '');
           if (addedRow && addedRow.parentNode) addedRow.parentNode.insertBefore(luRow, addedRow.nextSibling);
           if (app.lu) setLuCell(luCell, app.lu, app.lk);
-          else resolveLastUpdate(app, luCell);
+          if (!app.lu || luStale(app)) resolveLastUpdate(app, luCell);
         }
       }
 
@@ -2034,25 +2034,37 @@
         ? 'Release date of this plugin\'s current version, read from the version number itself.'
         : 'When this app\'s image was last published to its container registry.\n' + absDate(ts, true);
     }
-    // Nothing in CA's feed, so ask the registry that actually hosts the image.
-    // The answer is written back onto the catalog entry as well, so the app's
-    // own card carries the date the next time the grid repaints.
+    // CA only re-checks a registry every week or so, so its LastUpdate goes
+    // stale the moment an image is pushed again: 0x1917/opengym read "7d"
+    // from CA's Nov 1 check while Docker Hub had v1.4.4 from Nov 4. A CA date
+    // whose check is over a day old is asked of the registry again.
+    function luStale(a) {
+      return a.lk === 'r' && a.ls > 0 && Date.now() / 1000 - a.ls > 86400;
+    }
+    // Keeps the newer of what the app already carries and a registry answer.
+    // A push time dated in the future is never taken. True when it changed.
+    function takeNewerLu(a, ts) {
+      if (!ts || ts > Math.floor(Date.now() / 1000) || ts <= (a.lu || 0)) return false;
+      a.lu = ts; a.lk = 'r';
+      return true;
+    }
+    // Nothing in CA's feed, or CA's date is stale, so ask the registry that
+    // actually hosts the image. The answer is written back onto the catalog
+    // entry as well, so the app's own card carries the date the next time the
+    // grid repaints. A stale CA date stays on screen while the check runs.
     function resolveLastUpdate(app, cell) {
       var ref = app.ri || '';
-      if (!ref || app.ty !== 'docker') { cell.textContent = 'N/A'; return; }
+      if (!ref || app.ty !== 'docker') { if (!app.lu) cell.textContent = 'N/A'; return; }
       var done = function (ts) {
         // the drawer can be closed or already showing another app by the time
         // this lands, and writing into a detached cell would be invisible at
         // best and wrong at worst
         if (!document.contains(cell)) return;
-        // Same test the card applies: a push time the registry dates in the
-        // future is not one this drawer will print.
-        if (!ts || ts > Math.floor(Date.now() / 1000)) { cell.textContent = 'N/A'; return; }
-        app.lu = ts; app.lk = 'r';
-        setLuCell(cell, ts, 'r');
+        if (takeNewerLu(app, ts)) setLuCell(cell, app.lu, 'r');
+        else if (!app.lu) cell.textContent = 'N/A';
       };
       if (regDates[ref] != null) { done(regDates[ref]); return; }
-      cell.textContent = 'Checking…';
+      if (!app.lu) cell.textContent = 'Checking…';
       fetch(PREFIX + 'lastupdate.php?repo=' + encodeURIComponent(ref))
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (j) { var ts = (j && j.ts) || 0; regDates[ref] = ts; done(ts); })
@@ -3204,7 +3216,7 @@
         var queue = [];
         for (var i = 0; i < pageItemsNow.length; i++) {
           var a = pageItemsNow[i];
-          if (!a || a.lu || a.ty !== 'docker' || !a.ri) continue;
+          if (!a || a.ty !== 'docker' || !a.ri || (a.lu && !luStale(a))) continue;
           if (Object.prototype.hasOwnProperty.call(regDates, a.ri)) {
             // already asked this session; a real answer still needs painting
             // onto this card, since a freshly rendered tile has lost the text
@@ -3236,10 +3248,10 @@
     // no longer belongs to this walk (or, worse, a different app that has
     // since reused the same DOM node).
     function paintFilledDate(a, ts, gen) {
-      // A push time the registry dates in the future never enters the catalog
-      // entry, so nothing downstream of this (the drawer's own Last Update
-      // row reads the same field) can print it either.
-      if (ts && ts <= Math.floor(Date.now() / 1000)) { a.lu = ts; a.lk = 'r'; }
+      // Only a newer, non-future push time enters the catalog entry (see
+      // takeNewerLu), so a registry answer older than CA's own date never
+      // replaces it and the tile is left as painted.
+      if (!takeNewerLu(a, ts)) return;
       try {
         if (gen !== renderGen) return;
         if (typeof CSS === 'undefined' || !CSS.escape) return;
