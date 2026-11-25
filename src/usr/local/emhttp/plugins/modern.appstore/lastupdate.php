@@ -32,7 +32,8 @@ header('Content-Type: application/json');
 error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
 ini_set('display_errors', '0');
 
-const UA = 'unraid-modern-appstore';
+// A stock browser User-Agent, so nothing on the wire identifies the plugin or the server.
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0';
 const REPO_RE = '/^[A-Za-z0-9][A-Za-z0-9._\-\/:]{0,199}$/';
 const DOCKERHUB_HOSTS = ['registry-1.docker.io', 'docker.io', 'index.docker.io', 'registry.hub.docker.com'];
 const CACHE_DIR = '/tmp/modern.appstore';

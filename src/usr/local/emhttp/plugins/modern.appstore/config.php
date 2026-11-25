@@ -36,7 +36,7 @@ function gas_scan_days($v) {
 function gas_default_sort($v) {
     $valid = ['name_asc', 'name_desc', 'downloads', 'new', 'updated', 'spotlight', 'trending',
               'newinstalls', 'popplugins', 'ghstars', 'ght1', 'ght7', 'ght30', 'ght365',
-              'ghp1', 'ghp7', 'ghp30', 'ghp365', 'ghpall'];
+              'ghp1', 'ghp7', 'ghp30', 'ghp365', 'ghpall', 'ghrise'];
     return in_array($v, $valid, true) ? $v : 'new';
 }
 

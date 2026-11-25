@@ -34,6 +34,8 @@
  * Only URLs the catalog actually names are ever fetched, so this endpoint
  * cannot be pointed at anything else on the network.
  */
+// A stock browser User-Agent, so nothing on the wire identifies the plugin or the server.
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0';
 $dataDir   = '/boot/config/plugins/modern.appstore';
 // New file each time the record's shape changes: the v5 cache's entries are
 // [lum, colour] pairs with no artwork box, and v6's null box means both "this
@@ -87,7 +89,7 @@ if (isset($_GET['svg'])) {
         CURLOPT_MAXREDIRS      => 3,
         CURLOPT_CONNECTTIMEOUT => 4,
         CURLOPT_TIMEOUT        => 8,
-        CURLOPT_USERAGENT      => 'unraid-modern-appstore',
+        CURLOPT_USERAGENT      => UA,
     ]);
     $body = curl_exec($ch);
     $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -168,7 +170,7 @@ function fetchTone(array $urls) {
             CURLOPT_MAXREDIRS      => 3,
             CURLOPT_CONNECTTIMEOUT => 4,
             CURLOPT_TIMEOUT        => 8,
-            CURLOPT_USERAGENT      => 'unraid-modern-appstore',
+            CURLOPT_USERAGENT      => UA,
         ]);
         curl_multi_add_handle($mh, $c);
         $handles[$u] = $c;

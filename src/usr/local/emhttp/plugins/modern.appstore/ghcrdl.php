@@ -58,7 +58,7 @@ curl_setopt_array($ch, [
     CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS,
     CURLOPT_CONNECTTIMEOUT => 4,
     CURLOPT_TIMEOUT        => 8,
-    CURLOPT_USERAGENT      => 'unraid-modern-appstore',
+    CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0',
 ]);
 $body = curl_exec($ch);
 $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);

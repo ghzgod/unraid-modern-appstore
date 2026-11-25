@@ -59,6 +59,7 @@ foreach (glob('/boot/config/plugins/dockerMan/templates-user/*.xml') ?: [] as $x
 // both be installed, so a name that matches is the app that occupies it.
 $plugins = [];
 $pluginsNorm = [];
+$pluginTitles = [];
 foreach (glob('/var/log/plugins/*.plg') ?: [] as $p) {
     $b = strtolower(preg_replace('/\.plg$/i', '', basename($p)));
     if ($b === '') continue;
@@ -70,6 +71,17 @@ foreach (glob('/var/log/plugins/*.plg') ?: [] as $p) {
     // exact filename match.
     $n = preg_replace('/[^a-z0-9]/', '', $b);
     if ($n !== '') $pluginsNorm[$n] = true;
+    // The plugin's own README title, which is the name CA's catalog lists it
+    // under, for templates whose filename shares nothing with the .plg:
+    // Nvidia-Drivers.xml against nvidia-driver.plg, systemButtons.xml against
+    // dynamix.system.buttons.plg. Squid's own plugins title themselves "CA ...",
+    // a prefix the catalog drops.
+    $readme = @file_get_contents("/usr/local/emhttp/plugins/$b/README.md", false, null, 0, 300);
+    if ($readme !== false) {
+        $t = trim(preg_replace('/[#*_`]/', '', strtok($readme, "\n")));
+        $t = preg_replace('/[^a-z0-9]/', '', strtolower(preg_replace('/^CA\s+/i', '', $t)));
+        if (strlen($t) >= 4) $pluginTitles[$t] = true;
+    }
 }
 
 echo json_encode([
@@ -78,4 +90,5 @@ echo json_encode([
     'installedEdit' => $installedEdit,
     'plugins'       => array_keys($plugins),
     'pluginsNorm'   => array_keys($pluginsNorm),
+    'pluginTitles'  => array_keys($pluginTitles),
 ]);

@@ -4,33 +4,35 @@
  *
  * Reads the Community Applications catalog cache READ-ONLY, derives owner/repo
  * from each app's Project GitHub URL, queries the GitHub API (token +
- * fabricated User-Agent + ETag), and caches results in SQLite. Exports:
+ * stock browser User-Agent + ETag), and caches results in SQLite. Exports:
  *   - stars.json : compact name->stars map for the badge painter
  *   - apps.json  : full catalog (name, path, icon, author, category, stars,
  *                  downloads, repo age, trend deltas) for the dedicated GitHub view
- * Records a star-history snapshot per run so trending (1d/1w/1m/1y) can be
- * computed over time.
+ * Records a star-history snapshot per run, for repos fetched in that run, so
+ * trending (1d/1w/1m/1y) can be computed over time.
  *
  * The 1d/1w/1m/1y windows all come from those daily snapshots, and only from
  * them. GitHub restricted the stargazers and subscribers listing endpoints in
  * July 2026 to admins and collaborators, so dated star data (starred_at) is
  * gone for every token type, permanently; stargazers_count still works, so
  * star totals are unaffected, but there is no way to backfill a year-ago
- * baseline any more. A fresh install's year window therefore stays empty
- * until a year of this plugin's own snapshots has actually accumulated.
+ * baseline any more. A repo created inside a window gained every star it has
+ * in that window, so it needs no history. Until a full year of snapshots
+ * exists the year window measures from the repo's oldest snapshot, i.e. the
+ * gain since this install began recording.
  * created_at is recorded too, so the grid can rank by lifetime growth rate.
  *
  * Persistent data (DB + JSON) lives in a configurable appdata dir on the cache
  * SSD so it survives reboots; served copies go to the tmpfs webroot. curl_multi
  * keep-alive for speed; a flock guarantees one scan at a time.
  *
- * NEVER writes to any CA-owned path. NEVER logs the token. The User-Agent names
- * the project only; it carries nothing about the server it runs on.
+ * NEVER writes to any CA-owned path. NEVER logs the token. Requests carry a
+ * stock browser User-Agent so nothing identifies the plugin or the server.
  */
 
 error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
 
-const UA = 'unraid-modern-appstore/1.0 (+https://github.com/ghzgod/unraid-modern-appstore)';
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0';
 const PLUGIN = 'modern.appstore';
 const NOTIFY_BIN = '/usr/local/emhttp/webGui/scripts/notify';
 
@@ -535,6 +537,7 @@ $total = count($queue);
 $stop = false; $scanned = 0;
 write_progress($outDir, true, 0, $total, $status);
 
+$fetchedNow = [];   // repos that got a fresh 200 or 304 this run
 $mh = curl_multi_init();
 $inflight = []; $hdr = [];
 $makeHandle = function (string $full) use (&$repoMeta, &$inflight, &$hdr, $mh, $token, $db) {
@@ -581,11 +584,11 @@ do {
             $stars = (int)(($j['stargazers_count']) ?? 0);
             $created = isset($j['created_at']) ? (strtotime($j['created_at']) ?: null) : null;
             db_upsert($db, $full, $m['owner'], $m['repo'], $stars, $heads['etag'] ?? ($row['etag'] ?? null), 200, time(), $created);
-            $starsByRepo[$full] = $stars; $status['ok']++;
+            $starsByRepo[$full] = $stars; $fetchedNow[$full] = true; $status['ok']++;
         } elseif ($code === 304) {
             $stars = (int)($row['stars'] ?? 0);
             db_upsert($db, $full, $m['owner'], $m['repo'], $stars, $row['etag'] ?? null, 304, time());
-            $starsByRepo[$full] = $stars; $status['not_modified']++;
+            $starsByRepo[$full] = $stars; $fetchedNow[$full] = true; $status['not_modified']++;
         } elseif ($code === 404 || $code === 451) {
             db_upsert($db, $full, $m['owner'], $m['repo'], null, $row['etag'] ?? null, $code, time());
             $status['missing']++;
@@ -611,12 +614,16 @@ while ($ar = $res->fetchArray(SQLITE3_ASSOC)) {
 }
 
 // ---- star-history snapshot (~1/day per repo) + trend computation -----------
+// Only repos fetched this run are snapshotted. A repo not fetched carries an
+// older count from the database, and logging that as a new snapshot both
+// mis-dates the count and blocks the next real snapshot for 20 hours.
 $now = time();
 if (!$trendsOnly) {
 $db->exec('BEGIN');
 $ins = $db->prepare('INSERT INTO star_history (repo, ts, stars) VALUES (:r,:t,:s)');
 $lastQ = $db->prepare('SELECT MAX(ts) AS m FROM star_history WHERE repo = :r');
-foreach ($starsByRepo as $repo => $st) {
+foreach ($fetchedNow as $repo => $_) {
+    $st = $starsByRepo[$repo];
     $lastQ->reset(); $lastQ->bindValue(':r', $repo, SQLITE3_TEXT);
     $last = (int)($lastQ->execute()->fetchArray(SQLITE3_ASSOC)['m'] ?? 0);
     if ($last < $now - 20 * 3600) {
@@ -641,37 +648,30 @@ function trend_at(SQLite3Stmt $baseQ, string $repo, int $cutoff): ?int {
 function delta(?int $base, int $cur): ?int { return $base === null ? null : ($cur - $base); }
 
 /*
- * Uncapped trend for a rolling window: current stars minus the snapshot at (or
- * just before) the window's start. If star history is younger than the window
- * but still covers >=60% of it, approximate using the OLDEST snapshot (so a
- * "30-day" trend works off ~25 days of history rather than showing nothing).
- * Only when history is too short to be meaningful do we fall back to $fallback
- * (the stargazer-page count, which saturates at 100 and can't rank hot repos).
+ * Uncapped trend for a rolling window. A repo created inside the window gained
+ * every star it has in it, so its answer is its star count. Otherwise: current
+ * stars minus the snapshot at (or just before) the window's start. If star
+ * history is younger than the window, the OLDEST snapshot stands in: for the
+ * day, week and month only when it covers >=60% of the window (so a "30-day"
+ * trend works off ~25 days of history rather than showing nothing), for the
+ * year ($anyOldest) whatever its age, so the year ranks by the gain since this
+ * install began recording until a full year exists. Null when there is no
+ * usable history.
  */
-function trend_window(SQLite3Stmt $baseQ, SQLite3Stmt $oldQ, string $repo, int $window, int $stars, int $now, ?int $fallback): ?int {
+function trend_window(SQLite3Stmt $baseQ, SQLite3Stmt $oldQ, string $repo, int $window, int $stars, int $now, ?int $created, bool $anyOldest = false): ?int {
+    if ($created !== null && $created >= $now - $window) return $stars;
     $base = trend_at($baseQ, $repo, $now - $window);
     if ($base !== null) return $stars - $base;
     $oldQ->reset(); $oldQ->bindValue(':r', $repo, SQLITE3_TEXT);
     $o = $oldQ->execute()->fetchArray(SQLITE3_ASSOC);
-    if ($o && ($now - (int)$o['ts']) >= 0.6 * $window) return $stars - (int)$o['stars'];
-    return $fallback;
+    if ($o && ($anyOldest || ($now - (int)$o['ts']) >= 0.6 * $window)) return $stars - (int)$o['stars'];
+    return null;
 }
 
 // repo creation dates, for the lifetime growth-rate sort
 $createdAt = [];
 $cq = $db->query('SELECT repo, created_at FROM repos WHERE created_at IS NOT NULL');
 while ($r = $cq->fetchArray(SQLITE3_ASSOC)) $createdAt[$r['repo']] = (int)$r['created_at'];
-
-// t1/t7/t30/t365 in the repos table are the last stargazer-derived values this
-// plugin ever wrote, from before GitHub blocked that walk in July 2026.
-// Nothing writes them any more, but old rows still carry them, so they remain
-// in play below as trend_window()'s last-resort fallback until this plugin's
-// own snapshot history grows long enough to make them irrelevant.
-$dbTrends = [];
-$trq = $db->query('SELECT repo, t1, t7, t30, t365 FROM repos WHERE t7 IS NOT NULL');
-while ($row = $trq->fetchArray(SQLITE3_ASSOC)) {
-    $dbTrends[$row['repo']] = [(int)$row['t1'], (int)$row['t7'], (int)$row['t30'], (int)$row['t365']];
-}
 
 // ---- build outputs ---------------------------------------------------------
 $byId = $byName = $byRepo = $byPath = [];
@@ -693,22 +693,16 @@ foreach ($apps as $idx => $app) {
     $t1 = $t7 = $t30 = $t365 = null;
     $created = null;
     if ($stars !== null && $full !== null) {
-        // Prefer uncapped snapshot deltas; the stored stargazer-page counts
-        // saturate at 100 and can't rank fast-growing repos, so they're only a
-        // last-resort fallback for windows longer than our star history.
-        $fb = $dbTrends[$full] ?? [null, null, null, null];
-        $t1   = trend_window($baseQ, $oldQ, $full, 86400,       $stars, $now, $fb[0]);
-        $t7   = trend_window($baseQ, $oldQ, $full, 7 * 86400,   $stars, $now, $fb[1]);
-        $t30  = trend_window($baseQ, $oldQ, $full, 30 * 86400,  $stars, $now, $fb[2]);
-        // Year window: a genuine year-old snapshot once this install has run
-        // that long, else the capped fallback. There is no other source any
-        // more; GitHub blocked the stargazer walk that used to backfill this
-        // on a fresh install, so "this year" stays empty until a year of our
-        // own snapshots has actually accumulated.
-        $snap365 = trend_at($baseQ, $full, $now - 365 * 86400);
-        $t365 = $snap365 !== null ? $stars - $snap365
-              : trend_window($baseQ, $oldQ, $full, 365 * 86400, $stars, $now, $fb[3]);
         $created = $createdAt[$full] ?? null;
+        $t1   = trend_window($baseQ, $oldQ, $full, 86400,       $stars, $now, $created);
+        $t7   = trend_window($baseQ, $oldQ, $full, 7 * 86400,   $stars, $now, $created);
+        $t30  = trend_window($baseQ, $oldQ, $full, 30 * 86400,  $stars, $now, $created);
+        // Year window: a genuine year-old snapshot once this install has run
+        // that long, else the gain since the oldest snapshot (no coverage
+        // gate), since GitHub blocked the stargazer walk that used to backfill
+        // a year-ago baseline. The grid labels the sort with the start date
+        // until a full year exists.
+        $t365 = trend_window($baseQ, $oldQ, $full, 365 * 86400, $stars, $now, $created, true);
     }
 
     $desc = (string)($app['Overview'] ?? '');

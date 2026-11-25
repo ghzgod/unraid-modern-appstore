@@ -43,6 +43,8 @@
  */
 header('Content-Type: application/json');
 
+// A stock browser User-Agent, so nothing on the wire identifies the plugin or the server.
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0';
 $plg         = '/boot/config/plugins/modern.appstore.plg';
 $cache_file  = '/boot/config/plugins/modern.appstore/latest.json';
 $remote_url  = 'https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg';
@@ -74,7 +76,7 @@ function latest_fetch_range($url, $bytes, $timeout_sec) {
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_MAXREDIRS      => 3,
             CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_USERAGENT      => 'unraid-modern-appstore',
+            CURLOPT_USERAGENT      => UA,
         ]);
         $body = curl_exec($ch);
         $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -86,7 +88,7 @@ function latest_fetch_range($url, $bytes, $timeout_sec) {
     $opts = [
         'http' => [
             'method'          => 'GET',
-            'header'          => "Range: bytes=0-" . ($bytes - 1) . "\r\nUser-Agent: unraid-modern-appstore\r\n",
+            'header'          => "Range: bytes=0-" . ($bytes - 1) . "\r\nUser-Agent: " . UA . "\r\n",
             'timeout'         => $timeout_sec,
             'follow_location' => 1,
             'ignore_errors'   => true,

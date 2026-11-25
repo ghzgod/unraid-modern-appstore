@@ -98,7 +98,7 @@ _(Refresh GitHub Trending Data)_:
 
 > How often every app's GitHub star count is fetched. The scan runs at 4am and takes one API request per repository, roughly 2,000 of the 5,000 an hour a token allows, so a daily scan is comfortable.
 >
-> This also sets the finest trending window that can hold data, because every trending order is the difference between two scans. On a three-day schedule **Trending (today)** compares a star count against itself and shows nothing at all; on a weekly one the daily and monthly windows both go flat. Leave this at **Every day** unless you have a reason not to.
+> This also sets the finest trending window that can hold data, because every trending order is the difference between two scans. On a three-day schedule **Most Stars Gained (past 24 hours)** compares a star count against itself and shows nothing at all; on a weekly one the daily and monthly windows both go flat. Leave this at **Every day** unless you have a reason not to.
 >
 > Newly published apps are picked up every hour regardless of this setting.
 
@@ -117,15 +117,16 @@ _(Default sort order)_:
     </optgroup>
     <optgroup label="GitHub">
     <?= mk_option($defsort, "ghstars", "Most Stars") ?>
-    <?= mk_option($defsort, "ght1", "Most Stars Gained (today)") ?>
-    <?= mk_option($defsort, "ght7", "Most Stars Gained (this week)") ?>
-    <?= mk_option($defsort, "ght30", "Most Stars Gained (this month)") ?>
-    <?= mk_option($defsort, "ght365", "Most Stars Gained (this year)") ?>
-    <?= mk_option($defsort, "ghp1", "Fastest Growing (today)") ?>
-    <?= mk_option($defsort, "ghp7", "Fastest Growing (this week)") ?>
-    <?= mk_option($defsort, "ghp30", "Fastest Growing (this month)") ?>
-    <?= mk_option($defsort, "ghp365", "Fastest Growing (this year)") ?>
+    <?= mk_option($defsort, "ght1", "Most Stars Gained (past 24 hours)") ?>
+    <?= mk_option($defsort, "ght7", "Most Stars Gained (past 7 days)") ?>
+    <?= mk_option($defsort, "ght30", "Most Stars Gained (past 30 days)") ?>
+    <?= mk_option($defsort, "ght365", "Most Stars Gained (past year)") ?>
+    <?= mk_option($defsort, "ghp1", "Fastest Growing (past 24 hours)") ?>
+    <?= mk_option($defsort, "ghp7", "Fastest Growing (past 7 days)") ?>
+    <?= mk_option($defsort, "ghp30", "Fastest Growing (past 30 days)") ?>
+    <?= mk_option($defsort, "ghp365", "Fastest Growing (past year)") ?>
     <?= mk_option($defsort, "ghpall", "Fastest Growing (all time)") ?>
+    <?= mk_option($defsort, "ghrise", "Rising (past 7 days)") ?>
     </optgroup>
   </select>
 

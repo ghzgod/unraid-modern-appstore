@@ -108,6 +108,24 @@ cat <<XMLHEAD
 
 <CHANGES>
 ##$VERSION
+- Refreshing the Apps page no longer waits behind Community Applications'
+  "Updating Content" window: the grid, search box and category menu appear
+  right away, and the app list loads several times faster.
+- Installed plugins whose catalog name differs from their file name, such as
+  Nvidia Driver and Dynamix System Buttons, show Installed instead of Install.
+- Star trend sorts use rolling windows (past 24 hours, 7 days, 30 days, past
+  year), and the past year sorts work from the day the plugin is installed.
+- New Rising sort: apps gaining stars faster this week than over the month.
+- Trends are built only from star counts actually fetched that day.
+- An app's Info drawer that fails to load says so and offers Retry, instead of
+  going blank.
+- Confirm dialogs match the drawer design and open above it.
+- Hovering a greyed-out button explains why it is unavailable.
+- All Apps lines up with the left menu.
+- Thanks to p1zzm1ssile (#4) and btTeddy (#2) for their reports, and to
+  Ramnet-Lab for the search and category menu fix (#1).
+
+##2026.11.08f
 - An installed Docker app's card has an Edit button that opens the container's
   settings in Unraid.
 - The update arrow in the toolbar no longer shows when this plugin is already

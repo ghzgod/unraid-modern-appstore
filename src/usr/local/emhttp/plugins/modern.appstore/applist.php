@@ -424,6 +424,32 @@ function icon_fa($t) {
     return preg_match('~^[a-z0-9-]{1,40}$~', $fa) ? $fa : '';
 }
 
+// The build below is ~0.7s of per-app work and a 10 MB body, rebuilt on every
+// Apps page load although its inputs only change on a feed sync, a star scan or
+// a settings save. The finished body is cached gzipped, keyed on those files,
+// the day (historyDays and the future-date guard read the clock) and the live
+// Docker state, so a reload is a file read. 'generated' is stale on a hit; the
+// grid never reads it.
+function send_body($gz) {
+    header('Vary: Accept-Encoding');
+    if (strpos($_SERVER['HTTP_ACCEPT_ENCODING'] ?? '', 'gzip') !== false) {
+        header('Content-Encoding: gzip');
+        header('Content-Length: ' . strlen($gz));
+        echo $gz;
+    } else {
+        echo gzdecode($gz);
+    }
+}
+$cacheDir = '/tmp/modern.appstore';
+$cacheKey = date('Y-m-d') . json_encode(docker_state());
+foreach (["$dataDir/apps.json", "$caTmp/templates_new.json", $repoList, "$dataDir/stars.db",
+          "$dataDir/stars.db-wal", "$dataDir/status.json", $gas_cfg, __FILE__] as $f) {
+    $cacheKey .= '|' . @filemtime($f) . ':' . @filesize($f);
+}
+$cacheFile = "$cacheDir/applist-" . md5($cacheKey) . '.json.gz';
+$cached = @file_get_contents($cacheFile);
+if ($cached !== false && $cached !== '') { send_body($cached); exit; }
+
 // our own catalog (already has name/path/icon/category/stars/trends for every app)
 $ours = read_json_ro("$dataDir/apps.json");
 $byPath = [];
@@ -687,7 +713,7 @@ if (class_exists('SQLite3') && is_file("$dataDir/stars.db")) {
 
 // JSON_INVALID_UTF8_SUBSTITUTE: some feed descriptions carry stray bytes that
 // would otherwise make json_encode() return false and emit an empty body.
-echo json_encode(
+$body = json_encode(
     ['generated' => time(), 'count' => count($out), 'historyDays' => $historyDays,
      'feedReady' => $feedReady, 'docker' => docker_state(), 'defaultSort' => $defaultSort,
      'cardsPerRow' => $cardsPerRow,
@@ -699,3 +725,14 @@ echo json_encode(
      'apps' => $out],
     JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
 );
+$gz = gzencode((string)$body, 1);
+// Never cache a feed that isn't there yet (or was read mid-write): the next
+// load has to see it the moment CA finishes writing.
+if ($feedReady && $out) {
+    @mkdir($cacheDir, 0755, true);
+    foreach ((array)glob("$cacheDir/applist-*.json.gz") as $old) @unlink($old);
+    $tmp = "$cacheFile." . getmypid();
+    if (@file_put_contents($tmp, $gz) !== false) @rename($tmp, $cacheFile);
+}
+send_body($gz);
+

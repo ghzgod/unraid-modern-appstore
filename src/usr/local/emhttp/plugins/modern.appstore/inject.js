@@ -61,7 +61,7 @@
     // templates spelled with different separators. Both come from
     // pinned.php; see the comment there for why CA's own answer cannot be
     // used and why the filename is the key.
-    var installedPlugins = null, installedPluginsNorm = null;
+    var installedPlugins = null, installedPluginsNorm = null, installedPluginTitles = null;
     // how many days of the plugin's own star-history snapshots this install
     // has. The year trending windows are built from this now, since GitHub
     // restricted the endpoints that used to backfill a year-ago baseline
@@ -107,7 +107,9 @@
         if (!a.pk || !installedPlugins) return false;
         if (installedPlugins.has(a.pk)) return true;
         var n = a.pk.replace(/[^a-z0-9]/g, '');
-        return !!n && !!installedPluginsNorm && installedPluginsNorm.has(n);
+        if (n && installedPluginsNorm && installedPluginsNorm.has(n)) return true;
+        var t = String(a.n || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        return t.length >= 4 && !!installedPluginTitles && installedPluginTitles.has(t);
       }
       return !!(a.ri && installedSet && installedSet.has(stripTag(a.ri)));
     }
@@ -137,6 +139,7 @@
           installedEdit = (j && j.installedEdit) || {};
           installedPlugins = new Set((j && j.plugins) || []);
           installedPluginsNorm = new Set((j && j.pluginsNorm) || []);
+          installedPluginTitles = new Set((j && j.pluginTitles) || []);
           cb && cb();
         })
         .catch(function () {
@@ -145,6 +148,7 @@
           installedEdit = installedEdit || {};
           installedPlugins = installedPlugins || new Set();
           installedPluginsNorm = installedPluginsNorm || new Set();
+          installedPluginTitles = installedPluginTitles || new Set();
           cb && cb();
         });
     }
@@ -265,15 +269,16 @@
       { g: 'Unraid', m: 'un', v: 'newinstalls', label: 'Top New Installs',     cmp: numDesc('dt'), filter: caTrend('dt', 6, 100000, true),  hint: 'The highest percentage of new installs this week, over apps with 6+ weeks of data and 100,000+ installs' },
       { g: 'Unraid', m: 'un', v: 'popplugins',  label: 'Most Popular Plugins', cmp: numDesc('dl'), filter: isCountedPlugin,          hint: 'Plugins only, ranked by Unraid downloads; plugins with no download count are left out' },
       { g: 'GitHub', m: 'gh', v: 'ghstars', label: 'Most Stars',              cmp: numDesc('s') },
-      { g: 'GitHub', m: 'gh', v: 'ght1',    label: 'Most Stars Gained (today)',        cmp: numDesc('t1'),   filter: hasTrend('t1'),   hint: 'Most stars added today, whatever the size of the repo' },
-      { g: 'GitHub', m: 'gh', v: 'ght7',    label: 'Most Stars Gained (this week)',    cmp: numDesc('t7'),   filter: hasTrend('t7'),   hint: 'Most stars added this week, whatever the size of the repo' },
-      { g: 'GitHub', m: 'gh', v: 'ght30',   label: 'Most Stars Gained (this month)',   cmp: numDesc('t30'),  filter: hasTrend('t30'),  hint: 'Most stars added this month, whatever the size of the repo' },
-      { g: 'GitHub', m: 'gh', v: 'ght365',  label: 'Most Stars Gained (this year)',    cmp: numDesc('t365'), filter: hasTrend('t365'), hint: 'Most stars added this year, whatever the size of the repo' },
-      { g: 'GitHub', m: 'gh', v: 'ghp1',    label: 'Fastest Growing (today)',      cmp: pctDesc('t1'),   filter: hasPct('t1'),   hint: 'Biggest growth today measured against the stars a repo already had, so a small project can beat a large one' },
-      { g: 'GitHub', m: 'gh', v: 'ghp7',    label: 'Fastest Growing (this week)',  cmp: pctDesc('t7'),   filter: hasPct('t7'),   hint: 'Biggest growth this week measured against the stars a repo already had, so a small project can beat a large one' },
-      { g: 'GitHub', m: 'gh', v: 'ghp30',   label: 'Fastest Growing (this month)', cmp: pctDesc('t30'),  filter: hasPct('t30'),  hint: 'Biggest growth this month measured against the stars a repo already had, so a small project can beat a large one' },
-      { g: 'GitHub', m: 'gh', v: 'ghp365',  label: 'Fastest Growing (this year)',  cmp: pctDesc('t365'), filter: hasPct('t365'), hint: 'Biggest growth this year measured against the stars a repo already had, so a small project can beat a large one' },
-      { g: 'GitHub', m: 'gh', v: 'ghpall',  label: 'Fastest Growing (all time)',   cmp: rateDesc,        filter: hasRate,        hint: 'Lifetime growth rate: stars per year since the repo was created' }
+      { g: 'GitHub', m: 'gh', v: 'ght1',    label: 'Most Stars Gained (past 24 hours)',        cmp: numDesc('t1'),   filter: hasTrend('t1'),   hint: 'Most stars added in the past 24 hours, whatever the size of the repo' },
+      { g: 'GitHub', m: 'gh', v: 'ght7',    label: 'Most Stars Gained (past 7 days)',    cmp: numDesc('t7'),   filter: hasTrend('t7'),   hint: 'Most stars added in the past 7 days, whatever the size of the repo' },
+      { g: 'GitHub', m: 'gh', v: 'ght30',   label: 'Most Stars Gained (past 30 days)',   cmp: numDesc('t30'),  filter: hasTrend('t30'),  hint: 'Most stars added in the past 30 days, whatever the size of the repo' },
+      { g: 'GitHub', m: 'gh', v: 'ght365',  label: 'Most Stars Gained (past year)',    cmp: numDesc('t365'), filter: hasTrend('t365'), hint: 'Most stars added in the past year, whatever the size of the repo' },
+      { g: 'GitHub', m: 'gh', v: 'ghp1',    label: 'Fastest Growing (past 24 hours)',      cmp: pctDesc('t1'),   filter: hasPct('t1'),   hint: 'Biggest growth in the past 24 hours measured against the stars a repo already had, so a small project can beat a large one' },
+      { g: 'GitHub', m: 'gh', v: 'ghp7',    label: 'Fastest Growing (past 7 days)',  cmp: pctDesc('t7'),   filter: hasPct('t7'),   hint: 'Biggest growth in the past 7 days measured against the stars a repo already had, so a small project can beat a large one' },
+      { g: 'GitHub', m: 'gh', v: 'ghp30',   label: 'Fastest Growing (past 30 days)', cmp: pctDesc('t30'),  filter: hasPct('t30'),  hint: 'Biggest growth in the past 30 days measured against the stars a repo already had, so a small project can beat a large one' },
+      { g: 'GitHub', m: 'gh', v: 'ghp365',  label: 'Fastest Growing (past year)',  cmp: pctDesc('t365'), filter: hasPct('t365'), hint: 'Biggest growth in the past year measured against the stars a repo already had, so a small project can beat a large one' },
+      { g: 'GitHub', m: 'gh', v: 'ghpall',  label: 'Fastest Growing (all time)',   cmp: rateDesc,        filter: hasRate,        hint: 'Lifetime growth rate: stars per year since the repo was created' },
+      { g: 'GitHub', m: 'gh', v: 'ghrise',  label: 'Rising (past 7 days)', cmp: riseDesc, filter: hasRise, hint: 'Repos gaining stars faster in the past 7 days than their own pace over the 23 days before, so a project speeding up now outranks a large one coasting on size. Needs at least 50 stars in the past 7 days' }
     ];
     function optFor(v) { for (var i = 0; i < SORT_OPTS.length; i++) if (SORT_OPTS[i].v === v) return SORT_OPTS[i]; return SORT_OPTS[0]; }
     // numeric descending; null/undefined sinks to the bottom
@@ -282,6 +287,16 @@
     // tiny repos (2->4 = +100%) don't dominate. Mirrors the old server logic.
     function pct(a, k) { var d = a[k]; if (d == null || a.s == null) return -Infinity; var base = a.s - d; if (base < 10) return -Infinity; return d / base; }
     function pctDesc(k) { return function (a, b) { return pct(b, k) - pct(a, k); }; }
+    // Acceleration: the last 7 days' daily pace over the pace of the 23 days
+    // before it. The prior pace is floored at 1 star/day, since a repo with no
+    // earlier gain would otherwise divide by zero and every newcomer would tie
+    // at infinity.
+    function rise(a) {
+      if (a.t7 == null || a.t30 == null || a.t7 < 50) return -Infinity;
+      var prior = Math.max(0, a.t30 - a.t7) / 23;
+      return (a.t7 / 7) / Math.max(1, prior);
+    }
+    function riseDesc(a, b) { return rise(b) - rise(a); }
     // All-time rate: total stars over the repo's age in years. A repo has zero
     // stars at birth, so the percentage form used by the other windows would
     // divide by zero; the lifetime average is the meaningful all-time ranking.
@@ -297,6 +312,7 @@
     // trending filters: only apps that actually gained stars in the window
     function hasTrend(k) { return function (a) { return a[k] != null && a[k] > 0; }; }
     function hasPct(k) { return function (a) { return pct(a, k) > 0; }; }
+    function hasRise(a) { return rise(a) > 1; }
     function hasStars(a) { return a.s != null && a.s > 0; }
     function hasRate(a) { return rate(a) > 0; }
     // Spotlight: CA's RecommendedDate, 0 meaning the app was never recommended
@@ -595,6 +611,19 @@
       var n = parseInt(v, 10);
       return (n >= 2 && n <= 6) ? n : dflt;
     }
+    // Until a full year of snapshots exists the year sorts rank by the gain
+    // since this install began recording, so they say so, with the date.
+    function relabelYearSorts() {
+      if (!(historyDays > 0 && historyDays < 365)) return;
+      // Label stays "past year"; only the tooltip says the window is shorter until a year is recorded.
+      var note = '. Star history starts when the plugin was installed, so this counts from then until a full year is recorded';
+      SORT_OPTS.forEach(function (o) {
+        if (o.v !== 'ght365' && o.v !== 'ghp365') return;
+        if (o.hint.indexOf(note) < 0) o.hint += note;
+        var els = document.querySelectorAll('option[value="' + o.v + '"]');
+        for (var i = 0; i < els.length; i++) els[i].title = o.hint;
+      });
+    }
     function loadApps(cb) {
       fetch(PREFIX + 'applist.php?_=' + Date.now())
         .then(function (r) { return r.ok ? r.json() : null; })
@@ -602,6 +631,7 @@
           APPS = dedupe((j && j.apps) || []);
           REP = null;
           if (j && j.historyDays != null) historyDays = j.historyDays;
+          relabelYearSorts();
           if (j && j.docker) docker = j.docker;
           // same validity test optFor() already backs the saved-sort read with,
           // so a config value the grid doesn't recognise is silently ignored
@@ -827,7 +857,10 @@
         } else if (btn.classList.contains('asga-maint')) {
           // CA's own repo drawer, the same one its Profile button opens
           var repo = tile.getAttribute('data-repo');
-          if (repo) { holdDrawer(); try { window.showRepoPopup(repo); } catch (err) {} }
+          if (repo) {
+            lastDrawerOpen = function () { holdDrawer(); try { window.showRepoPopup(repo); } catch (e) {} };
+            lastDrawerOpen();
+          }
         } else if (btn.classList.contains('asga-pin')) {
           pinApp(tile, btn);
         } else { // Info
@@ -870,12 +903,22 @@
     // Blank until finished. Set the moment a drawer is asked for, cleared by
     // drawerReady() once CA's own render has landed and this file's own fixups
     // have run over it.
+    // True from the moment a drawer is asked for until CA has blanked the panel.
+    // CA empties #sidenavContent synchronously when it opens a drawer, so
+    // content seen before that blank is the outgoing drawer's, not the answer.
+    var drawerAwaitBlank = false;
+    // Re-runs the last opener, for the Retry button on a drawer that failed.
+    var lastDrawerOpen = null;
     function holdDrawer() {
       var host = document.getElementById('sidenavContent');
       if (host) host.classList.add('asga-drawer-wait');
+      // An already empty panel gives CA's blanking nothing to change, so no
+      // mutation will ever announce it; waiting for one would hide the answer.
+      drawerAwaitBlank = !!host && (host.children.length > 0 || host.textContent.trim() !== '');
       clearTimeout(holdDrawer.t);
-      // A render that never completes must not leave the panel blank for good.
-      holdDrawer.t = setTimeout(showDrawer, 6000);
+      // A reply that never lands is a failure to say so, not a blank panel
+      // dressed up as one that finished.
+      holdDrawer.t = setTimeout(drawerFailed, 30000);
     }
     function showDrawer() {
       clearTimeout(holdDrawer.t);
@@ -887,10 +930,44 @@
     // in the panel means its render has landed. The check runs at the end of the
     // observer's own pass, after this file has moved what it moves, so the frame
     // the reader finally sees is the finished one rather than CA's.
+    // The old test (waiting for CA's Details or statistics table) left the
+    // panel blank for good when CA never answered. CA fills the panel with ONE
+    // html() call, after blanking it, so the first content after the blank is
+    // the answer: the drawer, or on failure a plain sentence, which is shown
+    // with a Retry button rather than bare.
     function drawerReady() {
       var host = document.getElementById('sidenavContent');
       if (!host || !host.classList.contains('asga-drawer-wait')) return;
-      if (host.querySelector('.popupTable.contents') || host.querySelector('.repoTable') || host.querySelector('.asga-repo-apps')) showDrawer();
+      var text = host.textContent.trim();
+      if (!host.children.length && !text) { drawerAwaitBlank = false; return; }
+      if (drawerAwaitBlank) return;
+      if (!host.children.length) { drawerFailure(host, text); return; }
+      showDrawer();
+    }
+    // The failure panel: a message and one button. Retry re-runs the opener
+    // that produced the drawer; with none recorded it can only close the panel.
+    function drawerFailure(host, message) {
+      showDrawer();
+      host.textContent = '';
+      var box = document.createElement('div');
+      box.className = 'asga-drawer-fail';
+      var p = document.createElement('p');
+      p.textContent = message;
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'asga-drawer-retry';
+      b.textContent = lastDrawerOpen ? 'Retry' : 'Close';
+      b.addEventListener('click', function () {
+        if (lastDrawerOpen) lastDrawerOpen();
+        else try { window.closeSidebar(); } catch (e) {}
+      });
+      box.appendChild(p); box.appendChild(b);
+      host.appendChild(box);
+    }
+    function drawerFailed() {
+      var host = document.getElementById('sidenavContent');
+      if (!host || !host.classList.contains('asga-drawer-wait')) return;
+      drawerFailure(host, 'Details did not load.');
     }
     // The one way the grid opens CA's drawer, so the app it is showing is
     // always recorded. Everything the drawer does on our side (see
@@ -912,6 +989,7 @@
     // The wait is the honest version, and the panel says Loading while it runs.
     function openSidebar(p, n) {
       openPath = p || '';
+      lastDrawerOpen = function () { openSidebar(p, n); };
       holdDrawer();
       try { window.showSidebarApp(p, n); } catch (e) {}
     }
@@ -944,7 +1022,8 @@
           if (vid) attentionModal(
             'This opens the video on YouTube in a new tab.\n\n' +
             'YouTube will see the visit, and whatever cookies your browser already holds for it.',
-            function () { openExt(vid); }
+            function () { openExt(vid); },
+            { title: 'Open on YouTube', ok: 'Open YouTube' }
           );
           return;
         }
@@ -1250,18 +1329,17 @@
       document.body.__asgaDrawerDetails = true;
       var host = document.getElementById('sidenavContent') || document.querySelector('.sidenav');
       if (!host) return;
-      new MutationObserver(function () { fixDrawerDetails(); addReadmeButton(); cardSections(); renameFavourite(); fixDrawerIcon(); fixMaintainerIcon(); fixRepoDrawer(); pruneShots(); drawerReady(); })
-        .observe(host, { childList: true, subtree: true });
-      fixDrawerDetails();
-      addReadmeButton();
-      cardSections();
-      renameFavourite();
-      fixDrawerIcon();
-      fixMaintainerIcon();
-      fixRepoDrawer();
-      pruneShots();
+      // Each fixup is its own try: one that throws must not stop drawerReady()
+      // from running last, or the panel would wait on its timeout.
+      function safely(fn) { try { fn(); } catch (e) {} }
+      function fixups() {
+        safely(fixDrawerDetails); safely(addReadmeButton); safely(cardSections); safely(renameFavourite);
+        safely(fixDrawerIcon); safely(fixMaintainerIcon); safely(fixRepoDrawer); safely(pruneShots);
+        safely(drawerReady);
+      }
+      new MutationObserver(fixups).observe(host, { childList: true, subtree: true });
+      fixups();
       wireDrawerNav();
-      drawerReady();
     }
     // The drawer must show the same icon the card did. CA resolves the drawer's
     // icon separately from the grid's, and when its own lookup comes up empty it
@@ -1741,8 +1819,18 @@
       document.body.__asgaDrawerNav = true;
       document.addEventListener('click', function (e) {
         if (!isOn() || !e.target.closest) return;
-        if (e.target.closest('#sidenavContent .repoPopup') ||
-            e.target.closest('#sidenavContent .popUpBack')) holdDrawer();
+        var repoBtn = e.target.closest('#sidenavContent .repoPopup');
+        var backBtn = e.target.closest('#sidenavContent .popUpBack');
+        if (!repoBtn && !backBtn) return;
+        // CA's own handler does the opening; this only records how to do it
+        // again, reading window.data at retry time since CA keeps the current
+        // repository and app there.
+        lastDrawerOpen = repoBtn ? function () {
+          holdDrawer(); try { window.showRepoPopup(window.data && window.data.repository); } catch (e) {}
+        } : function () {
+          try { openSidebar(window.data.sidebarapppath, window.data.sidebarappname); } catch (e) {}
+        };
+        holdDrawer();
       }, true);
     }
     // The maintainer profile drawer, tidied the same way the app drawer is.
@@ -2099,22 +2187,39 @@
     // requirements, a moderator note, or a port that is already taken. text is
     // rendered as plain lines, never HTML, since it comes from a third-party
     // template.
-    function attentionModal(text, onOk) {
+    // The plugin's one confirm dialog. Its header is the drawer's own header
+    // (same classes: title left, X close right, divider below) so a dialog and
+    // a drawer read as one system. opts.title names what is being confirmed and
+    // opts.ok names the action; with no onOk it is a notice with a single OK.
+    function attentionModal(text, onOk, opts) {
+      opts = opts || {};
       var ov = document.createElement('div');
       ov.className = 'asga-modal-ov';
 
       var modal = document.createElement('div');
       modal.className = 'asga-modal';
+      modal.setAttribute('role', 'dialog');
+      modal.setAttribute('aria-modal', 'true');
+      modal.setAttribute('aria-labelledby', 'asga-modal-title');
 
-      var icon = document.createElement('div');
-      icon.className = 'asga-modal-icon';
-      icon.textContent = '!';
-      modal.appendChild(icon);
-
+      var header = document.createElement('div');
+      header.className = 'asga-drawer-header';
       var title = document.createElement('h2');
-      title.className = 'asga-modal-title';
-      title.textContent = 'Attention';
-      modal.appendChild(title);
+      title.id = 'asga-modal-title';
+      title.className = 'asga-drawer-title';
+      title.textContent = opts.title || 'Attention';
+      var xWrap = document.createElement('div');
+      xWrap.className = 'asga-drawer-actions';
+      var xBtn = document.createElement('button');
+      xBtn.type = 'button';
+      xBtn.className = 'asga-drawer-close';
+      xBtn.title = 'Close';
+      xBtn.setAttribute('aria-label', 'Close');
+      xBtn.textContent = '\u2715';
+      xWrap.appendChild(xBtn);
+      header.appendChild(title);
+      header.appendChild(xWrap);
+      modal.appendChild(header);
 
       var body = document.createElement('div');
       body.className = 'asga-modal-body';
@@ -2135,22 +2240,27 @@
 
       var actions = document.createElement('div');
       actions.className = 'asga-modal-actions';
-      var okBtn = document.createElement('button');
-      okBtn.className = 'asga-btn asga-modal-ok';
-      okBtn.textContent = 'OK';
+      // Cancel first, the action last at the right edge, the order Unraid's
+      // own dialogs use.
       var cancelBtn = document.createElement('button');
-      cancelBtn.className = 'asga-btn asga-modal-cancel';
+      cancelBtn.type = 'button';
+      cancelBtn.className = 'asga-modal-btn asga-modal-cancel';
       cancelBtn.textContent = 'Cancel';
+      var okBtn = document.createElement('button');
+      okBtn.type = 'button';
+      okBtn.className = 'asga-modal-btn asga-modal-ok';
+      okBtn.textContent = onOk ? (opts.ok || 'OK') : 'OK';
+      if (onOk) actions.appendChild(cancelBtn);
       actions.appendChild(okBtn);
-      actions.appendChild(cancelBtn);
       modal.appendChild(actions);
 
       ov.appendChild(modal);
 
       var close = function () { ov.remove(); document.removeEventListener('keydown', key, true); };
       var key = function (ev) { if (ev.key === 'Escape') close(); };
-      okBtn.addEventListener('click', function () { close(); onOk(); });
+      okBtn.addEventListener('click', function () { close(); if (onOk) onOk(); });
       cancelBtn.addEventListener('click', close);
+      xBtn.addEventListener('click', close);
       ov.addEventListener('click', function (ev) { if (ev.target === ov) close(); });
       document.addEventListener('keydown', key, true);
 
@@ -2169,7 +2279,7 @@
       if (typeof window.post === 'function') {
         window.post({ action: 'createXML', xml: p, type: 'default' }, function (r) {
           if (r && r.status === 'ok') openTemplate(p);
-          else attentionModal((r && r.error) || 'The template could not be prepared for install.', function () {});
+          else attentionModal((r && r.error) || 'The template could not be prepared for install.', null, { title: 'Install Failed' });
         });
         return;
       }
@@ -2216,7 +2326,7 @@
       }
 
       if (notice) {
-        attentionModal(notice, function () { createAndOpen(p); });
+        attentionModal(notice, function () { createAndOpen(p); }, { title: 'Before You Install', ok: 'Install' });
       } else {
         createAndOpen(p);
       }
@@ -2961,25 +3071,12 @@
     }
 
     // A trending sort filters to apps that moved in its window, so an empty grid
-    // is ambiguous: nothing moved, or the data for that window was never
-    // gathered. The year windows are the ones that can genuinely be unavailable:
-    // GitHub restricted the stargazers-listing endpoints in July 2026, so their
-    // only remaining source is the plugin's own recorded star history, and this
-    // says exactly how much of that this install has instead of leaving a blank
-    // page.
+    // is ambiguous: nothing moved, or no star history was ever gathered. The
+    // year sorts rank by the gain since recording began, so history length no
+    // longer empties them; only having none at all does.
     function emptySortNote() {
       if (view.sort !== 'ght365' && view.sort !== 'ghp365') return '';
-      var need = 365 - historyDays;
-      var when = '';
-      if (historyDays > 0 && need > 0) {
-        var target = new Date(Date.now() + need * 86400000);
-        var stamp;
-        try { stamp = target.toLocaleString(undefined, { month: 'long', year: 'numeric' }); }
-        catch (e) { stamp = target.toDateString(); }
-        when = ', filling in around ' + stamp;
-      }
-      return 'The "this year" windows are built from the plugin\'s own recorded star history, not from GitHub. ' +
-             'This install has ' + historyDays + ' of the 365 days it needs' + when + '.';
+      return historyDays > 0 ? '' : 'The plugin has not recorded any star history yet, so the year sorts have nothing to rank.';
     }
 
     // The catalog is CA's file in /tmp, rebuilt by CA's own Apps page after a
@@ -3137,15 +3234,46 @@
     // as the window moves, just not on every frame of the drag. The fonts
     // hook covers the first paint landing before clear-sans has loaded, when
     // the canvas would have measured the fallback face.
+    // Puts the grid heading on the same centre line as CA's first menu item
+    // ("Installed Apps"), by pulling the grid up under the search band. Only
+    // ever closes a gap; a heading already level with or above the item is
+    // left alone.
+    function alignHeading() {
+      var view = document.getElementById('asga-view');
+      var title = document.querySelector('#asga-count .asga-count-title');
+      // Measured only at the top of the page, since the band and the menu are
+      // sticky and their rects stop being flow positions once scrolled. A
+      // resize while scrolled keeps the offset from the last measurement.
+      if (window.scrollY !== 0) return;
+      if (view) view.style.marginTop = '';
+      if (!view || !title) return;
+      var item = document.querySelector('.caMenuItem[data-category="installed_apps"]');
+      // offsetParent is null where CA hides the menu on a narrow layout
+      if (!item || item.offsetParent === null) return;
+      // the item may hold a nested submenu list, so measure its own first text
+      var range = document.createRange();
+      var w = document.createTreeWalker(item, NodeFilter.SHOW_TEXT, null), n;
+      while ((n = w.nextNode())) { if (n.nodeValue.trim()) { range.selectNodeContents(n); break; } }
+      var mr = range.getBoundingClientRect();
+      if (!mr.height) return;
+      var tr = title.getBoundingClientRect();
+      var delta = (mr.top + mr.height / 2) - (tr.top + tr.height / 2);
+      if (delta >= 0) return;
+      var holder = document.querySelector('.searchAreaHolder');
+      var base = parseFloat(getComputedStyle(view).marginTop) || 0;
+      var floor = holder ? holder.getBoundingClientRect().bottom + 4 : -Infinity;
+      var up = Math.min(-delta, Math.max(0, tr.top - floor));
+      view.style.marginTop = (base - up) + 'px';
+    }
     function wireTitleFit() {
       if (document.body.__asgaTitleFit) return;
       document.body.__asgaTitleFit = true;
       var t = null;
       window.addEventListener('resize', function () {
         clearTimeout(t);
-        t = setTimeout(function () { fitColumns(); fitTitles(); }, 120);
+        t = setTimeout(function () { fitColumns(); fitTitles(); alignHeading(); }, 120);
       });
-      if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { fitColumns(); fitTitles(); });
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { fitColumns(); fitTitles(); alignHeading(); });
     }
 
     function render() {
@@ -3209,6 +3337,7 @@
       fillMissingDates();
       fitColumns();
       fitTitles();
+      alignHeading();
     }
 
     // 1,164 of the 4,251 docker apps in CA's feed carry no LastUpdate at all,
@@ -3933,10 +4062,12 @@
     // issue chooser in a new tab (openExt); cancelling closes the confirm and
     // does nothing else.
     function reportIssue() {
+      closeDrawer(aboutPanel);
       attentionModal(
         'Reporting an issue opens this plugin\'s GitHub page in a new tab.\n\n' +
         'You will need a GitHub account, and the issue form opens with the repository\'s own template already selected.',
-        function () { openExt(ISSUE_URL); }
+        function () { openExt(ISSUE_URL); },
+        { title: 'Report an Issue', ok: 'Open GitHub' }
       );
     }
 
@@ -4026,8 +4157,12 @@
         'The Modern view toggle in the toolbar turns this off and hands the page straight back to Community Applications.'
       ]);
 
+      appendAboutSection(body, 'Acknowledgement', [
+        'Thank you to Squid, who created Community Applications in 2015. It has served the Unraid community for over a decade, and this plugin is meant as a contribution to his work, not a replacement for it.'
+      ]);
+
       appendAboutSection(body, 'Why some sorts can be empty', [
-        'GitHub restricted its stargazers listing endpoints in July 2026, so dated star data can no longer be fetched from GitHub at all. The plugin records its own daily star snapshot instead, and the "this year" windows need 365 days of that history before they can show anything.'
+        'GitHub restricted its stargazers listing endpoints in July 2026, so dated star data can no longer be fetched from GitHub at all. The plugin records its own daily star snapshot instead, so the "past year" windows count from when the plugin was installed until a full year of history exists.'
       ]);
 
       var whatsNew = document.createElement('div');
@@ -4529,12 +4664,14 @@
         setCheckStatus('Version ' + r.version + ' is available. Update it from the Plugins page.');
         return;
       }
+      closeDrawer(aboutPanel);
       attentionModal(
         'Version ' + r.version + ' is available. This server has ' + r.installedVersion + '.\n\n' +
         'Updating installs the new version now and replaces the plugin\'s files. Unraid shows its own progress window while it runs, and the Apps page reloads when it finishes.',
         function () {
           try { window.ca_pluginUpdateInstall('modern.appstore.plg'); } catch (e) {}
-        }
+        },
+        { title: 'Update Available', ok: 'Update' }
       );
     }
 
@@ -4579,6 +4716,12 @@
       var box = document.getElementById('searchBox');
       if (!box || box.__asgaWired) return;
       box.__asgaWired = true;
+      // CA disables the box for as long as its feed check runs (behind the
+      // Updating Content modal inject.css now hides). Our grid searches its own
+      // list, so the box stays usable while the view is on.
+      var live = function () { if (box.disabled && isOn()) box.disabled = false; };
+      live();
+      new MutationObserver(live).observe(box, { attributes: true, attributeFilter: ['disabled'] });
       var deb;
       box.addEventListener('input', function () {
         clearTimeout(deb);
@@ -4787,6 +4930,50 @@
       }
     }
 
+    // One themed tooltip for every title inside the plugin's own UI. The native
+    // one waits over a second, renders in system chrome, and is easy to miss on
+    // a greyed-out button, which is exactly where the reason matters. The title
+    // moves to data-asga-tip on first hover so the native one never doubles up;
+    // code that later rewrites .title is picked up on the next hover.
+    function wireTips() {
+      if (document.body.__asgaTips) return;
+      document.body.__asgaTips = true;
+      var tip = document.createElement('div');
+      tip.className = 'asga-tip';
+      tip.setAttribute('role', 'tooltip');
+      document.body.appendChild(tip);
+      var cur = null, timer = 0;
+      var hide = function () { clearTimeout(timer); tip.classList.remove('asga-tip-on'); cur = null; };
+      var show = function (el) {
+        var text = el.getAttribute('data-asga-tip');
+        if (!text || !document.contains(el)) return;
+        tip.textContent = text;
+        tip.classList.add('asga-tip-on');
+        var r = el.getBoundingClientRect(), t = tip.getBoundingClientRect();
+        var left = Math.max(8, Math.min(window.innerWidth - t.width - 8, r.left + r.width / 2 - t.width / 2));
+        var top = r.top - t.height - 8;
+        if (top < 8) top = r.bottom + 8;
+        tip.style.left = left + 'px'; tip.style.top = top + 'px';
+      };
+      document.addEventListener('mouseover', function (e) {
+        if (!isOn() || !e.target.closest) return;
+        var el = e.target.closest('[title], [data-asga-tip]');
+        if (!el || !el.closest('#asga-view, .asga-bar, .asga-drawer-panel, .asga-modal')) { if (cur) hide(); return; }
+        if (el.hasAttribute('title')) {
+          if (el.title) el.setAttribute('data-asga-tip', el.title);
+          el.removeAttribute('title');
+        }
+        if (el === cur) return;
+        hide(); cur = el;
+        timer = setTimeout(function () { show(el); }, 250);
+      }, true);
+      document.addEventListener('mouseout', function (e) {
+        if (cur && (!e.relatedTarget || !cur.contains(e.relatedTarget))) hide();
+      }, true);
+      window.addEventListener('scroll', hide, true);
+      document.addEventListener('mousedown', hide, true);
+    }
+
     function attachUI() {
       addSortBar();
       wireSearch();
@@ -4798,6 +4985,7 @@
       wireRepoClick();
       wireFlashDismiss();
       showWarningIfNeeded();
+      wireTips();
       applyViewMode();
       dismissCaLoading();
       if (isOn() && !document.getElementById('asga-view')) render();
@@ -4834,6 +5022,13 @@
         attachUI();
         render();
         markReady();
+        // CA fills its category menu (and un-dims the menu) only after its feed
+        // check returns, seconds after our grid is up. The list comes from a file
+        // CA already has on disk, so ask for it now; CA's own call later just
+        // repaints the same list.
+        if (feedReady && typeof window.getCategories === 'function') {
+          try { window.getCategories(); } catch (e) {}
+        }
         waitForFeed();   // no-op unless CA's catalog is still being downloaded
         var main = document.querySelector('.mainArea') || document.body;
         var pending = false;

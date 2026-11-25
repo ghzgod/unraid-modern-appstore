@@ -52,6 +52,14 @@ html.asga-pre:not(.asga-ready) .searchAreaHolder,
 html.asga-pre:not(.asga-ready) .menuItems,
 html.asga-pre:not(.asga-ready) .caMenu { display: none !important; }
 
+/* CA opens "Updating Content / Please Wait" on every fresh Apps load while it
+   re-checks its feed. Our grid reads its own list and never waits on that
+   check, so the modal only blocks a page that is already usable. CA's check
+   still runs underneath; only the overlay and its scroll lock are dropped. */
+html.asga-pre .sweet-alert:has(.updateContent-swal),
+html.asga-pre body:has(.sweet-alert .updateContent-swal) .sweet-overlay { display: none !important; }
+html.asga-pre body.stop-scrolling:has(.sweet-alert .updateContent-swal) { overflow: auto !important; height: auto !important; }
+
 /* our toolbar row lives in CA's search row */
 #searchFilter { margin-top: 6px; }
 .asga-bar {
@@ -194,7 +202,7 @@ html.Theme--legacyOS .asga-bar.asga-has-update .asga-update { display: inline-fl
    size came entirely from the browser's own auto-fit against its widest
    option, and past 100% zoom that auto-fit can land a hair short of the
    glyphs it is supposed to hold, clipping the tail of the longest entry
-   ("Most Stars Gained (this month)") past the border. auto keeps the
+   ("Most Stars Gained (past 30 days)") past the border. auto keeps the
    browser's own fit as the normal case; the floor and the ceiling either
    side of it are what stop that fit landing short or ballooning past a
    sensible width once auto is forced to make a decision either way. */
@@ -1123,6 +1131,19 @@ body.asga-active {
    the blurb takes whatever is left. Nothing here enforces that, which is why
    it is written down: the order of those two children is load bearing. */
 .asga-btn.asga-btn-off { opacity: 0.4; cursor: not-allowed; }
+
+/* the shared tooltip (wireTips in inject.js): drawer surface and line, above
+   drawers and dialogs, never catching the pointer itself */
+.asga-tip {
+  position: fixed; z-index: 10080; max-width: 280px; box-sizing: border-box;
+  padding: 6px 10px; border-radius: 6px;
+  background: var(--background-color, #1c1c1c); color: var(--text-color, #f2f2f2);
+  border: 1px solid rgba(127, 127, 127, 0.4); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  font-size: 1.2rem; line-height: 1.4; white-space: normal;
+  pointer-events: none; opacity: 0; visibility: hidden; transition: opacity 0.12s ease;
+}
+.asga-tip.asga-tip-on { opacity: 1; visibility: visible; }
+@media (prefers-reduced-motion: reduce) { .asga-tip { transition: none; } }
 .asga-btn.asga-btn-off:hover { border-color: rgba(127,127,127,0.4); background: rgba(127,127,127,0.08); }
 
 /* yellow no-token warning banner */
@@ -1188,7 +1209,10 @@ html:not(.Theme--legacyOS) body.asga-active .searchArea {
      box starts exactly on the grid's left edge (the content inset plus the
      menu column plus the grid's margins, 19.5rem + 12px, the same sum the
      cards start at) and the toggle ends on its right edge. */
-  padding: 12px 0 !important;
+  /* 6px under the controls, not 12: the band only has to clear the controls,
+     and the heading below it is aligned to the menu item beside it, so any
+     slack here is a gap above "All Apps" that the menu does not have */
+  padding: 12px 0 6px !important;
   margin: 0 22px 0 calc(19.5rem + 12px) !important;
   background: none;
   border: none;
@@ -1198,7 +1222,9 @@ html:not(.Theme--legacyOS) body.asga-active .searchArea {
    scrolls underneath it and would otherwise show through the row. */
 html:not(.Theme--legacyOS) body.asga-active .searchAreaHolder {
   background: var(--background-color, #1c1c1c);
-  padding-bottom: 10px;
+  /* none: the band only needs to clear the controls, and the grid heading under
+     it lines up with the menu's first item (see alignHeading in inject.js) */
+  padding-bottom: 0;
 }
 /* The row sat 6px under the menu with 14px beneath it, so it read as hanging off
    the navigation. Both edges are 26 here, which also puts the search box on
@@ -1502,10 +1528,14 @@ body.asga-active .menuItems.menuAdjust { margin-top: -46px; position: relative; 
 /* With the card starting at the grid's edge, the column beside it is empty
    again, so the menu lifts back into it: Home's centre lands on the search
    box's centre. Only above 1024, for CA's 4rem band clamp reason above; below
-   that the menu rests level with the heading. */
+   that the menu rests level with the heading.
+   The lift is measured from the content column's top, which is the band's
+   bottom, so it moves with the band's height: -51 is the old -67 less the 16px
+   the band lost (6 under the controls, 10 off the holder). Change one and the
+   other has to follow, or Home leaves the search box's line. */
 html:not(.Theme--legacyOS) body.asga-active .menuItems.menuAdjust { margin-top: 0; }
 @media (min-width: 1025px) {
-  html:not(.Theme--legacyOS) body.asga-active .menuItems.menuAdjust { margin-top: -67px; }
+  html:not(.Theme--legacyOS) body.asga-active .menuItems.menuAdjust { margin-top: -51px; }
 }
 /* The menu is pinned while the grid scrolls past it. CA leaves it in normal
    flow, so on a page of ninety-six cards it scrolls away and changing category
@@ -1694,6 +1724,28 @@ body.asga-active #sidenavContent.asga-drawer-wait::after {
    does not turn says nothing a static ring can */
 @media (prefers-reduced-motion: reduce) {
   body.asga-active #sidenavContent.asga-drawer-wait::before { animation: none; }
+}
+/* The failure panel, shown instead of a blank drawer when CA's reply never
+   arrives or arrives as a bare sentence. Centred in the panel like the wheel
+   it replaces. The button is the panel's pill (see .appIconsPopUp) written out
+   here because that rule is tied to CA's own markup; the !important set is
+   what undoes Unraid's global button rule, as on the other buttons in this
+   file. */
+body.asga-active .asga-drawer-fail {
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+  gap: 12px; padding: 40% 24px 0; text-align: center;
+}
+body.asga-active .asga-drawer-fail p { margin: 0; opacity: 0.7; font-size: 1.3rem; }
+body.asga-active .asga-drawer-fail .asga-drawer-retry {
+  min-width: 0 !important; text-transform: none !important; margin: 0 !important;
+  padding: 6px 14px !important; border: 1px solid rgba(127, 127, 127, 0.4) !important;
+  border-radius: 20px !important; background-image: none !important;
+  background-color: rgba(127, 127, 127, 0.08); color: inherit;
+  font-size: 1.15rem; line-height: 1.2; cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+body.asga-active .asga-drawer-fail .asga-drawer-retry:hover {
+  border-color: #ff8c2f !important; background-color: rgba(255, 140, 47, 0.14);
 }
 body.asga-active .popup { margin: 0; padding: 0 24px; }
 
@@ -2569,7 +2621,9 @@ body.asga-active .dropdown-context-up:after { border-top-color: var(--background
   --asga-muted: color-mix(in srgb, var(--asga-fg) 70%, transparent);
   --asga-line: rgba(127, 127, 127, 0.25);
   --asga-accent: #ff8c2f;
-  position: fixed; inset: 0; z-index: 10000;
+  /* above the drawers (10060/10061): a confirm opened from inside one has
+     to sit over its backdrop, or OK is unreachable */
+  position: fixed; inset: 0; z-index: 10070;
   background: rgba(0,0,0,0.62); backdrop-filter: blur(2px);
   /* the overlay owns the gutter and the scrolling. A template's Requires field
      can run to several paragraphs, and centring alone would then clip the top
@@ -2579,51 +2633,40 @@ body.asga-active .dropdown-context-up:after { border-top-color: var(--background
 }
 .asga-modal {
   box-sizing: border-box; margin: auto;
-  max-width: 460px; width: 100%; padding: 20px 22px 18px;
+  max-width: 460px; width: 100%; padding: 0; overflow: hidden;
   border-radius: 10px; background: var(--background-color, #1c1c1c);
-  border: 1px solid var(--asga-line, rgba(255,255,255,0.16));
+  border: 1px solid rgba(127, 127, 127, 0.4);
   box-shadow: 0 18px 60px rgba(0,0,0,0.6);
   text-align: left; color: var(--asga-fg, #f2f2f2);
 }
-/* attentionModal() in inject.js appends the icon and the title as SIBLINGS of
-   .asga-modal (icon div, then the <h2>), not icon-inside-title, so there is no
-   existing node that gathers just the two of them onto the title's own line
-   without this file inventing a wrapper it is not allowed to add. The icon
-   stays a block sitting above the title instead: shrunk from the old 64px
-   circled badge down to a small mark, and moved off centre onto the same
-   left edge the title and everything below it already sit on, which is what
-   .asga-modal's own text-align: left is doing for the rest of the dialog. */
-.asga-modal-icon {
-  width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--asga-accent);
-  color: var(--asga-accent); font-size: 1.6rem; font-weight: 600; line-height: 1;
-  display: flex; align-items: center; justify-content: center;
-  margin: 0 0 12px;
-}
-.asga-modal-title { font-size: 1.5rem; font-weight: 700; margin: 0 0 12px; }
+/* header is the drawer's (.asga-drawer-header/-title/-close), reused as is */
+.asga-modal-body { padding: 16px 20px 0; }
 .asga-modal-body p {
   font-size: 1.25rem; line-height: 1.55; margin: 0 0 8px;
   color: color-mix(in srgb, var(--asga-fg) 78%, transparent);
 }
 .asga-modal-body p:last-child { margin: 0; }
 .asga-modal-body p.asga-modal-break { margin-top: 14px; }
-/* The actions close the dialog at its own right edge, the way every other run
-   of controls in this plugin ends, rather than sitting centred under it. */
 .asga-modal-actions {
-  display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px;
+  display: flex; gap: 10px; justify-content: flex-end; padding: 20px;
 }
-.asga-modal-actions .asga-btn {
-  min-width: 0; padding: 7px 16px; font-size: 1.2rem; cursor: pointer;
-  text-transform: none; letter-spacing: normal;
+/* Unraid's global <button> rule (86px min-width, uppercase, 10/12px margins)
+   wins over plain class rules, which is what made OK and Cancel two sizes and
+   pushed them off the right edge. The same properties are forced here the way
+   .asga-drawer-close forces them, so both buttons are one size. */
+.asga-modal-btn {
+  box-sizing: border-box; height: 34px; min-width: 128px !important;
+  margin: 0 !important; padding: 0 16px !important;
+  border-radius: 8px; border: 1px solid rgba(127, 127, 127, 0.3);
+  font-size: 1.3rem; font-weight: 600; line-height: 1;
+  text-transform: none !important; letter-spacing: normal; cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
-/* the confirm action wears the same active fill as the drawer's own lead
-   action, never a solid slab, for the same reason. */
-.asga-modal-ok {
-  border-color: #ff8c2f; background: rgba(255, 140, 47, 0.9);
-  color: #17140f; font-weight: 700;
-}
-.asga-modal-ok:hover { background: #ff8c2f; border-color: #ff8c2f; }
-.asga-modal-cancel { background: rgba(127,127,127,0.08); color: var(--asga-fg); }
-.asga-modal-cancel:hover { border-color: var(--asga-accent); color: var(--asga-accent); }
+.asga-modal-ok { border-color: #ff8c2f; background: #ff8c2f; color: #17140f; }
+.asga-modal-ok:hover { background: #ffa057; border-color: #ffa057; }
+.asga-modal-cancel { background: rgba(127,127,127,0.10); color: var(--asga-fg); }
+.asga-modal-cancel:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.14); }
+.asga-modal-btn:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 2px; }
 
 .asga-lb-img { max-width: 92vw; max-height: 88vh; object-fit: contain; border-radius: 6px; box-shadow: 0 10px 50px rgba(0,0,0,0.6); }
 .asga-lb-close {

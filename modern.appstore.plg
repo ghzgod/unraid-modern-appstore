@@ -2,7 +2,7 @@
 <!DOCTYPE PLUGIN [
 <!ENTITY name    "modern.appstore">
 <!ENTITY author  "ghzgod">
-<!ENTITY version "2026.11.08f">
+<!ENTITY version "2026.11.24">
 <!ENTITY plugin  "https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg">
 <!ENTITY support "https://github.com/ghzgod/unraid-modern-appstore">
 ]>
@@ -14,6 +14,24 @@
 <PLUGIN name="&name;" author="&author;" version="&version;" pluginURL="&plugin;" launch="Settings/ModernAppStore" min="6.12" support="&support;">
 
 <CHANGES>
+##2026.11.24
+- Refreshing the Apps page no longer waits behind Community Applications'
+  "Updating Content" window: the grid, search box and category menu appear
+  right away, and the app list loads several times faster.
+- Installed plugins whose catalog name differs from their file name, such as
+  Nvidia Driver and Dynamix System Buttons, show Installed instead of Install.
+- Star trend sorts use rolling windows (past 24 hours, 7 days, 30 days, past
+  year), and the past year sorts work from the day the plugin is installed.
+- New Rising sort: apps gaining stars faster this week than over the month.
+- Trends are built only from star counts actually fetched that day.
+- An app's Info drawer that fails to load says so and offers Retry, instead of
+  going blank.
+- Confirm dialogs match the drawer design and open above it.
+- Hovering a greyed-out button explains why it is unavailable.
+- All Apps lines up with the left menu.
+- Thanks to p1zzm1ssile (#4) and btTeddy (#2) for their reports, and to
+  Ramnet-Lab for the search and category menu fix (#1).
+
 ##2026.11.08f
 - An installed Docker app's card has an Edit button that opens the container's
   settings in Unraid.
@@ -873,33 +891,35 @@ mkdir -p /boot/config/plugins/modern.appstore
  *
  * Reads the Community Applications catalog cache READ-ONLY, derives owner/repo
  * from each app's Project GitHub URL, queries the GitHub API (token +
- * fabricated User-Agent + ETag), and caches results in SQLite. Exports:
+ * stock browser User-Agent + ETag), and caches results in SQLite. Exports:
  *   - stars.json : compact name->stars map for the badge painter
  *   - apps.json  : full catalog (name, path, icon, author, category, stars,
  *                  downloads, repo age, trend deltas) for the dedicated GitHub view
- * Records a star-history snapshot per run so trending (1d/1w/1m/1y) can be
- * computed over time.
+ * Records a star-history snapshot per run, for repos fetched in that run, so
+ * trending (1d/1w/1m/1y) can be computed over time.
  *
  * The 1d/1w/1m/1y windows all come from those daily snapshots, and only from
  * them. GitHub restricted the stargazers and subscribers listing endpoints in
  * July 2026 to admins and collaborators, so dated star data (starred_at) is
  * gone for every token type, permanently; stargazers_count still works, so
  * star totals are unaffected, but there is no way to backfill a year-ago
- * baseline any more. A fresh install's year window therefore stays empty
- * until a year of this plugin's own snapshots has actually accumulated.
+ * baseline any more. A repo created inside a window gained every star it has
+ * in that window, so it needs no history. Until a full year of snapshots
+ * exists the year window measures from the repo's oldest snapshot, i.e. the
+ * gain since this install began recording.
  * created_at is recorded too, so the grid can rank by lifetime growth rate.
  *
  * Persistent data (DB + JSON) lives in a configurable appdata dir on the cache
  * SSD so it survives reboots; served copies go to the tmpfs webroot. curl_multi
  * keep-alive for speed; a flock guarantees one scan at a time.
  *
- * NEVER writes to any CA-owned path. NEVER logs the token. The User-Agent names
- * the project only; it carries nothing about the server it runs on.
+ * NEVER writes to any CA-owned path. NEVER logs the token. Requests carry a
+ * stock browser User-Agent so nothing identifies the plugin or the server.
  */
 
 error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
 
-const UA = 'unraid-modern-appstore/1.0 (+https://github.com/ghzgod/unraid-modern-appstore)';
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0';
 const PLUGIN = 'modern.appstore';
 const NOTIFY_BIN = '/usr/local/emhttp/webGui/scripts/notify';
 
@@ -1404,6 +1424,7 @@ $total = count($queue);
 $stop = false; $scanned = 0;
 write_progress($outDir, true, 0, $total, $status);
 
+$fetchedNow = [];   // repos that got a fresh 200 or 304 this run
 $mh = curl_multi_init();
 $inflight = []; $hdr = [];
 $makeHandle = function (string $full) use (&$repoMeta, &$inflight, &$hdr, $mh, $token, $db) {
@@ -1450,11 +1471,11 @@ do {
             $stars = (int)(($j['stargazers_count']) ?? 0);
             $created = isset($j['created_at']) ? (strtotime($j['created_at']) ?: null) : null;
             db_upsert($db, $full, $m['owner'], $m['repo'], $stars, $heads['etag'] ?? ($row['etag'] ?? null), 200, time(), $created);
-            $starsByRepo[$full] = $stars; $status['ok']++;
+            $starsByRepo[$full] = $stars; $fetchedNow[$full] = true; $status['ok']++;
         } elseif ($code === 304) {
             $stars = (int)($row['stars'] ?? 0);
             db_upsert($db, $full, $m['owner'], $m['repo'], $stars, $row['etag'] ?? null, 304, time());
-            $starsByRepo[$full] = $stars; $status['not_modified']++;
+            $starsByRepo[$full] = $stars; $fetchedNow[$full] = true; $status['not_modified']++;
         } elseif ($code === 404 || $code === 451) {
             db_upsert($db, $full, $m['owner'], $m['repo'], null, $row['etag'] ?? null, $code, time());
             $status['missing']++;
@@ -1480,12 +1501,16 @@ while ($ar = $res->fetchArray(SQLITE3_ASSOC)) {
 }
 
 // ---- star-history snapshot (~1/day per repo) + trend computation -----------
+// Only repos fetched this run are snapshotted. A repo not fetched carries an
+// older count from the database, and logging that as a new snapshot both
+// mis-dates the count and blocks the next real snapshot for 20 hours.
 $now = time();
 if (!$trendsOnly) {
 $db->exec('BEGIN');
 $ins = $db->prepare('INSERT INTO star_history (repo, ts, stars) VALUES (:r,:t,:s)');
 $lastQ = $db->prepare('SELECT MAX(ts) AS m FROM star_history WHERE repo = :r');
-foreach ($starsByRepo as $repo => $st) {
+foreach ($fetchedNow as $repo => $_) {
+    $st = $starsByRepo[$repo];
     $lastQ->reset(); $lastQ->bindValue(':r', $repo, SQLITE3_TEXT);
     $last = (int)($lastQ->execute()->fetchArray(SQLITE3_ASSOC)['m'] ?? 0);
     if ($last < $now - 20 * 3600) {
@@ -1510,37 +1535,30 @@ function trend_at(SQLite3Stmt $baseQ, string $repo, int $cutoff): ?int {
 function delta(?int $base, int $cur): ?int { return $base === null ? null : ($cur - $base); }
 
 /*
- * Uncapped trend for a rolling window: current stars minus the snapshot at (or
- * just before) the window's start. If star history is younger than the window
- * but still covers >=60% of it, approximate using the OLDEST snapshot (so a
- * "30-day" trend works off ~25 days of history rather than showing nothing).
- * Only when history is too short to be meaningful do we fall back to $fallback
- * (the stargazer-page count, which saturates at 100 and can't rank hot repos).
+ * Uncapped trend for a rolling window. A repo created inside the window gained
+ * every star it has in it, so its answer is its star count. Otherwise: current
+ * stars minus the snapshot at (or just before) the window's start. If star
+ * history is younger than the window, the OLDEST snapshot stands in: for the
+ * day, week and month only when it covers >=60% of the window (so a "30-day"
+ * trend works off ~25 days of history rather than showing nothing), for the
+ * year ($anyOldest) whatever its age, so the year ranks by the gain since this
+ * install began recording until a full year exists. Null when there is no
+ * usable history.
  */
-function trend_window(SQLite3Stmt $baseQ, SQLite3Stmt $oldQ, string $repo, int $window, int $stars, int $now, ?int $fallback): ?int {
+function trend_window(SQLite3Stmt $baseQ, SQLite3Stmt $oldQ, string $repo, int $window, int $stars, int $now, ?int $created, bool $anyOldest = false): ?int {
+    if ($created !== null && $created >= $now - $window) return $stars;
     $base = trend_at($baseQ, $repo, $now - $window);
     if ($base !== null) return $stars - $base;
     $oldQ->reset(); $oldQ->bindValue(':r', $repo, SQLITE3_TEXT);
     $o = $oldQ->execute()->fetchArray(SQLITE3_ASSOC);
-    if ($o && ($now - (int)$o['ts']) >= 0.6 * $window) return $stars - (int)$o['stars'];
-    return $fallback;
+    if ($o && ($anyOldest || ($now - (int)$o['ts']) >= 0.6 * $window)) return $stars - (int)$o['stars'];
+    return null;
 }
 
 // repo creation dates, for the lifetime growth-rate sort
 $createdAt = [];
 $cq = $db->query('SELECT repo, created_at FROM repos WHERE created_at IS NOT NULL');
 while ($r = $cq->fetchArray(SQLITE3_ASSOC)) $createdAt[$r['repo']] = (int)$r['created_at'];
-
-// t1/t7/t30/t365 in the repos table are the last stargazer-derived values this
-// plugin ever wrote, from before GitHub blocked that walk in July 2026.
-// Nothing writes them any more, but old rows still carry them, so they remain
-// in play below as trend_window()'s last-resort fallback until this plugin's
-// own snapshot history grows long enough to make them irrelevant.
-$dbTrends = [];
-$trq = $db->query('SELECT repo, t1, t7, t30, t365 FROM repos WHERE t7 IS NOT NULL');
-while ($row = $trq->fetchArray(SQLITE3_ASSOC)) {
-    $dbTrends[$row['repo']] = [(int)$row['t1'], (int)$row['t7'], (int)$row['t30'], (int)$row['t365']];
-}
 
 // ---- build outputs ---------------------------------------------------------
 $byId = $byName = $byRepo = $byPath = [];
@@ -1562,22 +1580,16 @@ foreach ($apps as $idx => $app) {
     $t1 = $t7 = $t30 = $t365 = null;
     $created = null;
     if ($stars !== null && $full !== null) {
-        // Prefer uncapped snapshot deltas; the stored stargazer-page counts
-        // saturate at 100 and can't rank fast-growing repos, so they're only a
-        // last-resort fallback for windows longer than our star history.
-        $fb = $dbTrends[$full] ?? [null, null, null, null];
-        $t1   = trend_window($baseQ, $oldQ, $full, 86400,       $stars, $now, $fb[0]);
-        $t7   = trend_window($baseQ, $oldQ, $full, 7 * 86400,   $stars, $now, $fb[1]);
-        $t30  = trend_window($baseQ, $oldQ, $full, 30 * 86400,  $stars, $now, $fb[2]);
-        // Year window: a genuine year-old snapshot once this install has run
-        // that long, else the capped fallback. There is no other source any
-        // more; GitHub blocked the stargazer walk that used to backfill this
-        // on a fresh install, so "this year" stays empty until a year of our
-        // own snapshots has actually accumulated.
-        $snap365 = trend_at($baseQ, $full, $now - 365 * 86400);
-        $t365 = $snap365 !== null ? $stars - $snap365
-              : trend_window($baseQ, $oldQ, $full, 365 * 86400, $stars, $now, $fb[3]);
         $created = $createdAt[$full] ?? null;
+        $t1   = trend_window($baseQ, $oldQ, $full, 86400,       $stars, $now, $created);
+        $t7   = trend_window($baseQ, $oldQ, $full, 7 * 86400,   $stars, $now, $created);
+        $t30  = trend_window($baseQ, $oldQ, $full, 30 * 86400,  $stars, $now, $created);
+        // Year window: a genuine year-old snapshot once this install has run
+        // that long, else the gain since the oldest snapshot (no coverage
+        // gate), since GitHub blocked the stargazer walk that used to backfill
+        // a year-ago baseline. The grid labels the sort with the start date
+        // until a full year exists.
+        $t365 = trend_window($baseQ, $oldQ, $full, 365 * 86400, $stars, $now, $created, true);
     }
 
     $desc = (string)($app['Overview'] ?? '');
@@ -2230,6 +2242,32 @@ function icon_fa($t) {
     return preg_match('~^[a-z0-9-]{1,40}$~', $fa) ? $fa : '';
 }
 
+// The build below is ~0.7s of per-app work and a 10 MB body, rebuilt on every
+// Apps page load although its inputs only change on a feed sync, a star scan or
+// a settings save. The finished body is cached gzipped, keyed on those files,
+// the day (historyDays and the future-date guard read the clock) and the live
+// Docker state, so a reload is a file read. 'generated' is stale on a hit; the
+// grid never reads it.
+function send_body($gz) {
+    header('Vary: Accept-Encoding');
+    if (strpos($_SERVER['HTTP_ACCEPT_ENCODING'] ?? '', 'gzip') !== false) {
+        header('Content-Encoding: gzip');
+        header('Content-Length: ' . strlen($gz));
+        echo $gz;
+    } else {
+        echo gzdecode($gz);
+    }
+}
+$cacheDir = '/tmp/modern.appstore';
+$cacheKey = date('Y-m-d') . json_encode(docker_state());
+foreach (["$dataDir/apps.json", "$caTmp/templates_new.json", $repoList, "$dataDir/stars.db",
+          "$dataDir/stars.db-wal", "$dataDir/status.json", $gas_cfg, __FILE__] as $f) {
+    $cacheKey .= '|' . @filemtime($f) . ':' . @filesize($f);
+}
+$cacheFile = "$cacheDir/applist-" . md5($cacheKey) . '.json.gz';
+$cached = @file_get_contents($cacheFile);
+if ($cached !== false && $cached !== '') { send_body($cached); exit; }
+
 // our own catalog (already has name/path/icon/category/stars/trends for every app)
 $ours = read_json_ro("$dataDir/apps.json");
 $byPath = [];
@@ -2493,7 +2531,7 @@ if (class_exists('SQLite3') && is_file("$dataDir/stars.db")) {
 
 // JSON_INVALID_UTF8_SUBSTITUTE: some feed descriptions carry stray bytes that
 // would otherwise make json_encode() return false and emit an empty body.
-echo json_encode(
+$body = json_encode(
     ['generated' => time(), 'count' => count($out), 'historyDays' => $historyDays,
      'feedReady' => $feedReady, 'docker' => docker_state(), 'defaultSort' => $defaultSort,
      'cardsPerRow' => $cardsPerRow,
@@ -2505,6 +2543,17 @@ echo json_encode(
      'apps' => $out],
     JSON_UNESCAPED_SLASHES | JSON_INVALID_UTF8_SUBSTITUTE
 );
+$gz = gzencode((string)$body, 1);
+// Never cache a feed that isn't there yet (or was read mid-write): the next
+// load has to see it the moment CA finishes writing.
+if ($feedReady && $out) {
+    @mkdir($cacheDir, 0755, true);
+    foreach ((array)glob("$cacheDir/applist-*.json.gz") as $old) @unlink($old);
+    $tmp = "$cacheFile." . getmypid();
+    if (@file_put_contents($tmp, $gz) !== false) @rename($tmp, $cacheFile);
+}
+send_body($gz);
+
 ]]>
 </INLINE>
 </FILE>
@@ -2573,6 +2622,7 @@ foreach (glob('/boot/config/plugins/dockerMan/templates-user/*.xml') ?: [] as $x
 // both be installed, so a name that matches is the app that occupies it.
 $plugins = [];
 $pluginsNorm = [];
+$pluginTitles = [];
 foreach (glob('/var/log/plugins/*.plg') ?: [] as $p) {
     $b = strtolower(preg_replace('/\.plg$/i', '', basename($p)));
     if ($b === '') continue;
@@ -2584,6 +2634,17 @@ foreach (glob('/var/log/plugins/*.plg') ?: [] as $p) {
     // exact filename match.
     $n = preg_replace('/[^a-z0-9]/', '', $b);
     if ($n !== '') $pluginsNorm[$n] = true;
+    // The plugin's own README title, which is the name CA's catalog lists it
+    // under, for templates whose filename shares nothing with the .plg:
+    // Nvidia-Drivers.xml against nvidia-driver.plg, systemButtons.xml against
+    // dynamix.system.buttons.plg. Squid's own plugins title themselves "CA ...",
+    // a prefix the catalog drops.
+    $readme = @file_get_contents("/usr/local/emhttp/plugins/$b/README.md", false, null, 0, 300);
+    if ($readme !== false) {
+        $t = trim(preg_replace('/[#*_`]/', '', strtok($readme, "\n")));
+        $t = preg_replace('/[^a-z0-9]/', '', strtolower(preg_replace('/^CA\s+/i', '', $t)));
+        if (strlen($t) >= 4) $pluginTitles[$t] = true;
+    }
 }
 
 echo json_encode([
@@ -2592,6 +2653,7 @@ echo json_encode([
     'installedEdit' => $installedEdit,
     'plugins'       => array_keys($plugins),
     'pluginsNorm'   => array_keys($pluginsNorm),
+    'pluginTitles'  => array_keys($pluginTitles),
 ]);
 ]]>
 </INLINE>
@@ -2634,7 +2696,8 @@ header('Content-Type: application/json');
 error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
 ini_set('display_errors', '0');
 
-const UA = 'unraid-modern-appstore';
+// A stock browser User-Agent, so nothing on the wire identifies the plugin or the server.
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0';
 const REPO_RE = '/^[A-Za-z0-9][A-Za-z0-9._\-\/:]{0,199}$/';
 const DOCKERHUB_HOSTS = ['registry-1.docker.io', 'docker.io', 'index.docker.io', 'registry.hub.docker.com'];
 const CACHE_DIR = '/tmp/modern.appstore';
@@ -3015,7 +3078,7 @@ curl_setopt_array($ch, [
     CURLOPT_REDIR_PROTOCOLS => CURLPROTO_HTTPS,
     CURLOPT_CONNECTTIMEOUT => 4,
     CURLOPT_TIMEOUT        => 8,
-    CURLOPT_USERAGENT      => 'unraid-modern-appstore',
+    CURLOPT_USERAGENT      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0',
 ]);
 $body = curl_exec($ch);
 $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -3092,6 +3155,8 @@ respond($n, false);
  * Only URLs the catalog actually names are ever fetched, so this endpoint
  * cannot be pointed at anything else on the network.
  */
+// A stock browser User-Agent, so nothing on the wire identifies the plugin or the server.
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0';
 $dataDir   = '/boot/config/plugins/modern.appstore';
 // New file each time the record's shape changes: the v5 cache's entries are
 // [lum, colour] pairs with no artwork box, and v6's null box means both "this
@@ -3145,7 +3210,7 @@ if (isset($_GET['svg'])) {
         CURLOPT_MAXREDIRS      => 3,
         CURLOPT_CONNECTTIMEOUT => 4,
         CURLOPT_TIMEOUT        => 8,
-        CURLOPT_USERAGENT      => 'unraid-modern-appstore',
+        CURLOPT_USERAGENT      => UA,
     ]);
     $body = curl_exec($ch);
     $code = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -3226,7 +3291,7 @@ function fetchTone(array $urls) {
             CURLOPT_MAXREDIRS      => 3,
             CURLOPT_CONNECTTIMEOUT => 4,
             CURLOPT_TIMEOUT        => 8,
-            CURLOPT_USERAGENT      => 'unraid-modern-appstore',
+            CURLOPT_USERAGENT      => UA,
         ]);
         curl_multi_add_handle($mh, $c);
         $handles[$u] = $c;
@@ -3589,6 +3654,8 @@ $cacheFile = $dataDir . '/addeddate.json';
 $caTmp     = '/tmp/community.applications/tempFiles';
 $tmplFile  = "$caTmp/templates_new.json";
 // CA's skin floors every FirstSeen below this to a constant it manufactures.
+// A stock browser User-Agent, so nothing on the wire identifies the plugin or the server.
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0';
 const FLOOR = 1433649600;
 const FEED_DIR = '/tmp/GitHub/AppFeed/';
 
@@ -3702,7 +3769,7 @@ function fetchFirstRelease(array $urlByPath) {
                 CURLOPT_MAXREDIRS      => 3,
                 CURLOPT_CONNECTTIMEOUT => 5,
                 CURLOPT_TIMEOUT        => 20,
-                CURLOPT_USERAGENT      => 'unraid-modern-appstore',
+                CURLOPT_USERAGENT      => UA,
             ]);
             curl_multi_add_handle($mh, $c);
             $handles[$p] = $c;
@@ -3840,7 +3907,7 @@ function ghMulti(array $urls, string $token): array {
                 CURLOPT_PROTOCOLS      => CURLPROTO_HTTPS,
                 CURLOPT_CONNECTTIMEOUT => 5,
                 CURLOPT_TIMEOUT        => 15,
-                CURLOPT_USERAGENT      => 'unraid-modern-appstore',
+                CURLOPT_USERAGENT      => UA,
                 CURLOPT_HTTPHEADER     => $hdr,
             ]);
             $hs[$k] = ['h' => $c, 'link' => ''];
@@ -4011,6 +4078,8 @@ echo json_encode([
  */
 header('Content-Type: application/json');
 
+// A stock browser User-Agent, so nothing on the wire identifies the plugin or the server.
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0';
 $plg         = '/boot/config/plugins/modern.appstore.plg';
 $cache_file  = '/boot/config/plugins/modern.appstore/latest.json';
 $remote_url  = 'https://raw.githubusercontent.com/ghzgod/unraid-modern-appstore/main/modern.appstore.plg';
@@ -4042,7 +4111,7 @@ function latest_fetch_range($url, $bytes, $timeout_sec) {
             CURLOPT_FOLLOWLOCATION => true,
             CURLOPT_MAXREDIRS      => 3,
             CURLOPT_SSL_VERIFYPEER => true,
-            CURLOPT_USERAGENT      => 'unraid-modern-appstore',
+            CURLOPT_USERAGENT      => UA,
         ]);
         $body = curl_exec($ch);
         $code = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -4054,7 +4123,7 @@ function latest_fetch_range($url, $bytes, $timeout_sec) {
     $opts = [
         'http' => [
             'method'          => 'GET',
-            'header'          => "Range: bytes=0-" . ($bytes - 1) . "\r\nUser-Agent: unraid-modern-appstore\r\n",
+            'header'          => "Range: bytes=0-" . ($bytes - 1) . "\r\nUser-Agent: " . UA . "\r\n",
             'timeout'         => $timeout_sec,
             'follow_location' => 1,
             'ignore_errors'   => true,
@@ -4190,7 +4259,7 @@ function gas_scan_days($v) {
 function gas_default_sort($v) {
     $valid = ['name_asc', 'name_desc', 'downloads', 'new', 'updated', 'spotlight', 'trending',
               'newinstalls', 'popplugins', 'ghstars', 'ght1', 'ght7', 'ght30', 'ght365',
-              'ghp1', 'ghp7', 'ghp30', 'ghp365', 'ghpall'];
+              'ghp1', 'ghp7', 'ghp30', 'ghp365', 'ghpall', 'ghrise'];
     return in_array($v, $valid, true) ? $v : 'new';
 }
 
@@ -4465,7 +4534,7 @@ echo json_encode(['error' => 'method not allowed']);
     // templates spelled with different separators. Both come from
     // pinned.php; see the comment there for why CA's own answer cannot be
     // used and why the filename is the key.
-    var installedPlugins = null, installedPluginsNorm = null;
+    var installedPlugins = null, installedPluginsNorm = null, installedPluginTitles = null;
     // how many days of the plugin's own star-history snapshots this install
     // has. The year trending windows are built from this now, since GitHub
     // restricted the endpoints that used to backfill a year-ago baseline
@@ -4511,7 +4580,9 @@ echo json_encode(['error' => 'method not allowed']);
         if (!a.pk || !installedPlugins) return false;
         if (installedPlugins.has(a.pk)) return true;
         var n = a.pk.replace(/[^a-z0-9]/g, '');
-        return !!n && !!installedPluginsNorm && installedPluginsNorm.has(n);
+        if (n && installedPluginsNorm && installedPluginsNorm.has(n)) return true;
+        var t = String(a.n || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        return t.length >= 4 && !!installedPluginTitles && installedPluginTitles.has(t);
       }
       return !!(a.ri && installedSet && installedSet.has(stripTag(a.ri)));
     }
@@ -4541,6 +4612,7 @@ echo json_encode(['error' => 'method not allowed']);
           installedEdit = (j && j.installedEdit) || {};
           installedPlugins = new Set((j && j.plugins) || []);
           installedPluginsNorm = new Set((j && j.pluginsNorm) || []);
+          installedPluginTitles = new Set((j && j.pluginTitles) || []);
           cb && cb();
         })
         .catch(function () {
@@ -4549,6 +4621,7 @@ echo json_encode(['error' => 'method not allowed']);
           installedEdit = installedEdit || {};
           installedPlugins = installedPlugins || new Set();
           installedPluginsNorm = installedPluginsNorm || new Set();
+          installedPluginTitles = installedPluginTitles || new Set();
           cb && cb();
         });
     }
@@ -4669,15 +4742,16 @@ echo json_encode(['error' => 'method not allowed']);
       { g: 'Unraid', m: 'un', v: 'newinstalls', label: 'Top New Installs',     cmp: numDesc('dt'), filter: caTrend('dt', 6, 100000, true),  hint: 'The highest percentage of new installs this week, over apps with 6+ weeks of data and 100,000+ installs' },
       { g: 'Unraid', m: 'un', v: 'popplugins',  label: 'Most Popular Plugins', cmp: numDesc('dl'), filter: isCountedPlugin,          hint: 'Plugins only, ranked by Unraid downloads; plugins with no download count are left out' },
       { g: 'GitHub', m: 'gh', v: 'ghstars', label: 'Most Stars',              cmp: numDesc('s') },
-      { g: 'GitHub', m: 'gh', v: 'ght1',    label: 'Most Stars Gained (today)',        cmp: numDesc('t1'),   filter: hasTrend('t1'),   hint: 'Most stars added today, whatever the size of the repo' },
-      { g: 'GitHub', m: 'gh', v: 'ght7',    label: 'Most Stars Gained (this week)',    cmp: numDesc('t7'),   filter: hasTrend('t7'),   hint: 'Most stars added this week, whatever the size of the repo' },
-      { g: 'GitHub', m: 'gh', v: 'ght30',   label: 'Most Stars Gained (this month)',   cmp: numDesc('t30'),  filter: hasTrend('t30'),  hint: 'Most stars added this month, whatever the size of the repo' },
-      { g: 'GitHub', m: 'gh', v: 'ght365',  label: 'Most Stars Gained (this year)',    cmp: numDesc('t365'), filter: hasTrend('t365'), hint: 'Most stars added this year, whatever the size of the repo' },
-      { g: 'GitHub', m: 'gh', v: 'ghp1',    label: 'Fastest Growing (today)',      cmp: pctDesc('t1'),   filter: hasPct('t1'),   hint: 'Biggest growth today measured against the stars a repo already had, so a small project can beat a large one' },
-      { g: 'GitHub', m: 'gh', v: 'ghp7',    label: 'Fastest Growing (this week)',  cmp: pctDesc('t7'),   filter: hasPct('t7'),   hint: 'Biggest growth this week measured against the stars a repo already had, so a small project can beat a large one' },
-      { g: 'GitHub', m: 'gh', v: 'ghp30',   label: 'Fastest Growing (this month)', cmp: pctDesc('t30'),  filter: hasPct('t30'),  hint: 'Biggest growth this month measured against the stars a repo already had, so a small project can beat a large one' },
-      { g: 'GitHub', m: 'gh', v: 'ghp365',  label: 'Fastest Growing (this year)',  cmp: pctDesc('t365'), filter: hasPct('t365'), hint: 'Biggest growth this year measured against the stars a repo already had, so a small project can beat a large one' },
-      { g: 'GitHub', m: 'gh', v: 'ghpall',  label: 'Fastest Growing (all time)',   cmp: rateDesc,        filter: hasRate,        hint: 'Lifetime growth rate: stars per year since the repo was created' }
+      { g: 'GitHub', m: 'gh', v: 'ght1',    label: 'Most Stars Gained (past 24 hours)',        cmp: numDesc('t1'),   filter: hasTrend('t1'),   hint: 'Most stars added in the past 24 hours, whatever the size of the repo' },
+      { g: 'GitHub', m: 'gh', v: 'ght7',    label: 'Most Stars Gained (past 7 days)',    cmp: numDesc('t7'),   filter: hasTrend('t7'),   hint: 'Most stars added in the past 7 days, whatever the size of the repo' },
+      { g: 'GitHub', m: 'gh', v: 'ght30',   label: 'Most Stars Gained (past 30 days)',   cmp: numDesc('t30'),  filter: hasTrend('t30'),  hint: 'Most stars added in the past 30 days, whatever the size of the repo' },
+      { g: 'GitHub', m: 'gh', v: 'ght365',  label: 'Most Stars Gained (past year)',    cmp: numDesc('t365'), filter: hasTrend('t365'), hint: 'Most stars added in the past year, whatever the size of the repo' },
+      { g: 'GitHub', m: 'gh', v: 'ghp1',    label: 'Fastest Growing (past 24 hours)',      cmp: pctDesc('t1'),   filter: hasPct('t1'),   hint: 'Biggest growth in the past 24 hours measured against the stars a repo already had, so a small project can beat a large one' },
+      { g: 'GitHub', m: 'gh', v: 'ghp7',    label: 'Fastest Growing (past 7 days)',  cmp: pctDesc('t7'),   filter: hasPct('t7'),   hint: 'Biggest growth in the past 7 days measured against the stars a repo already had, so a small project can beat a large one' },
+      { g: 'GitHub', m: 'gh', v: 'ghp30',   label: 'Fastest Growing (past 30 days)', cmp: pctDesc('t30'),  filter: hasPct('t30'),  hint: 'Biggest growth in the past 30 days measured against the stars a repo already had, so a small project can beat a large one' },
+      { g: 'GitHub', m: 'gh', v: 'ghp365',  label: 'Fastest Growing (past year)',  cmp: pctDesc('t365'), filter: hasPct('t365'), hint: 'Biggest growth in the past year measured against the stars a repo already had, so a small project can beat a large one' },
+      { g: 'GitHub', m: 'gh', v: 'ghpall',  label: 'Fastest Growing (all time)',   cmp: rateDesc,        filter: hasRate,        hint: 'Lifetime growth rate: stars per year since the repo was created' },
+      { g: 'GitHub', m: 'gh', v: 'ghrise',  label: 'Rising (past 7 days)', cmp: riseDesc, filter: hasRise, hint: 'Repos gaining stars faster in the past 7 days than their own pace over the 23 days before, so a project speeding up now outranks a large one coasting on size. Needs at least 50 stars in the past 7 days' }
     ];
     function optFor(v) { for (var i = 0; i < SORT_OPTS.length; i++) if (SORT_OPTS[i].v === v) return SORT_OPTS[i]; return SORT_OPTS[0]; }
     // numeric descending; null/undefined sinks to the bottom
@@ -4686,6 +4760,16 @@ echo json_encode(['error' => 'method not allowed']);
     // tiny repos (2->4 = +100%) don't dominate. Mirrors the old server logic.
     function pct(a, k) { var d = a[k]; if (d == null || a.s == null) return -Infinity; var base = a.s - d; if (base < 10) return -Infinity; return d / base; }
     function pctDesc(k) { return function (a, b) { return pct(b, k) - pct(a, k); }; }
+    // Acceleration: the last 7 days' daily pace over the pace of the 23 days
+    // before it. The prior pace is floored at 1 star/day, since a repo with no
+    // earlier gain would otherwise divide by zero and every newcomer would tie
+    // at infinity.
+    function rise(a) {
+      if (a.t7 == null || a.t30 == null || a.t7 < 50) return -Infinity;
+      var prior = Math.max(0, a.t30 - a.t7) / 23;
+      return (a.t7 / 7) / Math.max(1, prior);
+    }
+    function riseDesc(a, b) { return rise(b) - rise(a); }
     // All-time rate: total stars over the repo's age in years. A repo has zero
     // stars at birth, so the percentage form used by the other windows would
     // divide by zero; the lifetime average is the meaningful all-time ranking.
@@ -4701,6 +4785,7 @@ echo json_encode(['error' => 'method not allowed']);
     // trending filters: only apps that actually gained stars in the window
     function hasTrend(k) { return function (a) { return a[k] != null && a[k] > 0; }; }
     function hasPct(k) { return function (a) { return pct(a, k) > 0; }; }
+    function hasRise(a) { return rise(a) > 1; }
     function hasStars(a) { return a.s != null && a.s > 0; }
     function hasRate(a) { return rate(a) > 0; }
     // Spotlight: CA's RecommendedDate, 0 meaning the app was never recommended
@@ -4999,6 +5084,19 @@ echo json_encode(['error' => 'method not allowed']);
       var n = parseInt(v, 10);
       return (n >= 2 && n <= 6) ? n : dflt;
     }
+    // Until a full year of snapshots exists the year sorts rank by the gain
+    // since this install began recording, so they say so, with the date.
+    function relabelYearSorts() {
+      if (!(historyDays > 0 && historyDays < 365)) return;
+      // Label stays "past year"; only the tooltip says the window is shorter until a year is recorded.
+      var note = '. Star history starts when the plugin was installed, so this counts from then until a full year is recorded';
+      SORT_OPTS.forEach(function (o) {
+        if (o.v !== 'ght365' && o.v !== 'ghp365') return;
+        if (o.hint.indexOf(note) < 0) o.hint += note;
+        var els = document.querySelectorAll('option[value="' + o.v + '"]');
+        for (var i = 0; i < els.length; i++) els[i].title = o.hint;
+      });
+    }
     function loadApps(cb) {
       fetch(PREFIX + 'applist.php?_=' + Date.now())
         .then(function (r) { return r.ok ? r.json() : null; })
@@ -5006,6 +5104,7 @@ echo json_encode(['error' => 'method not allowed']);
           APPS = dedupe((j && j.apps) || []);
           REP = null;
           if (j && j.historyDays != null) historyDays = j.historyDays;
+          relabelYearSorts();
           if (j && j.docker) docker = j.docker;
           // same validity test optFor() already backs the saved-sort read with,
           // so a config value the grid doesn't recognise is silently ignored
@@ -5231,7 +5330,10 @@ echo json_encode(['error' => 'method not allowed']);
         } else if (btn.classList.contains('asga-maint')) {
           // CA's own repo drawer, the same one its Profile button opens
           var repo = tile.getAttribute('data-repo');
-          if (repo) { holdDrawer(); try { window.showRepoPopup(repo); } catch (err) {} }
+          if (repo) {
+            lastDrawerOpen = function () { holdDrawer(); try { window.showRepoPopup(repo); } catch (e) {} };
+            lastDrawerOpen();
+          }
         } else if (btn.classList.contains('asga-pin')) {
           pinApp(tile, btn);
         } else { // Info
@@ -5274,12 +5376,22 @@ echo json_encode(['error' => 'method not allowed']);
     // Blank until finished. Set the moment a drawer is asked for, cleared by
     // drawerReady() once CA's own render has landed and this file's own fixups
     // have run over it.
+    // True from the moment a drawer is asked for until CA has blanked the panel.
+    // CA empties #sidenavContent synchronously when it opens a drawer, so
+    // content seen before that blank is the outgoing drawer's, not the answer.
+    var drawerAwaitBlank = false;
+    // Re-runs the last opener, for the Retry button on a drawer that failed.
+    var lastDrawerOpen = null;
     function holdDrawer() {
       var host = document.getElementById('sidenavContent');
       if (host) host.classList.add('asga-drawer-wait');
+      // An already empty panel gives CA's blanking nothing to change, so no
+      // mutation will ever announce it; waiting for one would hide the answer.
+      drawerAwaitBlank = !!host && (host.children.length > 0 || host.textContent.trim() !== '');
       clearTimeout(holdDrawer.t);
-      // A render that never completes must not leave the panel blank for good.
-      holdDrawer.t = setTimeout(showDrawer, 6000);
+      // A reply that never lands is a failure to say so, not a blank panel
+      // dressed up as one that finished.
+      holdDrawer.t = setTimeout(drawerFailed, 30000);
     }
     function showDrawer() {
       clearTimeout(holdDrawer.t);
@@ -5291,10 +5403,44 @@ echo json_encode(['error' => 'method not allowed']);
     // in the panel means its render has landed. The check runs at the end of the
     // observer's own pass, after this file has moved what it moves, so the frame
     // the reader finally sees is the finished one rather than CA's.
+    // The old test (waiting for CA's Details or statistics table) left the
+    // panel blank for good when CA never answered. CA fills the panel with ONE
+    // html() call, after blanking it, so the first content after the blank is
+    // the answer: the drawer, or on failure a plain sentence, which is shown
+    // with a Retry button rather than bare.
     function drawerReady() {
       var host = document.getElementById('sidenavContent');
       if (!host || !host.classList.contains('asga-drawer-wait')) return;
-      if (host.querySelector('.popupTable.contents') || host.querySelector('.repoTable') || host.querySelector('.asga-repo-apps')) showDrawer();
+      var text = host.textContent.trim();
+      if (!host.children.length && !text) { drawerAwaitBlank = false; return; }
+      if (drawerAwaitBlank) return;
+      if (!host.children.length) { drawerFailure(host, text); return; }
+      showDrawer();
+    }
+    // The failure panel: a message and one button. Retry re-runs the opener
+    // that produced the drawer; with none recorded it can only close the panel.
+    function drawerFailure(host, message) {
+      showDrawer();
+      host.textContent = '';
+      var box = document.createElement('div');
+      box.className = 'asga-drawer-fail';
+      var p = document.createElement('p');
+      p.textContent = message;
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'asga-drawer-retry';
+      b.textContent = lastDrawerOpen ? 'Retry' : 'Close';
+      b.addEventListener('click', function () {
+        if (lastDrawerOpen) lastDrawerOpen();
+        else try { window.closeSidebar(); } catch (e) {}
+      });
+      box.appendChild(p); box.appendChild(b);
+      host.appendChild(box);
+    }
+    function drawerFailed() {
+      var host = document.getElementById('sidenavContent');
+      if (!host || !host.classList.contains('asga-drawer-wait')) return;
+      drawerFailure(host, 'Details did not load.');
     }
     // The one way the grid opens CA's drawer, so the app it is showing is
     // always recorded. Everything the drawer does on our side (see
@@ -5316,6 +5462,7 @@ echo json_encode(['error' => 'method not allowed']);
     // The wait is the honest version, and the panel says Loading while it runs.
     function openSidebar(p, n) {
       openPath = p || '';
+      lastDrawerOpen = function () { openSidebar(p, n); };
       holdDrawer();
       try { window.showSidebarApp(p, n); } catch (e) {}
     }
@@ -5348,7 +5495,8 @@ echo json_encode(['error' => 'method not allowed']);
           if (vid) attentionModal(
             'This opens the video on YouTube in a new tab.\n\n' +
             'YouTube will see the visit, and whatever cookies your browser already holds for it.',
-            function () { openExt(vid); }
+            function () { openExt(vid); },
+            { title: 'Open on YouTube', ok: 'Open YouTube' }
           );
           return;
         }
@@ -5654,18 +5802,17 @@ echo json_encode(['error' => 'method not allowed']);
       document.body.__asgaDrawerDetails = true;
       var host = document.getElementById('sidenavContent') || document.querySelector('.sidenav');
       if (!host) return;
-      new MutationObserver(function () { fixDrawerDetails(); addReadmeButton(); cardSections(); renameFavourite(); fixDrawerIcon(); fixMaintainerIcon(); fixRepoDrawer(); pruneShots(); drawerReady(); })
-        .observe(host, { childList: true, subtree: true });
-      fixDrawerDetails();
-      addReadmeButton();
-      cardSections();
-      renameFavourite();
-      fixDrawerIcon();
-      fixMaintainerIcon();
-      fixRepoDrawer();
-      pruneShots();
+      // Each fixup is its own try: one that throws must not stop drawerReady()
+      // from running last, or the panel would wait on its timeout.
+      function safely(fn) { try { fn(); } catch (e) {} }
+      function fixups() {
+        safely(fixDrawerDetails); safely(addReadmeButton); safely(cardSections); safely(renameFavourite);
+        safely(fixDrawerIcon); safely(fixMaintainerIcon); safely(fixRepoDrawer); safely(pruneShots);
+        safely(drawerReady);
+      }
+      new MutationObserver(fixups).observe(host, { childList: true, subtree: true });
+      fixups();
       wireDrawerNav();
-      drawerReady();
     }
     // The drawer must show the same icon the card did. CA resolves the drawer's
     // icon separately from the grid's, and when its own lookup comes up empty it
@@ -6145,8 +6292,18 @@ echo json_encode(['error' => 'method not allowed']);
       document.body.__asgaDrawerNav = true;
       document.addEventListener('click', function (e) {
         if (!isOn() || !e.target.closest) return;
-        if (e.target.closest('#sidenavContent .repoPopup') ||
-            e.target.closest('#sidenavContent .popUpBack')) holdDrawer();
+        var repoBtn = e.target.closest('#sidenavContent .repoPopup');
+        var backBtn = e.target.closest('#sidenavContent .popUpBack');
+        if (!repoBtn && !backBtn) return;
+        // CA's own handler does the opening; this only records how to do it
+        // again, reading window.data at retry time since CA keeps the current
+        // repository and app there.
+        lastDrawerOpen = repoBtn ? function () {
+          holdDrawer(); try { window.showRepoPopup(window.data && window.data.repository); } catch (e) {}
+        } : function () {
+          try { openSidebar(window.data.sidebarapppath, window.data.sidebarappname); } catch (e) {}
+        };
+        holdDrawer();
       }, true);
     }
     // The maintainer profile drawer, tidied the same way the app drawer is.
@@ -6503,22 +6660,39 @@ echo json_encode(['error' => 'method not allowed']);
     // requirements, a moderator note, or a port that is already taken. text is
     // rendered as plain lines, never HTML, since it comes from a third-party
     // template.
-    function attentionModal(text, onOk) {
+    // The plugin's one confirm dialog. Its header is the drawer's own header
+    // (same classes: title left, X close right, divider below) so a dialog and
+    // a drawer read as one system. opts.title names what is being confirmed and
+    // opts.ok names the action; with no onOk it is a notice with a single OK.
+    function attentionModal(text, onOk, opts) {
+      opts = opts || {};
       var ov = document.createElement('div');
       ov.className = 'asga-modal-ov';
 
       var modal = document.createElement('div');
       modal.className = 'asga-modal';
+      modal.setAttribute('role', 'dialog');
+      modal.setAttribute('aria-modal', 'true');
+      modal.setAttribute('aria-labelledby', 'asga-modal-title');
 
-      var icon = document.createElement('div');
-      icon.className = 'asga-modal-icon';
-      icon.textContent = '!';
-      modal.appendChild(icon);
-
+      var header = document.createElement('div');
+      header.className = 'asga-drawer-header';
       var title = document.createElement('h2');
-      title.className = 'asga-modal-title';
-      title.textContent = 'Attention';
-      modal.appendChild(title);
+      title.id = 'asga-modal-title';
+      title.className = 'asga-drawer-title';
+      title.textContent = opts.title || 'Attention';
+      var xWrap = document.createElement('div');
+      xWrap.className = 'asga-drawer-actions';
+      var xBtn = document.createElement('button');
+      xBtn.type = 'button';
+      xBtn.className = 'asga-drawer-close';
+      xBtn.title = 'Close';
+      xBtn.setAttribute('aria-label', 'Close');
+      xBtn.textContent = '\u2715';
+      xWrap.appendChild(xBtn);
+      header.appendChild(title);
+      header.appendChild(xWrap);
+      modal.appendChild(header);
 
       var body = document.createElement('div');
       body.className = 'asga-modal-body';
@@ -6539,22 +6713,27 @@ echo json_encode(['error' => 'method not allowed']);
 
       var actions = document.createElement('div');
       actions.className = 'asga-modal-actions';
-      var okBtn = document.createElement('button');
-      okBtn.className = 'asga-btn asga-modal-ok';
-      okBtn.textContent = 'OK';
+      // Cancel first, the action last at the right edge, the order Unraid's
+      // own dialogs use.
       var cancelBtn = document.createElement('button');
-      cancelBtn.className = 'asga-btn asga-modal-cancel';
+      cancelBtn.type = 'button';
+      cancelBtn.className = 'asga-modal-btn asga-modal-cancel';
       cancelBtn.textContent = 'Cancel';
+      var okBtn = document.createElement('button');
+      okBtn.type = 'button';
+      okBtn.className = 'asga-modal-btn asga-modal-ok';
+      okBtn.textContent = onOk ? (opts.ok || 'OK') : 'OK';
+      if (onOk) actions.appendChild(cancelBtn);
       actions.appendChild(okBtn);
-      actions.appendChild(cancelBtn);
       modal.appendChild(actions);
 
       ov.appendChild(modal);
 
       var close = function () { ov.remove(); document.removeEventListener('keydown', key, true); };
       var key = function (ev) { if (ev.key === 'Escape') close(); };
-      okBtn.addEventListener('click', function () { close(); onOk(); });
+      okBtn.addEventListener('click', function () { close(); if (onOk) onOk(); });
       cancelBtn.addEventListener('click', close);
+      xBtn.addEventListener('click', close);
       ov.addEventListener('click', function (ev) { if (ev.target === ov) close(); });
       document.addEventListener('keydown', key, true);
 
@@ -6573,7 +6752,7 @@ echo json_encode(['error' => 'method not allowed']);
       if (typeof window.post === 'function') {
         window.post({ action: 'createXML', xml: p, type: 'default' }, function (r) {
           if (r && r.status === 'ok') openTemplate(p);
-          else attentionModal((r && r.error) || 'The template could not be prepared for install.', function () {});
+          else attentionModal((r && r.error) || 'The template could not be prepared for install.', null, { title: 'Install Failed' });
         });
         return;
       }
@@ -6620,7 +6799,7 @@ echo json_encode(['error' => 'method not allowed']);
       }
 
       if (notice) {
-        attentionModal(notice, function () { createAndOpen(p); });
+        attentionModal(notice, function () { createAndOpen(p); }, { title: 'Before You Install', ok: 'Install' });
       } else {
         createAndOpen(p);
       }
@@ -7365,25 +7544,12 @@ echo json_encode(['error' => 'method not allowed']);
     }
 
     // A trending sort filters to apps that moved in its window, so an empty grid
-    // is ambiguous: nothing moved, or the data for that window was never
-    // gathered. The year windows are the ones that can genuinely be unavailable:
-    // GitHub restricted the stargazers-listing endpoints in July 2026, so their
-    // only remaining source is the plugin's own recorded star history, and this
-    // says exactly how much of that this install has instead of leaving a blank
-    // page.
+    // is ambiguous: nothing moved, or no star history was ever gathered. The
+    // year sorts rank by the gain since recording began, so history length no
+    // longer empties them; only having none at all does.
     function emptySortNote() {
       if (view.sort !== 'ght365' && view.sort !== 'ghp365') return '';
-      var need = 365 - historyDays;
-      var when = '';
-      if (historyDays > 0 && need > 0) {
-        var target = new Date(Date.now() + need * 86400000);
-        var stamp;
-        try { stamp = target.toLocaleString(undefined, { month: 'long', year: 'numeric' }); }
-        catch (e) { stamp = target.toDateString(); }
-        when = ', filling in around ' + stamp;
-      }
-      return 'The "this year" windows are built from the plugin\'s own recorded star history, not from GitHub. ' +
-             'This install has ' + historyDays + ' of the 365 days it needs' + when + '.';
+      return historyDays > 0 ? '' : 'The plugin has not recorded any star history yet, so the year sorts have nothing to rank.';
     }
 
     // The catalog is CA's file in /tmp, rebuilt by CA's own Apps page after a
@@ -7541,15 +7707,46 @@ echo json_encode(['error' => 'method not allowed']);
     // as the window moves, just not on every frame of the drag. The fonts
     // hook covers the first paint landing before clear-sans has loaded, when
     // the canvas would have measured the fallback face.
+    // Puts the grid heading on the same centre line as CA's first menu item
+    // ("Installed Apps"), by pulling the grid up under the search band. Only
+    // ever closes a gap; a heading already level with or above the item is
+    // left alone.
+    function alignHeading() {
+      var view = document.getElementById('asga-view');
+      var title = document.querySelector('#asga-count .asga-count-title');
+      // Measured only at the top of the page, since the band and the menu are
+      // sticky and their rects stop being flow positions once scrolled. A
+      // resize while scrolled keeps the offset from the last measurement.
+      if (window.scrollY !== 0) return;
+      if (view) view.style.marginTop = '';
+      if (!view || !title) return;
+      var item = document.querySelector('.caMenuItem[data-category="installed_apps"]');
+      // offsetParent is null where CA hides the menu on a narrow layout
+      if (!item || item.offsetParent === null) return;
+      // the item may hold a nested submenu list, so measure its own first text
+      var range = document.createRange();
+      var w = document.createTreeWalker(item, NodeFilter.SHOW_TEXT, null), n;
+      while ((n = w.nextNode())) { if (n.nodeValue.trim()) { range.selectNodeContents(n); break; } }
+      var mr = range.getBoundingClientRect();
+      if (!mr.height) return;
+      var tr = title.getBoundingClientRect();
+      var delta = (mr.top + mr.height / 2) - (tr.top + tr.height / 2);
+      if (delta >= 0) return;
+      var holder = document.querySelector('.searchAreaHolder');
+      var base = parseFloat(getComputedStyle(view).marginTop) || 0;
+      var floor = holder ? holder.getBoundingClientRect().bottom + 4 : -Infinity;
+      var up = Math.min(-delta, Math.max(0, tr.top - floor));
+      view.style.marginTop = (base - up) + 'px';
+    }
     function wireTitleFit() {
       if (document.body.__asgaTitleFit) return;
       document.body.__asgaTitleFit = true;
       var t = null;
       window.addEventListener('resize', function () {
         clearTimeout(t);
-        t = setTimeout(function () { fitColumns(); fitTitles(); }, 120);
+        t = setTimeout(function () { fitColumns(); fitTitles(); alignHeading(); }, 120);
       });
-      if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { fitColumns(); fitTitles(); });
+      if (document.fonts && document.fonts.ready) document.fonts.ready.then(function () { fitColumns(); fitTitles(); alignHeading(); });
     }
 
     function render() {
@@ -7613,6 +7810,7 @@ echo json_encode(['error' => 'method not allowed']);
       fillMissingDates();
       fitColumns();
       fitTitles();
+      alignHeading();
     }
 
     // 1,164 of the 4,251 docker apps in CA's feed carry no LastUpdate at all,
@@ -8337,10 +8535,12 @@ echo json_encode(['error' => 'method not allowed']);
     // issue chooser in a new tab (openExt); cancelling closes the confirm and
     // does nothing else.
     function reportIssue() {
+      closeDrawer(aboutPanel);
       attentionModal(
         'Reporting an issue opens this plugin\'s GitHub page in a new tab.\n\n' +
         'You will need a GitHub account, and the issue form opens with the repository\'s own template already selected.',
-        function () { openExt(ISSUE_URL); }
+        function () { openExt(ISSUE_URL); },
+        { title: 'Report an Issue', ok: 'Open GitHub' }
       );
     }
 
@@ -8430,8 +8630,12 @@ echo json_encode(['error' => 'method not allowed']);
         'The Modern view toggle in the toolbar turns this off and hands the page straight back to Community Applications.'
       ]);
 
+      appendAboutSection(body, 'Acknowledgement', [
+        'Thank you to Squid, who created Community Applications in 2015. It has served the Unraid community for over a decade, and this plugin is meant as a contribution to his work, not a replacement for it.'
+      ]);
+
       appendAboutSection(body, 'Why some sorts can be empty', [
-        'GitHub restricted its stargazers listing endpoints in July 2026, so dated star data can no longer be fetched from GitHub at all. The plugin records its own daily star snapshot instead, and the "this year" windows need 365 days of that history before they can show anything.'
+        'GitHub restricted its stargazers listing endpoints in July 2026, so dated star data can no longer be fetched from GitHub at all. The plugin records its own daily star snapshot instead, so the "past year" windows count from when the plugin was installed until a full year of history exists.'
       ]);
 
       var whatsNew = document.createElement('div');
@@ -8933,12 +9137,14 @@ echo json_encode(['error' => 'method not allowed']);
         setCheckStatus('Version ' + r.version + ' is available. Update it from the Plugins page.');
         return;
       }
+      closeDrawer(aboutPanel);
       attentionModal(
         'Version ' + r.version + ' is available. This server has ' + r.installedVersion + '.\n\n' +
         'Updating installs the new version now and replaces the plugin\'s files. Unraid shows its own progress window while it runs, and the Apps page reloads when it finishes.',
         function () {
           try { window.ca_pluginUpdateInstall('modern.appstore.plg'); } catch (e) {}
-        }
+        },
+        { title: 'Update Available', ok: 'Update' }
       );
     }
 
@@ -8983,6 +9189,12 @@ echo json_encode(['error' => 'method not allowed']);
       var box = document.getElementById('searchBox');
       if (!box || box.__asgaWired) return;
       box.__asgaWired = true;
+      // CA disables the box for as long as its feed check runs (behind the
+      // Updating Content modal inject.css now hides). Our grid searches its own
+      // list, so the box stays usable while the view is on.
+      var live = function () { if (box.disabled && isOn()) box.disabled = false; };
+      live();
+      new MutationObserver(live).observe(box, { attributes: true, attributeFilter: ['disabled'] });
       var deb;
       box.addEventListener('input', function () {
         clearTimeout(deb);
@@ -9191,6 +9403,50 @@ echo json_encode(['error' => 'method not allowed']);
       }
     }
 
+    // One themed tooltip for every title inside the plugin's own UI. The native
+    // one waits over a second, renders in system chrome, and is easy to miss on
+    // a greyed-out button, which is exactly where the reason matters. The title
+    // moves to data-asga-tip on first hover so the native one never doubles up;
+    // code that later rewrites .title is picked up on the next hover.
+    function wireTips() {
+      if (document.body.__asgaTips) return;
+      document.body.__asgaTips = true;
+      var tip = document.createElement('div');
+      tip.className = 'asga-tip';
+      tip.setAttribute('role', 'tooltip');
+      document.body.appendChild(tip);
+      var cur = null, timer = 0;
+      var hide = function () { clearTimeout(timer); tip.classList.remove('asga-tip-on'); cur = null; };
+      var show = function (el) {
+        var text = el.getAttribute('data-asga-tip');
+        if (!text || !document.contains(el)) return;
+        tip.textContent = text;
+        tip.classList.add('asga-tip-on');
+        var r = el.getBoundingClientRect(), t = tip.getBoundingClientRect();
+        var left = Math.max(8, Math.min(window.innerWidth - t.width - 8, r.left + r.width / 2 - t.width / 2));
+        var top = r.top - t.height - 8;
+        if (top < 8) top = r.bottom + 8;
+        tip.style.left = left + 'px'; tip.style.top = top + 'px';
+      };
+      document.addEventListener('mouseover', function (e) {
+        if (!isOn() || !e.target.closest) return;
+        var el = e.target.closest('[title], [data-asga-tip]');
+        if (!el || !el.closest('#asga-view, .asga-bar, .asga-drawer-panel, .asga-modal')) { if (cur) hide(); return; }
+        if (el.hasAttribute('title')) {
+          if (el.title) el.setAttribute('data-asga-tip', el.title);
+          el.removeAttribute('title');
+        }
+        if (el === cur) return;
+        hide(); cur = el;
+        timer = setTimeout(function () { show(el); }, 250);
+      }, true);
+      document.addEventListener('mouseout', function (e) {
+        if (cur && (!e.relatedTarget || !cur.contains(e.relatedTarget))) hide();
+      }, true);
+      window.addEventListener('scroll', hide, true);
+      document.addEventListener('mousedown', hide, true);
+    }
+
     function attachUI() {
       addSortBar();
       wireSearch();
@@ -9202,6 +9458,7 @@ echo json_encode(['error' => 'method not allowed']);
       wireRepoClick();
       wireFlashDismiss();
       showWarningIfNeeded();
+      wireTips();
       applyViewMode();
       dismissCaLoading();
       if (isOn() && !document.getElementById('asga-view')) render();
@@ -9238,6 +9495,13 @@ echo json_encode(['error' => 'method not allowed']);
         attachUI();
         render();
         markReady();
+        // CA fills its category menu (and un-dims the menu) only after its feed
+        // check returns, seconds after our grid is up. The list comes from a file
+        // CA already has on disk, so ask for it now; CA's own call later just
+        // repaints the same list.
+        if (feedReady && typeof window.getCategories === 'function') {
+          try { window.getCategories(); } catch (e) {}
+        }
         waitForFeed();   // no-op unless CA's catalog is still being downloaded
         var main = document.querySelector('.mainArea') || document.body;
         var pending = false;
@@ -9314,6 +9578,14 @@ html.asga-pre .spinner.fixed { display: none !important; }
 html.asga-pre:not(.asga-ready) .searchAreaHolder,
 html.asga-pre:not(.asga-ready) .menuItems,
 html.asga-pre:not(.asga-ready) .caMenu { display: none !important; }
+
+/* CA opens "Updating Content / Please Wait" on every fresh Apps load while it
+   re-checks its feed. Our grid reads its own list and never waits on that
+   check, so the modal only blocks a page that is already usable. CA's check
+   still runs underneath; only the overlay and its scroll lock are dropped. */
+html.asga-pre .sweet-alert:has(.updateContent-swal),
+html.asga-pre body:has(.sweet-alert .updateContent-swal) .sweet-overlay { display: none !important; }
+html.asga-pre body.stop-scrolling:has(.sweet-alert .updateContent-swal) { overflow: auto !important; height: auto !important; }
 
 /* our toolbar row lives in CA's search row */
 #searchFilter { margin-top: 6px; }
@@ -9457,7 +9729,7 @@ html.Theme--legacyOS .asga-bar.asga-has-update .asga-update { display: inline-fl
    size came entirely from the browser's own auto-fit against its widest
    option, and past 100% zoom that auto-fit can land a hair short of the
    glyphs it is supposed to hold, clipping the tail of the longest entry
-   ("Most Stars Gained (this month)") past the border. auto keeps the
+   ("Most Stars Gained (past 30 days)") past the border. auto keeps the
    browser's own fit as the normal case; the floor and the ceiling either
    side of it are what stop that fit landing short or ballooning past a
    sensible width once auto is forced to make a decision either way. */
@@ -10386,6 +10658,19 @@ body.asga-active {
    the blurb takes whatever is left. Nothing here enforces that, which is why
    it is written down: the order of those two children is load bearing. */
 .asga-btn.asga-btn-off { opacity: 0.4; cursor: not-allowed; }
+
+/* the shared tooltip (wireTips in inject.js): drawer surface and line, above
+   drawers and dialogs, never catching the pointer itself */
+.asga-tip {
+  position: fixed; z-index: 10080; max-width: 280px; box-sizing: border-box;
+  padding: 6px 10px; border-radius: 6px;
+  background: var(--background-color, #1c1c1c); color: var(--text-color, #f2f2f2);
+  border: 1px solid rgba(127, 127, 127, 0.4); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  font-size: 1.2rem; line-height: 1.4; white-space: normal;
+  pointer-events: none; opacity: 0; visibility: hidden; transition: opacity 0.12s ease;
+}
+.asga-tip.asga-tip-on { opacity: 1; visibility: visible; }
+@media (prefers-reduced-motion: reduce) { .asga-tip { transition: none; } }
 .asga-btn.asga-btn-off:hover { border-color: rgba(127,127,127,0.4); background: rgba(127,127,127,0.08); }
 
 /* yellow no-token warning banner */
@@ -10451,7 +10736,10 @@ html:not(.Theme--legacyOS) body.asga-active .searchArea {
      box starts exactly on the grid's left edge (the content inset plus the
      menu column plus the grid's margins, 19.5rem + 12px, the same sum the
      cards start at) and the toggle ends on its right edge. */
-  padding: 12px 0 !important;
+  /* 6px under the controls, not 12: the band only has to clear the controls,
+     and the heading below it is aligned to the menu item beside it, so any
+     slack here is a gap above "All Apps" that the menu does not have */
+  padding: 12px 0 6px !important;
   margin: 0 22px 0 calc(19.5rem + 12px) !important;
   background: none;
   border: none;
@@ -10461,7 +10749,9 @@ html:not(.Theme--legacyOS) body.asga-active .searchArea {
    scrolls underneath it and would otherwise show through the row. */
 html:not(.Theme--legacyOS) body.asga-active .searchAreaHolder {
   background: var(--background-color, #1c1c1c);
-  padding-bottom: 10px;
+  /* none: the band only needs to clear the controls, and the grid heading under
+     it lines up with the menu's first item (see alignHeading in inject.js) */
+  padding-bottom: 0;
 }
 /* The row sat 6px under the menu with 14px beneath it, so it read as hanging off
    the navigation. Both edges are 26 here, which also puts the search box on
@@ -10765,10 +11055,14 @@ body.asga-active .menuItems.menuAdjust { margin-top: -46px; position: relative; 
 /* With the card starting at the grid's edge, the column beside it is empty
    again, so the menu lifts back into it: Home's centre lands on the search
    box's centre. Only above 1024, for CA's 4rem band clamp reason above; below
-   that the menu rests level with the heading. */
+   that the menu rests level with the heading.
+   The lift is measured from the content column's top, which is the band's
+   bottom, so it moves with the band's height: -51 is the old -67 less the 16px
+   the band lost (6 under the controls, 10 off the holder). Change one and the
+   other has to follow, or Home leaves the search box's line. */
 html:not(.Theme--legacyOS) body.asga-active .menuItems.menuAdjust { margin-top: 0; }
 @media (min-width: 1025px) {
-  html:not(.Theme--legacyOS) body.asga-active .menuItems.menuAdjust { margin-top: -67px; }
+  html:not(.Theme--legacyOS) body.asga-active .menuItems.menuAdjust { margin-top: -51px; }
 }
 /* The menu is pinned while the grid scrolls past it. CA leaves it in normal
    flow, so on a page of ninety-six cards it scrolls away and changing category
@@ -10957,6 +11251,28 @@ body.asga-active #sidenavContent.asga-drawer-wait::after {
    does not turn says nothing a static ring can */
 @media (prefers-reduced-motion: reduce) {
   body.asga-active #sidenavContent.asga-drawer-wait::before { animation: none; }
+}
+/* The failure panel, shown instead of a blank drawer when CA's reply never
+   arrives or arrives as a bare sentence. Centred in the panel like the wheel
+   it replaces. The button is the panel's pill (see .appIconsPopUp) written out
+   here because that rule is tied to CA's own markup; the !important set is
+   what undoes Unraid's global button rule, as on the other buttons in this
+   file. */
+body.asga-active .asga-drawer-fail {
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+  gap: 12px; padding: 40% 24px 0; text-align: center;
+}
+body.asga-active .asga-drawer-fail p { margin: 0; opacity: 0.7; font-size: 1.3rem; }
+body.asga-active .asga-drawer-fail .asga-drawer-retry {
+  min-width: 0 !important; text-transform: none !important; margin: 0 !important;
+  padding: 6px 14px !important; border: 1px solid rgba(127, 127, 127, 0.4) !important;
+  border-radius: 20px !important; background-image: none !important;
+  background-color: rgba(127, 127, 127, 0.08); color: inherit;
+  font-size: 1.15rem; line-height: 1.2; cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+body.asga-active .asga-drawer-fail .asga-drawer-retry:hover {
+  border-color: #ff8c2f !important; background-color: rgba(255, 140, 47, 0.14);
 }
 body.asga-active .popup { margin: 0; padding: 0 24px; }
 
@@ -11832,7 +12148,9 @@ body.asga-active .dropdown-context-up:after { border-top-color: var(--background
   --asga-muted: color-mix(in srgb, var(--asga-fg) 70%, transparent);
   --asga-line: rgba(127, 127, 127, 0.25);
   --asga-accent: #ff8c2f;
-  position: fixed; inset: 0; z-index: 10000;
+  /* above the drawers (10060/10061): a confirm opened from inside one has
+     to sit over its backdrop, or OK is unreachable */
+  position: fixed; inset: 0; z-index: 10070;
   background: rgba(0,0,0,0.62); backdrop-filter: blur(2px);
   /* the overlay owns the gutter and the scrolling. A template's Requires field
      can run to several paragraphs, and centring alone would then clip the top
@@ -11842,51 +12160,40 @@ body.asga-active .dropdown-context-up:after { border-top-color: var(--background
 }
 .asga-modal {
   box-sizing: border-box; margin: auto;
-  max-width: 460px; width: 100%; padding: 20px 22px 18px;
+  max-width: 460px; width: 100%; padding: 0; overflow: hidden;
   border-radius: 10px; background: var(--background-color, #1c1c1c);
-  border: 1px solid var(--asga-line, rgba(255,255,255,0.16));
+  border: 1px solid rgba(127, 127, 127, 0.4);
   box-shadow: 0 18px 60px rgba(0,0,0,0.6);
   text-align: left; color: var(--asga-fg, #f2f2f2);
 }
-/* attentionModal() in inject.js appends the icon and the title as SIBLINGS of
-   .asga-modal (icon div, then the <h2>), not icon-inside-title, so there is no
-   existing node that gathers just the two of them onto the title's own line
-   without this file inventing a wrapper it is not allowed to add. The icon
-   stays a block sitting above the title instead: shrunk from the old 64px
-   circled badge down to a small mark, and moved off centre onto the same
-   left edge the title and everything below it already sit on, which is what
-   .asga-modal's own text-align: left is doing for the rest of the dialog. */
-.asga-modal-icon {
-  width: 26px; height: 26px; border-radius: 7px; border: 1px solid var(--asga-accent);
-  color: var(--asga-accent); font-size: 1.6rem; font-weight: 600; line-height: 1;
-  display: flex; align-items: center; justify-content: center;
-  margin: 0 0 12px;
-}
-.asga-modal-title { font-size: 1.5rem; font-weight: 700; margin: 0 0 12px; }
+/* header is the drawer's (.asga-drawer-header/-title/-close), reused as is */
+.asga-modal-body { padding: 16px 20px 0; }
 .asga-modal-body p {
   font-size: 1.25rem; line-height: 1.55; margin: 0 0 8px;
   color: color-mix(in srgb, var(--asga-fg) 78%, transparent);
 }
 .asga-modal-body p:last-child { margin: 0; }
 .asga-modal-body p.asga-modal-break { margin-top: 14px; }
-/* The actions close the dialog at its own right edge, the way every other run
-   of controls in this plugin ends, rather than sitting centred under it. */
 .asga-modal-actions {
-  display: flex; gap: 8px; justify-content: flex-end; margin-top: 20px;
+  display: flex; gap: 10px; justify-content: flex-end; padding: 20px;
 }
-.asga-modal-actions .asga-btn {
-  min-width: 0; padding: 7px 16px; font-size: 1.2rem; cursor: pointer;
-  text-transform: none; letter-spacing: normal;
+/* Unraid's global <button> rule (86px min-width, uppercase, 10/12px margins)
+   wins over plain class rules, which is what made OK and Cancel two sizes and
+   pushed them off the right edge. The same properties are forced here the way
+   .asga-drawer-close forces them, so both buttons are one size. */
+.asga-modal-btn {
+  box-sizing: border-box; height: 34px; min-width: 128px !important;
+  margin: 0 !important; padding: 0 16px !important;
+  border-radius: 8px; border: 1px solid rgba(127, 127, 127, 0.3);
+  font-size: 1.3rem; font-weight: 600; line-height: 1;
+  text-transform: none !important; letter-spacing: normal; cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
-/* the confirm action wears the same active fill as the drawer's own lead
-   action, never a solid slab, for the same reason. */
-.asga-modal-ok {
-  border-color: #ff8c2f; background: rgba(255, 140, 47, 0.9);
-  color: #17140f; font-weight: 700;
-}
-.asga-modal-ok:hover { background: #ff8c2f; border-color: #ff8c2f; }
-.asga-modal-cancel { background: rgba(127,127,127,0.08); color: var(--asga-fg); }
-.asga-modal-cancel:hover { border-color: var(--asga-accent); color: var(--asga-accent); }
+.asga-modal-ok { border-color: #ff8c2f; background: #ff8c2f; color: #17140f; }
+.asga-modal-ok:hover { background: #ffa057; border-color: #ffa057; }
+.asga-modal-cancel { background: rgba(127,127,127,0.10); color: var(--asga-fg); }
+.asga-modal-cancel:hover { border-color: #ff8c2f; background: rgba(255,140,47,0.14); }
+.asga-modal-btn:focus-visible { outline: 2px solid #ff8c2f; outline-offset: 2px; }
 
 .asga-lb-img { max-width: 92vw; max-height: 88vh; object-fit: contain; border-radius: 6px; box-shadow: 0 10px 50px rgba(0,0,0,0.6); }
 .asga-lb-close {
@@ -12022,7 +12329,7 @@ _(Refresh GitHub Trending Data)_:
 
 > How often every app's GitHub star count is fetched. The scan runs at 4am and takes one API request per repository, roughly 2,000 of the 5,000 an hour a token allows, so a daily scan is comfortable.
 >
-> This also sets the finest trending window that can hold data, because every trending order is the difference between two scans. On a three-day schedule **Trending (today)** compares a star count against itself and shows nothing at all; on a weekly one the daily and monthly windows both go flat. Leave this at **Every day** unless you have a reason not to.
+> This also sets the finest trending window that can hold data, because every trending order is the difference between two scans. On a three-day schedule **Most Stars Gained (past 24 hours)** compares a star count against itself and shows nothing at all; on a weekly one the daily and monthly windows both go flat. Leave this at **Every day** unless you have a reason not to.
 >
 > Newly published apps are picked up every hour regardless of this setting.
 
@@ -12041,15 +12348,16 @@ _(Default sort order)_:
     </optgroup>
     <optgroup label="GitHub">
     <?= mk_option($defsort, "ghstars", "Most Stars") ?>
-    <?= mk_option($defsort, "ght1", "Most Stars Gained (today)") ?>
-    <?= mk_option($defsort, "ght7", "Most Stars Gained (this week)") ?>
-    <?= mk_option($defsort, "ght30", "Most Stars Gained (this month)") ?>
-    <?= mk_option($defsort, "ght365", "Most Stars Gained (this year)") ?>
-    <?= mk_option($defsort, "ghp1", "Fastest Growing (today)") ?>
-    <?= mk_option($defsort, "ghp7", "Fastest Growing (this week)") ?>
-    <?= mk_option($defsort, "ghp30", "Fastest Growing (this month)") ?>
-    <?= mk_option($defsort, "ghp365", "Fastest Growing (this year)") ?>
+    <?= mk_option($defsort, "ght1", "Most Stars Gained (past 24 hours)") ?>
+    <?= mk_option($defsort, "ght7", "Most Stars Gained (past 7 days)") ?>
+    <?= mk_option($defsort, "ght30", "Most Stars Gained (past 30 days)") ?>
+    <?= mk_option($defsort, "ght365", "Most Stars Gained (past year)") ?>
+    <?= mk_option($defsort, "ghp1", "Fastest Growing (past 24 hours)") ?>
+    <?= mk_option($defsort, "ghp7", "Fastest Growing (past 7 days)") ?>
+    <?= mk_option($defsort, "ghp30", "Fastest Growing (past 30 days)") ?>
+    <?= mk_option($defsort, "ghp365", "Fastest Growing (past year)") ?>
     <?= mk_option($defsort, "ghpall", "Fastest Growing (all time)") ?>
+    <?= mk_option($defsort, "ghrise", "Rising (past 7 days)") ?>
     </optgroup>
   </select>
 

@@ -52,6 +52,8 @@ $cacheFile = $dataDir . '/addeddate.json';
 $caTmp     = '/tmp/community.applications/tempFiles';
 $tmplFile  = "$caTmp/templates_new.json";
 // CA's skin floors every FirstSeen below this to a constant it manufactures.
+// A stock browser User-Agent, so nothing on the wire identifies the plugin or the server.
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:145.0) Gecko/20100101 Firefox/145.0';
 const FLOOR = 1433649600;
 const FEED_DIR = '/tmp/GitHub/AppFeed/';
 
@@ -165,7 +167,7 @@ function fetchFirstRelease(array $urlByPath) {
                 CURLOPT_MAXREDIRS      => 3,
                 CURLOPT_CONNECTTIMEOUT => 5,
                 CURLOPT_TIMEOUT        => 20,
-                CURLOPT_USERAGENT      => 'unraid-modern-appstore',
+                CURLOPT_USERAGENT      => UA,
             ]);
             curl_multi_add_handle($mh, $c);
             $handles[$p] = $c;
@@ -303,7 +305,7 @@ function ghMulti(array $urls, string $token): array {
                 CURLOPT_PROTOCOLS      => CURLPROTO_HTTPS,
                 CURLOPT_CONNECTTIMEOUT => 5,
                 CURLOPT_TIMEOUT        => 15,
-                CURLOPT_USERAGENT      => 'unraid-modern-appstore',
+                CURLOPT_USERAGENT      => UA,
                 CURLOPT_HTTPHEADER     => $hdr,
             ]);
             $hs[$k] = ['h' => $c, 'link' => ''];
